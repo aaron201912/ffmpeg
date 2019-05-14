@@ -33,6 +33,9 @@
 #include "libavutil/buffer.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/thread.h"
+#include "h264_parse.h"
+#include "h264_ps.h"
+#include "h2645_parse.h"
 
 //sstar sdk lib
 #include "mi_vdec.h"
@@ -50,6 +53,11 @@
 typedef struct SsH264Context {
     AVFrame *f;
     int channel;
+
+    H2645Packet pkt;
+    H264ParamSets ps;
+    int is_avc;           ///< this flag is != 0 if codec is avc1
+    int nal_length_size;  ///< Number of bytes used for nal length (1, 2 or 4)
     
 } SsH264Context;
 
