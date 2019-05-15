@@ -17,18 +17,33 @@
 //frame格式转换
 #include "libswscale/swscale.h"
 
+#define SAVE_YUV_TO_FILE 0
 
+typedef struct SsCropContext {
+    int x;
+    int y;
+    int cropwidth;
+    int cropheight;
+    
+} SsCropContext;
 
 int main(int argc, char **argv)
 {
     const char *filename, *outfilename;
-
+    SsCropContext priData = {0};
+    
     if (argc <= 2) {
         fprintf(stderr, "Usage: %s <input file> <output file>\n", argv[0]);
         exit(0);
     }
     filename    = argv[1];
     outfilename = argv[2];
+    //enable scale
+    if(argc > 4) 
+    {
+        priData.cropwidth = atoi(argv[3]);
+        priData.cropheight = atoi(argv[4]);
+    }
 
     //1.注册所有组件
     av_register_all();
@@ -76,6 +91,8 @@ int main(int argc, char **argv)
     //获取视频流中的编解码上下文
     AVCodecContext *pCodecCtx = pFormatCtx->streams[v_stream_idx]->codec;
 
+    pCodecCtx->priv_data_ss = &priData;
+    
     //4.根据编解码上下文中的编码id查找对应的解码
     AVCodec *pCodec = avcodec_find_decoder(pCodecCtx->codec_id);
     if(pCodec == NULL)
@@ -104,23 +121,24 @@ int main(int argc, char **argv)
     //AVFrame用于存储解码后的像素数据(YUV)
     //只分配了结构体空间，并没有分配实际的数据缓冲区间
     AVFrame *pFrame = av_frame_alloc();
-
+    
+#if SAVE_YUV_TO_FILE
     AVFrame *pFrameYUV = av_frame_alloc();
 
     //只有指定了AVFrame的像素格式，画面大小才能真正分配内存
     //开始真正分配缓冲区间内存
-    uint8_t *out_buffer = (uint8_t *)av_malloc(avpicture_get_size(AV_PIX_FMT_YUV420P, pCodecCtx->width, pCodecCtx->height));
+    uint8_t *out_buffer = (uint8_t *)av_malloc(avpicture_get_size(AV_PIX_FMT_YUV420P, pCodecCtx->width,pCodecCtx->height));
 
     //初始化缓冲区
-    avpicture_fill((AVPicture *)pFrameYUV, out_buffer, AV_PIX_FMT_YUV420P, pCodecCtx->width, pCodecCtx->height);
+    avpicture_fill((AVPicture *)pFrameYUV, out_buffer, AV_PIX_FMT_YUV420P,pCodecCtx->width,pCodecCtx->height);
 
     //用于转码(缩放)的参数，转之前的宽高，转之后的宽高，格式等
-    struct SwsContext *sws_ctx = sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt, pCodecCtx->width, pCodecCtx->height, AV_PIX_FMT_YUV420P, SWS_BICUBIC, NULL, NULL, NULL);
+    printf("sws input pix: %d\n",pCodecCtx->pix_fmt);
+    struct SwsContext *sws_ctx = sws_getContext(pCodecCtx->width, pCodecCtx->height, pCodecCtx->pix_fmt, pCodecCtx->width,pCodecCtx->height, AV_PIX_FMT_YUV420P, SWS_BICUBIC, NULL, NULL, NULL);
+    FILE *fp_yuv = fopen(outfilename, "wb+");
+#endif
 
     int got_picture, ret;
-
-    FILE *fp_yuv = fopen(outfilename, "wb+");
-
     int frame_count = 0;
 
     //6.一帧一帧的读取压缩数据
@@ -150,18 +168,20 @@ int main(int argc, char **argv)
 
             //printf("saving frame %3d\n", pCodecCtx->frame_number);
             fflush(stdout);
-        
-            //if(got_picture)
+            
+#if SAVE_YUV_TO_FILE
             {
                 //AVFrame转为像素格式YUV420
                 //参数2,6为输入，输出数据
                 //参数3,7为输入，输出画面一行的数据大小
                 //参数4为输入数据第一列要转码的位置从0开始
                 //参数5为输入画面的高度
+                //for(int i = 0;i < 3; i++)
+                   // printf("sws inputlinesize[%d]: %d,outputlinesize[%d]: %d\n",i,pFrame->linesize[i],i,pFrameYUV->linesize[i]);
                 sws_scale(sws_ctx, pFrame, pFrame->linesize, 0, pCodecCtx->height, pFrameYUV, pFrameYUV->linesize);
 
                 //保存到YUV文件
-                int y_size = pCodecCtx->width * pCodecCtx->height;
+                int y_size = priData.cropwidth * priData.cropheight;
 
                 fwrite(pFrameYUV->data[0],1,y_size,fp_yuv);
                 fwrite(pFrameYUV->data[1],1,y_size/4,fp_yuv);
@@ -169,12 +189,15 @@ int main(int argc, char **argv)
                 frame_count++;
                 //printf("Decoded %d frames\n",frame_count);
             }
+#endif
         }
         
         av_free_packet(packet);
     }
-
+    
+#if SAVE_YUV_TO_FILE
     fclose(fp_yuv);
+#endif
     av_frame_free(&pFrame);
     avcodec_close(pCodecCtx);
     avformat_free_context(pFormatCtx);

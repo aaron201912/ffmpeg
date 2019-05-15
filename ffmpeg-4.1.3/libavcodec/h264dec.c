@@ -648,6 +648,8 @@ static int decode_nal_units(H264Context *h, const uint8_t *buf, int buf_size)
         h->nal_unit_type = nal->type;
 
         err = 0;
+        printf("naltype: %d,nalsize: %d\n",nal->type,nal->size);
+        printf("naldata: %x,%x,%x,%x,%x,%x,%x,%x\n",nal->data[0],nal->data[1],nal->data[2],nal->data[3],nal->data[4],nal->data[5],nal->data[6],nal->data[7]);
         switch (nal->type) {
         case H264_NAL_IDR_SLICE:
             if ((nal->data[1] & 0xFC) == 0x98) {
@@ -952,6 +954,23 @@ static int send_next_delayed_frame(H264Context *h, AVFrame *dst_frame,
 
     return buf_index;
 }
+static int DumpAVFrame(AVFrame *pict)
+{
+   int i;
+   for(i = 0;i < AV_NUM_DATA_POINTERS;i++)
+   {
+       printf("data[%d]: %p,linesize[%d]: %d,buf[%d]: %p\n",i,pict->data[i],i,pict->linesize[i],i,pict->buf[i]);
+   }
+   printf("width: %d,height: %d,format: %d,keyframe: %d\n",pict->width,pict->height,pict->format,pict->key_frame);
+   printf("pict_type: %d,sample_aspect_ratio: %d:%d\n",pict->pict_type,pict->sample_aspect_ratio.den,pict->sample_aspect_ratio.num);
+   printf("pts: %lld,pkt_dts: %lld\n",pict->pts,pict->pkt_dts);
+   printf("coded_picture_number: %d,display_picture_number: %d,quality: %d\n",pict->coded_picture_number,pict->display_picture_number,pict->quality);
+   printf("repeat_pict: %d,interlaced_frame: %d,top_field_first: %d,palette_has_changed: %d\n",pict->repeat_pict,pict->interlaced_frame,pict->top_field_first,pict->palette_has_changed);
+   printf("reordered_opaque: %lld,nb_extended_buf: %d,nb_side_data: %d\n",pict->reordered_opaque,pict->nb_extended_buf,pict->nb_side_data);
+   printf("metadata: %p,decode_error_flags: %d,pkt_size: %d\n",pict->metadata,pict->decode_error_flags,pict->pkt_size);
+
+   return 0;
+}
 
 static int h264_decode_frame(AVCodecContext *avctx, void *data,
                              int *got_frame, AVPacket *avpkt)
@@ -972,7 +991,10 @@ static int h264_decode_frame(AVCodecContext *avctx, void *data,
     /* end of stream, output what is still in the buffers */
     if (buf_size == 0)
         return send_next_delayed_frame(h, pict, got_frame, 0);
-
+    printf("sw h264_decode_frame start\n");
+    printf("size: %d,data: %x,%x,%x,%x,%x,%x,%x,%x\n",avpkt->size,avpkt->data[0],avpkt->data[1],\
+            avpkt->data[2],avpkt->data[3],avpkt->data[4],avpkt->data[5],avpkt->data[6],avpkt->data[7]);
+    DumpAVFrame(pict);
     if (h->is_avc && av_packet_get_side_data(avpkt, AV_PKT_DATA_NEW_EXTRADATA, NULL)) {
         int side_size;
         uint8_t *side = av_packet_get_side_data(avpkt, AV_PKT_DATA_NEW_EXTRADATA, &side_size);
@@ -1013,6 +1035,8 @@ static int h264_decode_frame(AVCodecContext *avctx, void *data,
         /* Wait for second field. */
         if (h->next_output_pic) {
             ret = finalize_frame(h, pict, h->next_output_pic, got_frame);
+            printf("sw h264_decode_frame end\n");
+            DumpAVFrame(pict);
             if (ret < 0)
                 return ret;
         }

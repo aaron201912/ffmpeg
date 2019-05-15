@@ -136,13 +136,6 @@ MI_S32 MI_SYS_ConfGloPubPools(MI_VB_PoolListConf_t  stPoolListConf);
 MI_S32 MI_SYS_ReleaseGloPubPools(void);
 
 MI_S32 MI_SYS_Set_Vdec_UseVbPool_Flag(MI_U32 u32Value);
-MI_S32 MI_SYS_MemsetPa(MI_PHY phyPa, MI_U32 u32Val, MI_U32 u32Lenth);
-
-MI_S32 MI_SYS_MemcpyPa(MI_PHY phyDst, MI_PHY phySrc, MI_U32 u32Lenth);
-
-MI_S32 MI_SYS_BufFillPa(MI_SYS_FrameData_t *pstBuf, MI_U32 u32Val, MI_SYS_WindowRect_t *pstRect);
-
-MI_S32 MI_SYS_BufBlitPa(MI_SYS_FrameData_t *pstDstBuf, MI_SYS_WindowRect_t *pstDstRect, MI_SYS_FrameData_t *pstSrcBuf, MI_SYS_WindowRect_t *pstSrcRect);
 /*
 N.B.
 below MMAHeapName can only be NULL or real mma heap name, do not set it with random character string.

@@ -46,13 +46,18 @@
 #include "mi_sys_datatype.h"
 #include "mi_divp.h"
 #include "mi_divp_datatype.h"
-
+#include "mi_hdmi.h"
+#include "mi_hdmi_datatype.h"
+#include "mi_disp.h"
+#include "mi_disp_datatype.h"
 /**
  * H264Context
  */
 typedef struct SsH264Context {
     AVFrame *f;
     int channel;
+    int cropwidth;
+    int cropheight;
 
     H2645Packet pkt;
     H264ParamSets ps;
@@ -60,6 +65,14 @@ typedef struct SsH264Context {
     int nal_length_size;  ///< Number of bytes used for nal length (1, 2 or 4)
     
 } SsH264Context;
+typedef struct SsCropContext {
+    int x;
+    int y;
+    int cropwidth;
+    int cropheight;
+    
+} SsCropContext;
+
 
 typedef struct ST_Sys_BindInfo_s
 {

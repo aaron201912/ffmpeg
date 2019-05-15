@@ -1558,7 +1558,7 @@ typedef struct AVCodecContext {
     unsigned int codec_tag;
 
     void *priv_data;
-
+    void *priv_data_ss;
     /**
      * Private context used for internal data.
      *
