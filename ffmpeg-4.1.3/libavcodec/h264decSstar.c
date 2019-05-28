@@ -262,6 +262,14 @@ static av_cold int ss_h264_decode_end(AVCodecContext *avctx)
 
     if(!bExit)
     {
+        ST_Hdmi_DeInit(0);
+        MI_DISP_DisableInputPort(0 ,0);
+        
+        MI_DISP_DisableVideoLayer(0);
+        MI_DISP_UnBindVideoLayer(0, 0);
+
+         MI_DISP_Disable(0);
+         
         memset(&stBindInfo, 0, sizeof(ST_Sys_BindInfo_t));
 
         stBindInfo.stSrcChnPort.eModId = E_MI_MODULE_ID_VDEC;
@@ -269,7 +277,7 @@ static av_cold int ss_h264_decode_end(AVCodecContext *avctx)
         stBindInfo.stSrcChnPort.u32ChnId = s->channel;
         stBindInfo.stSrcChnPort.u32PortId = 0;
 
-        stBindInfo.stDstChnPort.eModId = E_MI_MODULE_ID_DIVP;
+        stBindInfo.stDstChnPort.eModId = E_MI_MODULE_ID_DISP;
         stBindInfo.stDstChnPort.u32DevId = 0;
         stBindInfo.stDstChnPort.u32ChnId = s->channel;
         stBindInfo.stDstChnPort.u32PortId = 0;
@@ -279,8 +287,8 @@ static av_cold int ss_h264_decode_end(AVCodecContext *avctx)
         STCHECKRESULT(MI_VDEC_StopChn(s->channel));
         STCHECKRESULT(MI_VDEC_DestroyChn(s->channel));
 
-        STCHECKRESULT(MI_DIVP_StopChn(s->channel));
-        STCHECKRESULT(MI_DIVP_DestroyChn(s->channel));
+        //STCHECKRESULT(MI_DIVP_StopChn(s->channel));
+        //STCHECKRESULT(MI_DIVP_DestroyChn(s->channel));
         
         STCHECKRESULT(MI_SYS_Exit());
         bExit = 1;
@@ -291,8 +299,9 @@ static av_cold int ss_h264_decode_end(AVCodecContext *avctx)
 static MI_S32 CreateDispDev(SsCropContext *pCropC)
 {
     MI_DISP_PubAttr_t stPubAttr;
-    MI_DISP_VideoLayerAttr_t stLayerAttr;
+    //MI_DISP_VideoLayerAttr_t stLayerAttr;
     MI_DISP_InputPortAttr_t stInputPortAttr;
+    MI_DISP_RotateConfig_t stRotateConfig;
 
     //init disp
     memset(&stPubAttr, 0, sizeof(stPubAttr));
@@ -301,7 +310,7 @@ static MI_S32 CreateDispDev(SsCropContext *pCropC)
     stPubAttr.eIntfType = E_MI_DISP_INTF_HDMI;
     STCHECKRESULT(MI_DISP_SetPubAttr(0, &stPubAttr));
     STCHECKRESULT(MI_DISP_Enable(0));
-    
+#if 0    //i2m unneeded
     memset(&stLayerAttr, 0, sizeof(stLayerAttr));
 
     stLayerAttr.stVidLayerSize.u16Width  = pCropC->cropwidth;
@@ -313,10 +322,10 @@ static MI_S32 CreateDispDev(SsCropContext *pCropC)
     stLayerAttr.stVidLayerDispWin.u16Y      = pCropC->y;
     stLayerAttr.stVidLayerDispWin.u16Width  = pCropC->cropwidth;
     stLayerAttr.stVidLayerDispWin.u16Height = pCropC->cropheight;
-    
+#endif
     STCHECKRESULT(MI_DISP_BindVideoLayer(0, 0));
-    STCHECKRESULT(MI_DISP_SetVideoLayerAttr(0, &stLayerAttr));
-    STCHECKRESULT(MI_DISP_GetVideoLayerAttr(0, &stLayerAttr));
+    //STCHECKRESULT(MI_DISP_SetVideoLayerAttr(0, &stLayerAttr));
+    //STCHECKRESULT(MI_DISP_GetVideoLayerAttr(0, &stLayerAttr));
     
     STCHECKRESULT(MI_DISP_EnableVideoLayer(0));
     
@@ -326,13 +335,16 @@ static MI_S32 CreateDispDev(SsCropContext *pCropC)
     stInputPortAttr.stDispWin.u16X      = 0;
     stInputPortAttr.stDispWin.u16Y      = 0;
 
-    stInputPortAttr.stDispWin.u16Width  = pCropC->cropwidth;
-    stInputPortAttr.stDispWin.u16Height = pCropC->cropheight;
+    stInputPortAttr.stDispWin.u16Width  = 640;//pCropC->cropwidth;
+    stInputPortAttr.stDispWin.u16Height = 480;//pCropC->cropheight;
 
+    stInputPortAttr.u16SrcWidth = 640;//pCropC->cropwidth;
 
-    
+    stInputPortAttr.u16SrcHeight = 480;//pCropC->cropheight;
     STCHECKRESULT(MI_DISP_SetInputPortAttr(0, 0, &stInputPortAttr));
-    STCHECKRESULT(MI_DISP_GetInputPortAttr(0, 0, &stInputPortAttr));
+    //STCHECKRESULT(MI_DISP_GetInputPortAttr(0, 0, &stInputPortAttr));
+    stRotateConfig.eRotateMode = E_MI_DISP_ROTATE_NONE;
+    STCHECKRESULT(MI_DISP_SetVideoLayerRotateMode(0, &stRotateConfig));
     STCHECKRESULT(MI_DISP_EnableInputPort(0, 0));
     STCHECKRESULT(MI_DISP_SetInputPortSyncMode(0, 0, E_MI_DISP_SYNC_MODE_FREE_RUN));
     
@@ -349,31 +361,34 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
     MI_VDEC_ChnAttr_t stVdecChnAttr;
     MI_S32 s32Ret;
     MI_SYS_ChnPort_t stChnPort;
+    MI_SYS_ChnPort_t stSrcChnPort;
+    MI_SYS_ChnPort_t stDstChnPort;
 
     SsH264Context *s = avctx->priv_data;
     SsCropContext *sCrop = avctx->priv_data_ss;
-    printf("ss_h264_decode_init pix_fmt: %d,cropwidth: %d,cropheight: %d\n",avctx->pix_fmt,sCrop->cropwidth,sCrop->cropheight);
+    //printf("ss_h264_decode_init pix_fmt: %d,cropwidth: %d,cropheight: %d\n",avctx->pix_fmt,sCrop->cropwidth,sCrop->cropheight);
     s->channel = 0;
     bExit = 0;
     s->f = av_frame_alloc();
     if (!s->f) 
         return 0;
-    s->f->format = avctx->pix_fmt;
-    if(sCrop->cropwidth)
+    s->f->format = AV_PIX_FMT_YUV420P;
+    if(0)//(sCrop->cropwidth)
     {
         s->f->width = sCrop->cropwidth;
         s->f->height = sCrop->cropheight;
     }
     else
     {
-        s->f->width = avctx->width;
-        s->f->height = avctx->height;
+        s->f->width = 640;
+        s->f->height = 480;
     }
     s32Ret = av_frame_get_buffer(s->f, 32);
     if (s32Ret < 0) 
     {
         av_frame_free(&s->f);
     }
+    #if 0
     //check h264 or avc1
     if (avctx->extradata_size > 0 && avctx->extradata) 
     {
@@ -385,21 +400,26 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
             return s32Ret;
         }
     }
+    #endif
     ST_Sys_Init();
 
     //init vdec
     memset(&stVdecChnAttr, 0, sizeof(MI_VDEC_ChnAttr_t));
-    stVdecChnAttr.stVdecVideoAttr.u32RefFrameNum = 4;
-    stVdecChnAttr.eVideoMode    = E_MI_VDEC_VIDEO_MODE_FRAME;
-    stVdecChnAttr.u32BufSize    = 1 * 1024 * 1024;
-    stVdecChnAttr.u32PicWidth   = avctx->width;
-    stVdecChnAttr.u32PicHeight  = avctx->height;
-    stVdecChnAttr.u32Priority   = 0;
-    stVdecChnAttr.eCodecType    = E_MI_VDEC_CODEC_TYPE_H264;
+    stVdecChnAttr.eCodecType =E_MI_VDEC_CODEC_TYPE_H264;
+    stVdecChnAttr.stVdecVideoAttr.u32RefFrameNum = 5;
+    stVdecChnAttr.eVideoMode = E_MI_VDEC_VIDEO_MODE_FRAME;
+    stVdecChnAttr.u32BufSize = 1 * 1024 * 1024;
+    stVdecChnAttr.u32PicWidth = 1920;//avctx->width;
+    stVdecChnAttr.u32PicHeight = 1080;//avctx->height;
+    stVdecChnAttr.eInplaceMode = E_MI_VDEC_INPLACE_MODE_OFF;
+    stVdecChnAttr.u32Priority = 0;
+    MI_VDEC_CreateChn(0, &stVdecChnAttr);
+    MI_VDEC_StartChn(0);
 
-    STCHECKRESULT(MI_VDEC_CreateChn(s->channel, &stVdecChnAttr));
-
-    STCHECKRESULT(MI_VDEC_StartChn(s->channel));
+    MI_VDEC_OutputPortAttr_t stOutputPortAttr;
+    stOutputPortAttr.u16Width = s->f->width;
+    stOutputPortAttr.u16Height = s->f->height;
+    MI_VDEC_SetOutputPortAttr(0, &stOutputPortAttr);
 
     memset(&stChnPort, 0x0, sizeof(MI_SYS_ChnPort_t));
     stChnPort.eModId = E_MI_MODULE_ID_VDEC;
@@ -407,85 +427,23 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
     stChnPort.u32ChnId = 0;
     stChnPort.u32PortId = 0;
 
-    STCHECKRESULT(MI_SYS_SetChnOutputPortDepth(&stChnPort, 0, 5));
-
-    //init divp
-    MI_DIVP_ChnAttr_t stDivpChnAttr;
-    MI_DIVP_OutputPortAttr_t stOutputPortAttr;
-    
-    memset(&stDivpChnAttr, 0, sizeof(MI_DIVP_ChnAttr_t));
-    stDivpChnAttr.bHorMirror            = FALSE;
-    stDivpChnAttr.bVerMirror            = FALSE;
-    stDivpChnAttr.eDiType               = E_MI_DIVP_DI_TYPE_OFF;
-    stDivpChnAttr.eRotateType           = E_MI_SYS_ROTATE_NONE;
-    stDivpChnAttr.eTnrLevel             = E_MI_DIVP_TNR_LEVEL_OFF;
-    stDivpChnAttr.stCropRect.u16X       = 0;
-    stDivpChnAttr.stCropRect.u16Y       = 0;
-    stDivpChnAttr.stCropRect.u16Width   = avctx->width;
-    stDivpChnAttr.stCropRect.u16Height  = avctx->height;
-    stDivpChnAttr.u32MaxWidth           = avctx->width;
-    stDivpChnAttr.u32MaxHeight          = avctx->height;
-
-    STCHECKRESULT(MI_DIVP_CreateChn(0, &stDivpChnAttr));
-    STCHECKRESULT(MI_DIVP_StartChn(0));
-
-    memset(&stOutputPortAttr, 0, sizeof(stOutputPortAttr));
-    stOutputPortAttr.eCompMode          = E_MI_SYS_COMPRESS_MODE_NONE;
-    stOutputPortAttr.ePixelFormat       = E_MI_SYS_PIXEL_FRAME_YUV422_YUYV;//E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
-    stOutputPortAttr.u32Width           = ALIGN_BACK(s->f->width, DISP_WIDTH_ALIGN);//ALIGN_BACK(avctx->width, DISP_WIDTH_ALIGN);
-    stOutputPortAttr.u32Height          = ALIGN_BACK(s->f->height, DISP_HEIGHT_ALIGN);//ALIGN_BACK(avctx->height, DISP_HEIGHT_ALIGN);
-
-    STCHECKRESULT(MI_DIVP_SetOutputPortAttr(0, &stOutputPortAttr));
-
-    stChnPort.eModId = E_MI_MODULE_ID_DIVP;
-    stChnPort.u32DevId = 0;
-    stChnPort.u32ChnId = 0;
-    stChnPort.u32PortId = 0;
-    MI_SYS_SetChnOutputPortDepth(&stChnPort, 2, 7);
-
-   
-    if (MI_SUCCESS != MI_SYS_GetFd(&stChnPort, (MI_S32 *)&pfd[0].fd)) 
-    {
-        printf("%s MI_SYS_GetFd fail\n", __FUNCTION__);
-    }
+    STCHECKRESULT(MI_SYS_SetChnOutputPortDepth(&stChnPort, 0, 6));
 
     //init disp
     CreateDispDev(sCrop);
+    usleep(30*1000);
 
-    //bind vdec - divp
+    //bind vdec to disp
+    stSrcChnPort.eModId = E_MI_MODULE_ID_VDEC;
+    stSrcChnPort.u32DevId = 0;
+    stSrcChnPort.u32ChnId = 0;
+    stSrcChnPort.u32PortId = 0;
 
-    ST_Sys_BindInfo_t stBindInfo;
-    memset(&stBindInfo, 0, sizeof(ST_Sys_BindInfo_t));
-
-    stBindInfo.stSrcChnPort.eModId = E_MI_MODULE_ID_VDEC;
-    stBindInfo.stSrcChnPort.u32DevId = 0;
-    stBindInfo.stSrcChnPort.u32ChnId = 0;
-    stBindInfo.stSrcChnPort.u32PortId = 0;
-
-    stBindInfo.stDstChnPort.eModId = E_MI_MODULE_ID_DIVP;
-    stBindInfo.stDstChnPort.u32DevId = 0;
-    stBindInfo.stDstChnPort.u32ChnId = 0;
-    stBindInfo.stDstChnPort.u32PortId = 0;
-
-    stBindInfo.u32SrcFrmrate = 0;
-    stBindInfo.u32DstFrmrate = 0;
-
-    STCHECKRESULT(ST_Sys_Bind(&stBindInfo));
-
-    memset(&stBindInfo, 0x0, sizeof(ST_Sys_BindInfo_t));
-    stBindInfo.stSrcChnPort.eModId = E_MI_MODULE_ID_DIVP;
-    stBindInfo.stSrcChnPort.u32DevId = 0;
-
-    stBindInfo.stSrcChnPort.u32ChnId = 0;
-    stBindInfo.stSrcChnPort.u32PortId = 0; 
-    stBindInfo.stDstChnPort.eModId = E_MI_MODULE_ID_DISP;
-    stBindInfo.stDstChnPort.u32DevId = 0;
-    stBindInfo.stDstChnPort.u32ChnId = 0;
-    stBindInfo.stDstChnPort.u32PortId = 0;
-
-    stBindInfo.u32SrcFrmrate = 30;
-    stBindInfo.u32DstFrmrate = 30;
-    STCHECKRESULT(ST_Sys_Bind(&stBindInfo));
+    stDstChnPort.eModId = E_MI_MODULE_ID_DISP;
+    stDstChnPort.u32DevId = 0;
+    stDstChnPort.u32ChnId = 0;
+    stDstChnPort.u32PortId = 0;
+    MI_SYS_BindChnPort(&stSrcChnPort, &stDstChnPort, 30, 30);
 
     return 0;
 }
@@ -549,9 +507,30 @@ static int ss_h264_decode_frame(AVCodecContext *avctx, void *data,
     if(!avpkt->size)
     {
         printf("packet size is 0!!\n");
-        return 0;
+        return AVERROR_EOF;
+    }
+#if 1
+    stVdecStream.pu8Addr = avpkt->data;
+    stVdecStream.u32Len = avpkt->size;
+    stVdecStream.u64PTS = avpkt->pts;
+    stVdecStream.bEndOfFrame = 1;
+    stVdecStream.bEndOfStream = 0;
+
+    usleep(40*1000);
+    printf("size: %d,data: %x,%x,%x,%x,%x,%x,%x,%x\n",avpkt->size,stVdecStream.pu8Addr[0],stVdecStream.pu8Addr[1],\
+            stVdecStream.pu8Addr[2],stVdecStream.pu8Addr[3],stVdecStream.pu8Addr[4],stVdecStream.pu8Addr[5],stVdecStream.pu8Addr[6],stVdecStream.pu8Addr[7]);
+    s32Ret = MI_VDEC_SendStream(0, &stVdecStream, 20);
+    if(MI_SUCCESS != s32Ret)
+    {
+        printf("MI_VDEC_SendStream fail\n");
+        
+        //return AVERROR_INVALIDDATA;
     }
 
+#else
+    //printf("avc: %d,nal_length_size: %d\n",s->is_avc,s->nal_length_size);
+    //printf("ss_h264_decode_frame: %x,%x,%x,%x,%x\n",avpkt->data[0],avpkt->data[1],avpkt->data[2],avpkt->data[3],avpkt->data[4]);
+    #if 0
     if (s->is_avc && av_packet_get_side_data(avpkt, AV_PKT_DATA_NEW_EXTRADATA, NULL)) 
     {
         int side_size;
@@ -585,10 +564,28 @@ static int ss_h264_decode_frame(AVCodecContext *avctx, void *data,
     }
 
     printf("nalnum: %d\n",s->pkt.nb_nals);
-    
+    usleep(40*1000);
     for(int i = 0; i < s->pkt.nb_nals; i++)
     {
         H2645NAL *nal = &s->pkt.nals[i];
+
+        stVdecStream.pu8Addr = nal->data;
+        stVdecStream.u32Len = nal->size;
+        stVdecStream.u64PTS = avpkt->pts;
+        stVdecStream.bEndOfFrame = 1;
+        stVdecStream.bEndOfStream = 0;
+        
+        printf("size: %d,data: %x,%x,%x,%x,%x,%x,%x,%x\n",nal->size,stVdecStream.pu8Addr[0],stVdecStream.pu8Addr[1],\
+                stVdecStream.pu8Addr[2],stVdecStream.pu8Addr[3],stVdecStream.pu8Addr[4],stVdecStream.pu8Addr[5],stVdecStream.pu8Addr[6],stVdecStream.pu8Addr[7]);
+        s32Ret = MI_VDEC_SendStream(0, &stVdecStream, 20);
+        if(MI_SUCCESS != s32Ret)
+        {
+            printf("MI_VDEC_SendStream fail\n");
+            return AVERROR_INVALIDDATA;
+        }
+    #endif
+
+    #if 0                
         //printf("naldata: %x,%x,%x,%x,%x,%x,%x,%x\n",nal->data[0],nal->data[1],nal->data[2],nal->data[3],nal->data[4],nal->data[5],nal->data[6],nal->data[7]);
         switch (nal->type) 
         {
@@ -596,23 +593,7 @@ static int ss_h264_decode_frame(AVCodecContext *avctx, void *data,
         case H264_NAL_SLICE:
         case H264_NAL_SPS:
         case H264_NAL_PPS:
-            {
-                stVdecStream.pu8Addr = nal->data;
-                stVdecStream.u32Len = nal->size;
-                stVdecStream.u64PTS = avpkt->pts;
-                stVdecStream.bEndOfFrame = 1;
-                stVdecStream.bEndOfStream = 0;
-                usleep(40*1000);
-                printf("size: %d,data: %x,%x,%x,%x,%x,%x,%x,%x\n",nal->size,stVdecStream.pu8Addr[0],stVdecStream.pu8Addr[1],\
-                        stVdecStream.pu8Addr[2],stVdecStream.pu8Addr[3],stVdecStream.pu8Addr[4],stVdecStream.pu8Addr[5],stVdecStream.pu8Addr[6],stVdecStream.pu8Addr[7]);
-                s32Ret = MI_VDEC_SendStream_FF(0, &stVdecStream, 20);
-                if(MI_SUCCESS != s32Ret)
-                {
-                    printf("MI_VDEC_SendStream fail\n");
-                    return AVERROR_INVALIDDATA;
-                }
-            }
-        
+
         case H264_NAL_DPA:
         case H264_NAL_DPB:
         case H264_NAL_DPC:
@@ -624,84 +605,35 @@ static int ss_h264_decode_frame(AVCodecContext *avctx, void *data,
         case H264_NAL_FILLER_DATA:
         case H264_NAL_SPS_EXT:
         case H264_NAL_AUXILIARY_SLICE:
-            break;
+           
+            {
+                stVdecStream.pu8Addr = nal->data;
+                stVdecStream.u32Len = nal->size;
+                stVdecStream.u64PTS = avpkt->pts;
+                stVdecStream.bEndOfFrame = 1;
+                stVdecStream.bEndOfStream = 0;
+                usleep(40*1000);
+                printf("size: %d,data: %x,%x,%x,%x,%x,%x,%x,%x\n",nal->size,stVdecStream.pu8Addr[0],stVdecStream.pu8Addr[1],\
+                        stVdecStream.pu8Addr[2],stVdecStream.pu8Addr[3],stVdecStream.pu8Addr[4],stVdecStream.pu8Addr[5],stVdecStream.pu8Addr[6],stVdecStream.pu8Addr[7]);
+                s32Ret = MI_VDEC_SendStream(0, &stVdecStream, 20);
+                if(MI_SUCCESS != s32Ret)
+                {
+                    printf("MI_VDEC_SendStream fail\n");
+                    
+                    //return AVERROR_INVALIDDATA;
+                }
+                break;
+            }
+        
+
         default:
             printf("Unknown NAL code: %d (%d bits)\n",nal->type, nal->size_bits);
         }
-
-
-
-    }
-#if 0
-TryAgain:
-    rval = poll(&pfd, 1, 200);
-    if(rval < 0)
-    {
-        printf("poll error!\n");
-        return AVERROR_BUG;
-    }
-    if(rval == 0)
-    {
-        printf("get fd time out!\n");
-        goto TryAgain;
-    }
-
     
-    MI_SYS_BUF_HANDLE hHandle;
-    MI_SYS_BufInfo_t stBufInfo;
-    MI_SYS_ChnPort_t stChnPort;
-    
-    stChnPort.eModId = E_MI_MODULE_ID_DIVP;
-    stChnPort.u32DevId = 0;
-    stChnPort.u32ChnId = 0;
-    stChnPort.u32PortId = 0;
 
-    s32Ret = MI_SYS_ChnOutputPortGetBuf(&stChnPort, &stBufInfo, &hHandle);
-    if (s32Ret) 
-    {
-        printf("%s MI_SYS_ChnOutputPortGetBuf %d!\n", __FUNCTION__, s32Ret);
-        return AVERROR_BUG;
+
     }
-    else
-    {
-
-        //DumpAVFrame(pFrame);
-        s32Ret = av_frame_ref(pFrame, s->f);
-        if (s32Ret < 0)
-            return s32Ret;
-        
-        //DumpAVFrame(pFrame);
-       // printf("bufinfo width: %d,height: %d\n",stBufInfo.stFrameData.u16Width,stBufInfo.stFrameData.u16Height);
-        bufsize = stBufInfo.stFrameData.u16Height * stBufInfo.stFrameData.u16Width;
-
-        pFrame->pts = stBufInfo.u64Pts;
-        #if 0
-        //dump to file start
-        char outfilename[64] = {0};
-        sprintf(outfilename,"save_%d.yuv",stBufInfo.u64Pts);
-        FILE *fp_yuv = fopen(outfilename, "wb+");
-
-        fwrite(stBufInfo.stFrameData.pVirAddr[0],1,bufsize*2,fp_yuv);
-        fclose(fp_yuv);
-        #endif
-        //dump to file end
-#if SAVE_YUV_TO_FILE              
-        memcpy(pFrame->data[0],stBufInfo.stFrameData.pVirAddr[0],bufsize);
-        memcpy(pFrame->data[1],stBufInfo.stFrameData.pVirAddr[0]+bufsize,bufsize/4);
-        memcpy(pFrame->data[2],stBufInfo.stFrameData.pVirAddr[0]+bufsize*5/4,bufsize/4);
-#endif
-        //frame->repeat_pict =;
-        //frame->top_field_first =;
-        //frame->interlaced_frame =;
-        //frame->pict_type = ff_qsv_map_pictype(out_frame->dec_info.FrameType);
-        //Key frame is IDR frame is only suitable for H264. For HEVC, IRAPs are key frames.
-        //if (avctx->codec_id == AV_CODEC_ID_H264)
-        //frame->key_frame = !!(out_frame->dec_info.FrameType & MFX_FRAMETYPE_IDR);
-        
-        MI_SYS_ChnOutputPortPutBuf(hHandle);
-        *got_frame = true;
-        
-    }
+    #endif
 #endif
     s32Ret = av_frame_ref(pFrame, s->f);
     if (s32Ret < 0)

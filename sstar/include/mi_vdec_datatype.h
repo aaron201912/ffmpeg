@@ -86,6 +86,37 @@ extern "C" {
 
 #define MI_VDEC_CHN MI_U32
 
+#define MI_DEF_VDEC_ERR(err) MI_DEF_ERR(E_MI_MODULE_ID_VDEC, E_MI_ERR_LEVEL_ERROR, err)
+
+#define MI_ERR_VDEC_INVALID_DEVID           MI_DEF_VDEC_ERR(E_MI_ERR_INVALID_DEVID)
+#define MI_ERR_VDEC_INVALID_CHNID           MI_DEF_VDEC_ERR(E_MI_ERR_INVALID_CHNID)
+#define MI_ERR_VDEC_ILLEGAL_PARAM           MI_DEF_VDEC_ERR(E_MI_ERR_ILLEGAL_PARAM)
+#define MI_ERR_VDEC_CHN_EXIST               MI_DEF_VDEC_ERR(E_MI_ERR_EXIST)
+#define MI_ERR_VDEC_CHN_UNEXIST             MI_DEF_VDEC_ERR(E_MI_ERR_UNEXIST)
+#define MI_ERR_VDEC_NULL_PTR                MI_DEF_VDEC_ERR(E_MI_ERR_NULL_PTR)
+#define MI_ERR_VDEC_NOT_CONFIG              MI_DEF_VDEC_ERR(E_MI_ERR_NOT_CONFIG)
+#define MI_ERR_VDEC_NOT_SUPPORT             MI_DEF_VDEC_ERR(E_MI_ERR_NOT_SUPPORT)
+#define MI_ERR_VDEC_NOT_PERM                MI_DEF_VDEC_ERR(E_MI_ERR_NOT_PERM)
+#define MI_ERR_VDEC_NOMEM                   MI_DEF_VDEC_ERR(E_MI_ERR_NOMEM)
+#define MI_ERR_VDEC_NOBUF                   MI_DEF_VDEC_ERR(E_MI_ERR_NOBUF)
+#define MI_ERR_VDEC_BUF_EMPTY               MI_DEF_VDEC_ERR(E_MI_ERR_BUF_EMPTY)
+#define MI_ERR_VDEC_BUF_FULL                MI_DEF_VDEC_ERR(E_MI_ERR_BUF_FULL)
+#define MI_ERR_VDEC_SYS_NOTREADY            MI_DEF_VDEC_ERR(E_MI_ERR_SYS_NOTREADY)
+#define MI_ERR_VDEC_BADADDR                 MI_DEF_VDEC_ERR(E_MI_ERR_BADADDR)
+#define MI_ERR_VDEC_BUSY                    MI_DEF_VDEC_ERR(E_MI_ERR_BUSY)
+#define MI_ERR_VDEC_CHN_NOT_STARTED         MI_DEF_VDEC_ERR(E_MI_ERR_CHN_NOT_STARTED)
+#define MI_ERR_VDEC_CHN_NOT_STOPPED          MI_DEF_VDEC_ERR(E_MI_ERR_CHN_NOT_STOPED)
+#define MI_ERR_VDEC_NOT_INIT                MI_DEF_VDEC_ERR(E_MI_ERR_NOT_INIT)
+#define MI_ERR_VDEC_INITED                  MI_DEF_VDEC_ERR(E_MI_ERR_INITED)
+#define MI_ERR_VDEC_NOT_ENABLE              MI_DEF_VDEC_ERR(E_MI_ERR_NOT_ENABLE)
+#define MI_ERR_VDEC_NOT_DISABLE             MI_DEF_VDEC_ERR(E_MI_ERR_NOT_DISABLE)
+#define MI_ERR_VDEC_SYS_TIMEOUT             MI_DEF_VDEC_ERR(E_MI_ERR_SYS_TIMEOUT)
+#define MI_ERR_VDEC_NOT_STARTED             MI_DEF_VDEC_ERR(E_MI_ERR_DEV_NOT_STARTED)
+#define MI_ERR_VDEC_NOT_STOPED              MI_DEF_VDEC_ERR(E_MI_ERR_DEV_NOT_STOPED)
+#define MI_ERR_VDEC_CHN_NO_CONTENT          MI_DEF_VDEC_ERR(E_MI_ERR_CHN_NO_CONTENT)
+#define MI_ERR_VDEC_FAILED                  MI_DEF_VDEC_ERR(E_MI_ERR_FAILED)
+
+
 typedef enum
 {
     E_MI_VDEC_CODEC_TYPE_H264 = 0x0,
@@ -153,6 +184,27 @@ typedef enum
     E_MI_VDEC_DISPLAY_MODE_MAX,
 } MI_VDEC_DisplayMode_e;
 
+typedef enum
+{
+    E_MI_VDEC_TILEMODE_OFF = 0x0,
+    E_MI_VDEC_TILEMODE_ON,
+    E_MI_VDEC_TILEMODE_MAX,
+}MI_VDEC_TileMode_Status_e;
+
+typedef enum
+{
+    E_MI_VDEC_INPLACE_MODE_OFF = 0x0,
+    E_MI_VDEC_INPLACE_MODE_SHORTTERM,
+    E_MI_VDEC_INPLACE_MODE_LONGTERM,
+    E_MI_VDEC_INPLACE_MODE_MAX
+}MI_VDEC_InplaceMode_e;
+
+typedef struct MI_VDEC_OutputPortAttr_s
+{
+    MI_U16 u16Width;                         // Width of target image
+    MI_U16 u16Height;                        // Height of target image
+}MI_VDEC_OutputPortAttr_t;
+
 typedef struct MI_VDEC_JpegAttr_s
 {
     MI_VDEC_JpegFormat_e    eJpegFormat;
@@ -172,6 +224,7 @@ typedef struct MI_VDEC_ChnAttr_s
     MI_U32 u32PicWidth;
     MI_U32 u32PicHeight;
     MI_VDEC_VideoMode_e eVideoMode;
+    MI_VDEC_InplaceMode_e eInplaceMode;
     union
     {
         MI_VDEC_JpegAttr_t stVdecJpegAttr;
@@ -214,13 +267,24 @@ typedef struct MI_VDEC_UserData_s
     MI_BOOL bValid;
 } MI_VDEC_UserData_t;
 
-typedef struct MI_VDEC_ChnFrmBufInfo_s
+typedef struct MI_VDEC_BufConf_s
 {
-    MI_PHY phyAddr;
-    void*  pVirAddr;
-    MI_U32 u32Size;
+    MI_U64 u64TargetPts;
+    MI_U32 u32BufSize;
+    MI_U8 *pu8UsrAddr;
+} MI_VDEC_BufConf_t;
 
-} MI_VDEC_ChnFrmBufInfo_t;
+typedef struct MI_VDEC_BufInfo_s
+{
+    MI_U8 *pu8Addr;         // kernl vir addr.
+    MI_PHY phyAddr;
+    MI_U32 u32BufSize;
+    MI_U64 u64Pts;
+    MI_BOOL bEndOfStream;
+
+    MI_BOOL bPictureStart;
+    MI_BOOL bBrokenByUs;
+} MI_VDEC_BufInfo_t;
 
 #ifdef __cplusplus
 }

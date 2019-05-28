@@ -58,13 +58,14 @@ int main(int argc, char **argv)
         return 1;
     }
 
+#if 0
     //3.获取视频文件信息
     if(avformat_find_stream_info(pFormatCtx, NULL) < 0)
     {
         printf("avformat_find_stream_info fail\n");
         return 1;
     }
-
+#endif    
     //获取视频流的索引位置
     //遍历所有类型的流(音频流，视频流，字幕流)，找到视频流
     int v_stream_idx = -1;

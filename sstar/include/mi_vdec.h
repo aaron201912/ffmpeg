@@ -79,7 +79,8 @@
 #ifndef _MI_VDEC_H_
 #define _MI_VDEC_H_
 
-#include "mi_sys_datatype.h"
+#define MI_VDEC_GET_ESBUFFER_DIRECT
+
 #include "mi_vdec_datatype.h"
 
 #ifdef __cplusplus
@@ -96,13 +97,13 @@ MI_S32 MI_VDEC_ResetChn(MI_VDEC_CHN VdecChn);
 MI_S32 MI_VDEC_SetChnParam(MI_VDEC_CHN VdecChn, MI_VDEC_ChnParam_t *pstChnParam);
 MI_S32 MI_VDEC_GetChnParam(MI_VDEC_CHN VdecChn, MI_VDEC_ChnParam_t *pstChnParam);
 MI_S32 MI_VDEC_SendStream(MI_VDEC_CHN VdecChn, MI_VDEC_VideoStream_t *pstVideoStream, MI_S32 s32MilliSec);
-MI_S32 MI_VDEC_SendStream_FF(MI_VDEC_CHN VdecChn, MI_VDEC_VideoStream_t *pstVideoStream, MI_S32 s32MilliSec);
 MI_S32 MI_VDEC_GetUserData(MI_VDEC_CHN VdecChn, MI_VDEC_UserData_t *pstUserData, MI_S32 s32MilliSec);
 MI_S32 MI_VDEC_ReleaseUserData(MI_VDEC_CHN VdecChn, MI_VDEC_UserData_t *pstUserData);
 MI_S32 MI_VDEC_SetDisplayMode(MI_VDEC_CHN VdecChn, MI_VDEC_DisplayMode_e eDisplayMode);
 MI_S32 MI_VDEC_GetDisplayMode(MI_VDEC_CHN VdecChn, MI_VDEC_DisplayMode_e *peDisplayMode);
-MI_S32 MI_VDEC_GetImage(MI_VDEC_CHN VdecChn, MI_SYS_BufInfo_t *pstBufInfo);
-MI_S32 MI_VDEC_ReleaseImage(MI_VDEC_CHN VdecChn, MI_SYS_BufInfo_t *pstBufInfo);
+MI_S32 MI_VDEC_SetOutputPortAttr(MI_VDEC_CHN VdecChn, MI_VDEC_OutputPortAttr_t *pstOutputPortAttr);
+MI_S32 MI_VDEC_GetOutputPortAttr(MI_VDEC_CHN VdecChn, MI_VDEC_OutputPortAttr_t *pstOutputPortAttr);
+
 
 #ifdef __cplusplus
 }

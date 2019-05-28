@@ -1,10 +1,23 @@
+/* Copyright (c) 2018-2019 Sigmastar Technology Corp.
+ All rights reserved.
+
+  Unless otherwise stipulated in writing, any and all information contained
+ herein regardless in any format shall remain the sole proprietary of
+ Sigmastar Technology Corp. and be kept in strict confidence
+ (??Sigmastar Confidential Information??) by the recipient.
+ Any unauthorized act including without limitation unauthorized disclosure,
+ copying, use, reproduction, sale, distribution, modification, disassembling,
+ reverse engineering and compiling of the contents of Sigmastar Confidential
+ Information is unlawful and strictly prohibited. Sigmastar hereby reserves the
+ rights to any and all damages, losses, costs and expenses resulting therefrom.
+*/
 #ifndef _MI_SYS_DATATYPE_H_
 #define _MI_SYS_DATATYPE_H_
 
 #include "mi_common.h"
-#define MI_SYS_MAX_INPUT_PORT_CNT   (64)
-#define MI_SYS_MAX_OUTPUT_PORT_CNT  (8)
-#define MI_SYS_MAX_DEV_CHN_CNT      (128)
+#define MI_SYS_MAX_INPUT_PORT_CNT   (16)
+#define MI_SYS_MAX_OUTPUT_PORT_CNT  (4)
+#define MI_SYS_MAX_DEV_CHN_CNT      (48)
 #define MI_SYS_INVLAID_SEQUENCE_NUM ((MI_U32)-1)
 
 
@@ -21,7 +34,7 @@
 #define MI_SYS_MAP_CPU_READ      0X20000000
 #define MI_SYS_MAP_CPU_WRITE      0X10000000
 
-
+#define MI_SYS_INVLAID_SEQUENCE_NUM ((MI_U32)-1)
 
 #define MI_SYS_SUCCESS MI_SUCCESS// do not use MI_DEF_ERR(E_MI_MODULE_ID_SYS, E_MI_ERR_LEVEL_ERROR, MI_SUCCESS)   !!!!
 
@@ -47,10 +60,59 @@
 #define MI_ERR_SYS_NOT_INIT MI_DEF_ERR(E_MI_MODULE_ID_SYS, E_MI_ERR_LEVEL_ERROR, E_MI_ERR_NOT_INIT)
 #define MI_ERR_SYS_NOT_ENABLE MI_DEF_ERR(E_MI_MODULE_ID_SYS, E_MI_ERR_LEVEL_ERROR, E_MI_ERR_NOT_ENABLE)
 #define MI_ERR_SYS_FAILED MI_DEF_ERR(E_MI_MODULE_ID_SYS, E_MI_ERR_LEVEL_ERROR, E_MI_ERR_FAILED)
+#define MI_ERR_SYS_NOVASAPCE MI_DEF_ERR(E_MI_MODULE_ID_SYS, E_MI_ERR_LEVEL_ERROR, E_MI_ERR_NOVASPACE)
+#define MI_ERR_SYS_NOITEM MI_DEF_ERR(E_MI_MODULE_ID_SYS, E_MI_ERR_LEVEL_ERROR, E_MI_ERR_NOITEM)
 
 typedef MI_S32 MI_VB_POOL_HANDLE;
 typedef MI_S32 MI_VB_BLK_HANDLE;
 typedef MI_S32 MI_SYS_BUF_HANDLE;
+
+/*
+****************************************************TODO Refine*****************************************
+*/
+typedef void   *MI_SYS_RINGPOOL_HANDLE;
+
+typedef enum
+{
+    E_MI_RINGPOOL_GET_RINGPOOL_SPACE,
+    E_MI_RINGPOOL_GET_FREE_SPACE,
+    E_MI_RINGPOOL_GET_RECORD,
+    E_MI_RINGPOOL_APPEND_TAIL_RECORD,
+    E_MI_RINGPOOL_RELEASE_HEAD_RECORD,
+    E_MI_RINGPOOL_CANCEL_UNFINISHED_TAIL_Record,
+    E_MI_RINGPOOL_CMD_MAX,
+} MI_SYS_RingPool_Cmd_e;
+
+typedef struct MI_SYS_RingPool_Config_s
+{
+    MI_U32  u32SizeOfPool;
+    MI_U32  u32MinAllocSize;
+    MI_U32  u32Alignment;
+    void    (*OnContentAvailable)(MI_SYS_RINGPOOL_HANDLE hHandle, void *pDrvPrivateData);
+    void    (*OnFreeSpaceAvailable)(MI_SYS_RINGPOOL_HANDLE hHandle, void *pDrvPrivateData);
+    void    *pDrvPrivateData;
+} MI_SYS_RingPool_Config_t;
+
+typedef struct MI_SYS_RingPool_Record_s
+{
+    MI_U64 u64ExtFlags;
+    MI_U64 u64Pts;
+    MI_U64 u64SeqNum;
+    MI_U64 bEndOfStream;
+    MI_U64  PA;
+    char    *VA_In_Kernel;
+    MI_U32  u32Length;
+} MI_SYS_RingPool_Record_t;
+
+typedef struct MI_RingPool_AppendTailRecord_s
+{
+    MI_SYS_RingPool_Record_t stNextContentRecord;
+    MI_BOOL bContentClosed;
+} MI_RingPool_AppendTailRecord_t;
+
+/*
+****************************************************TODO Refine*****************************************
+*/
 
 #if !defined(TRUE) && !defined(FALSE)
 /// definition for TRUE
@@ -113,6 +175,7 @@ typedef enum
     E_MI_SYS_PIXEL_FRAME_YUV422_YUYV = 0,
     E_MI_SYS_PIXEL_FRAME_ARGB8888,
     E_MI_SYS_PIXEL_FRAME_ABGR8888,
+    E_MI_SYS_PIXEL_FRAME_BGRA8888,
 
     E_MI_SYS_PIXEL_FRAME_RGB565,
     E_MI_SYS_PIXEL_FRAME_ARGB1555,
@@ -125,10 +188,10 @@ typedef enum
     E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420,
     E_MI_SYS_PIXEL_FRAME_YUV_MST_420,
 
-    //vdec mstar private video format
+    //vdec sigmastar private video format
     E_MI_SYS_PIXEL_FRAME_YC420_MSTTILE1_H264,
     E_MI_SYS_PIXEL_FRAME_YC420_MSTTILE2_H265,
-    E_MI_SYS_PIXEL_FRAME_YC420_MSTTILE3_H265 = 14,
+    E_MI_SYS_PIXEL_FRAME_YC420_MSTTILE3_H265 = 15,
 
     E_MI_SYS_PIXEL_FRAME_RGB_BAYER_BASE,
     E_MI_SYS_PIXEL_FRAME_RGB_BAYER_NUM = E_MI_SYS_PIXEL_FRAME_RGB_BAYER_BASE + E_MI_SYS_DATA_PRECISION_MAX*E_MI_SYS_PIXEL_BAYERID_MAX-1,
@@ -177,7 +240,6 @@ typedef enum
 {
     E_MI_SYS_BUFDATA_RAW = 0,
     E_MI_SYS_BUFDATA_FRAME,
-    E_MI_SYS_BUFDATA_META,
 } MI_SYS_BufDataType_e;
 
 typedef enum
@@ -188,6 +250,23 @@ typedef enum
     E_MI_SYS_ROTATE_270, //Rotate 270 degrees
     E_MI_SYS_ROTATE_NUM,
 }MI_SYS_Rotate_e;
+
+typedef enum
+{
+   E_MI_SYS_BIND_TYPE_FRAME_BASE = 0x00000001,
+   E_MI_SYS_BIND_TYPE_SW_LOW_LATENCY = 0x00000002,
+   E_MI_SYS_BIND_TYPE_REALTIME = 0x00000004,
+   E_MI_SYS_BIND_TYPE_HW_AUTOSYNC = 0x00000008,
+   E_MI_SYS_BIND_TYPE_HW_RING = 0x00000010
+}MI_SYS_BindType_e;
+
+typedef enum
+{
+   E_MI_SYS_VPE_TO_VENC_PRIVATE_RING_POOL = 0,
+   E_MI_SYS_PER_CHN_PRIVATE_POOL=1,
+   E_MI_SYS_PER_DEV_PRIVATE_POOL=2,
+   E_MI_SYS_PER_CHN_PORT_OUTPUT_POOL=3,
+}MI_SYS_InsidePrivatePoolType_e;
 
 typedef struct MI_SYS_ChnPort_s
 {
@@ -223,7 +302,7 @@ typedef struct MI_SYS_RawData_s
     MI_U64  u64SeqNum;
 } MI_SYS_RawData_t;
 
-typedef struct MI_SYS_MetaData_s
+typedef struct MI_SYS_PerFrameMetaBuf_s
 {
     void*  pVirAddr;
     MI_PHY phyAddr;//notice that this is miu bus addr,not cpu bus addr.
@@ -231,7 +310,20 @@ typedef struct MI_SYS_MetaData_s
     MI_U32 u32Size;
     MI_U32 u32ExtraData;    /*driver special flag*/
     MI_ModuleId_e eDataFromModule;
-} MI_SYS_MetaData_t;
+} MI_SYS_PerFrameMetaBuf_t;
+
+typedef enum
+{
+  REALTIME_FRAME_DATA,
+  RINGBUF_FRAME_DATA,
+  NORMAL_FRAME_DATA,
+}MI_SYS_FrameData_PhySignalType;
+
+#define MI_SYS_REALTIME_MAGIC_PADDR ((MI_PHY)0x46414B45) //"FAKE"
+#define MI_SYS_REALTIME_MAGIC_VADDR ((void*)0x46414B45) //"FAKE"
+#define MI_SYS_REALTIME_MAGIC_PITCH ((MI_U32)0x46414B45) //"FAKE"
+
+
 
 //N.B. in MI_SYS_FrameData_t should never support u32Size,
 //for other values are enough,and not support u32Size is general standard method.
@@ -242,31 +334,36 @@ typedef  struct  MI_SYS_FrameData_s
     MI_SYS_CompressMode_e eCompressMode;
     MI_SYS_FrameScanMode_e eFrameScanMode;
     MI_SYS_FieldType_e eFieldType;
+    MI_SYS_FrameData_PhySignalType ePhylayoutType;
 
     MI_U16 u16Width;
     MI_U16 u16Height;
+//in case ePhylayoutType equal to REALTIME_FRAME_DATA, pVirAddr would be MI_SYS_REALTIME_MAGIC_PADDR and phyAddr would be MI_SYS_REALTIME_MAGIC_VADDR
 
     void* pVirAddr[3];
     MI_PHY phyAddr[3];//notice that this is miu bus addr,not cpu bus addr.
     MI_U32 u32Stride[3];
     MI_U32 u32BufSize;//total size that allocated for this buffer,include consider alignment.
 
+
+    MI_U16 u16RingBufStartLine;//Valid in case RINGBUF_FRAME_DATA,  u16RingBufStartLine must be LGE than 0 and less than u16Height
+    MI_U16 u16RingBufRealTotalHeight;///Valid in case RINGBUF_FRAME_DATA,  u16RingBufStartLine must be LGE than u16Height
 } MI_SYS_FrameData_t;
 
 typedef  struct  MI_SYS_BufInfo_s
 {
     MI_U64 u64Pts;
-    MI_U32 u32SequenceNumber;
     MI_U64 u64SidebandMsg;
     MI_SYS_BufDataType_e eBufType;
     MI_BOOL bEndOfStream;
     MI_BOOL bUsrBuf;
+    MI_U32 u32SequenceNumber;
     union
     {
         MI_SYS_FrameData_t stFrameData;
         MI_SYS_RawData_t stRawData;
-        MI_SYS_MetaData_t stMetaData;
     };
+    MI_SYS_PerFrameMetaBuf_t stPerFrameMetaBuf;
 } MI_SYS_BufInfo_t;
 
 typedef struct MI_SYS_FrameBufExtraConfig_s
@@ -316,5 +413,54 @@ typedef struct MI_SYS_Version_s
 {
     MI_U8 u8Version[128];
 }MI_SYS_Version_t;
+
+
+typedef struct MI_PerChnPrivHeapConf_s
+{
+    MI_ModuleId_e eModule;
+    MI_U32 u32Devid;
+    MI_U32 u32Channel;
+    MI_U8 u8MMAHeapName[MI_MAX_MMA_HEAP_LENGTH];
+    MI_U32 u32PrivateHeapSize;
+}MI_SYS_PerChnPrivHeapConf_t;
+
+typedef struct MI_PerDevPrivHeapConf_s
+{
+    MI_ModuleId_e eModule;
+    MI_U32 u32Devid;
+    MI_U32 u32Reserve;
+    MI_U8 u8MMAHeapName[MI_MAX_MMA_HEAP_LENGTH];
+    MI_U32 u32PrivateHeapSize;
+}MI_SYS_PerDevPrivHeapConf_t;
+
+typedef struct MI_SYS_PerVpe2VencRingPoolConf_s
+{
+    MI_U32 u32VencInputRingPoolStaticSize;
+    MI_U8 u8MMAHeapName[MI_MAX_MMA_HEAP_LENGTH];
+}MI_SYS_PerVpe2VencRingPoolConf_t;
+
+typedef struct MI_SYS_PerChnPortOutputPool_s
+{
+    MI_ModuleId_e eModule;
+    MI_U32 u32Devid;
+    MI_U32 u32Channel;
+    MI_U32 u32Port;
+    MI_U8 u8MMAHeapName[MI_MAX_MMA_HEAP_LENGTH];
+    MI_U32 u32PrivateHeapSize;
+}MI_SYS_PerChnPortOutputPool_t;
+
+typedef struct MI_SYS_GlobalPrivPoolConfig_s
+{
+    MI_SYS_InsidePrivatePoolType_e eConfigType;
+    MI_BOOL bCreate;
+    union
+    {
+        MI_SYS_PerChnPrivHeapConf_t stPreChnPrivPoolConfig;
+        MI_SYS_PerDevPrivHeapConf_t stPreDevPrivPoolConfig;
+        MI_SYS_PerVpe2VencRingPoolConf_t stPreVpe2VencRingPrivPoolConfig;
+        MI_SYS_PerChnPortOutputPool_t stPreChnPortOutputPrivPool;
+    }uConfig;
+}MI_SYS_GlobalPrivPoolConfig_t;
+
 
 #endif ///_MI_SYS_DATATYPE_H_

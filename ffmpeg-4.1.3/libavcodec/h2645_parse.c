@@ -106,8 +106,9 @@ int ff_h2645_extract_rbsp(const uint8_t *src, int length,
             if (src[si + 2] == 3) { // escape
                 dst[di++] = 0;
                 dst[di++] = 0;
+                dst[di++] = 3;
                 si       += 3;
-
+                #if 0
                 if (nal->skipped_bytes_pos) {
                     nal->skipped_bytes++;
                     if (nal->skipped_bytes_pos_size < nal->skipped_bytes) {
@@ -124,6 +125,7 @@ int ff_h2645_extract_rbsp(const uint8_t *src, int length,
                     if (nal->skipped_bytes_pos)
                         nal->skipped_bytes_pos[nal->skipped_bytes-1] = di - 1;
                 }
+                #endif
                 continue;
             } else // next start code
                 goto nsc;

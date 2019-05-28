@@ -117,7 +117,7 @@
 #define MI_ERR_DISP_VIDEO_HAS_BINDED  (0xA00F806e) //The video layer has been bound.
 #define MI_ERR_DISP_VIDEO_NOT_BINDED  (0xA00F806f) //The video layer is not bound
 
-#define MI_DISP_DEV_MAX 2
+#define MI_DISP_DEV_MAX 1
 #define MI_DISP_LAYER_MAX 2
 #define MI_DISP_INPUTPORT_MAX 16
 
@@ -179,6 +179,51 @@ typedef enum
     E_MI_DISP_OUTPUT_USER,
     E_MI_DISP_OUTPUT_MAX,
 } MI_DISP_OutputTiming_e;
+
+typedef enum
+{
+    E_MI_DISP_ROTATE_NONE,
+    E_MI_DISP_ROTATE_90,
+    E_MI_DISP_ROTATE_180,
+    E_MI_DISP_ROTATE_270,
+    E_MI_DISP_ROTATE_NUM,
+}MI_DISP_RotateMode_e;
+
+typedef enum
+{
+    E_MI_DISP_CSC_MATRIX_BYPASS = 0,         /* do not change color space */
+
+    E_MI_DISP_CSC_MATRIX_BT601_TO_BT709,       /* change color space from BT.601 to BT.709 */
+    E_MI_DISP_CSC_MATRIX_BT709_TO_BT601,       /* change color space from BT.709 to BT.601 */
+
+    E_MI_DISP_CSC_MATRIX_BT601_TO_RGB_PC,      /* change color space from BT.601 to RGB */
+    E_MI_DISP_CSC_MATRIX_BT709_TO_RGB_PC,      /* change color space from BT.709 to RGB */
+
+    E_MI_DISP_CSC_MATRIX_RGB_TO_BT601_PC,      /* change color space from RGB to BT.601 */
+    E_MI_DISP_CSC_MATRIX_RGB_TO_BT709_PC,      /* change color space from RGB to BT.709 */
+
+    E_MI_DISP_CSC_MATRIX_NUM
+} MI_DISP_CscMattrix_e;
+
+typedef enum
+{
+    E_MI_DISP_SYNC_MODE_INVALID = 0,
+    E_MI_DISP_SYNC_MODE_CHECK_PTS,
+    E_MI_DISP_SYNC_MODE_FREE_RUN,
+    E_MI_DISP_SYNC_MODE_NUM,
+} MI_DISP_SyncMode_e;
+
+typedef enum
+{
+    E_MI_LAYER_INPUTPORT_STATUS_INVALID = 0,
+    E_MI_LAYER_INPUTPORT_STATUS_PAUSE,
+    E_MI_LAYER_INPUTPORT_STATUS_RESUME,
+    E_MI_LAYER_INPUTPORT_STATUS_STEP,
+    E_MI_LAYER_INPUTPORT_STATUS_REFRESH,
+    E_MI_LAYER_INPUTPORT_STATUS_SHOW,
+    E_MI_LAYER_INPUTPORT_STATUS_HIDE,
+    E_MI_LAYER_INPUTPORT_STATUS_NUM,
+} MI_DISP_InputPortStatus_e;
 
 typedef struct MI_DISP_SyncInfo_s
 {
@@ -245,23 +290,6 @@ typedef struct MI_DISP_VideoLayerAttr_s
     MI_SYS_PixelFormat_e    ePixFormat;         /* Pixel format of the video layer */
 } MI_DISP_VideoLayerAttr_t;
 
-typedef enum
-{
-    E_MI_DISP_CSC_MATRIX_BYPASS = 0,         /* do not change color space */
-
-    E_MI_DISP_CSC_MATRIX_BT601_TO_BT709,       /* change color space from BT.601 to BT.709 */
-    E_MI_DISP_CSC_MATRIX_BT709_TO_BT601,       /* change color space from BT.709 to BT.601 */
-
-    E_MI_DISP_CSC_MATRIX_BT601_TO_RGB_PC,      /* change color space from BT.601 to RGB */
-    E_MI_DISP_CSC_MATRIX_BT709_TO_RGB_PC,      /* change color space from BT.709 to RGB */
-
-    E_MI_DISP_CSC_MATRIX_RGB_TO_BT601_PC,      /* change color space from RGB to BT.601 */
-    E_MI_DISP_CSC_MATRIX_RGB_TO_BT709_PC,      /* change color space from RGB to BT.709 */
-
-    E_MI_DISP_CSC_MATRIX_NUM
-} MI_DISP_CscMattrix_e;
-
-
 typedef struct MI_DISP_Csc_s
 {
     MI_DISP_CscMattrix_e eCscMatrix;
@@ -287,32 +315,14 @@ typedef struct MI_DISP_VideoFrame_s
 typedef struct MI_DISP_InputPortAttr_s
 {
     MI_DISP_VidWinRect_t stDispWin;                     /* rect of video out chn */
+    MI_U16 u16SrcWidth;
+    MI_U16 u16SrcHeight;
 } MI_DISP_InputPortAttr_t;
 typedef struct MI_DISP_Position_s
 {
     MI_U16 u16X;
     MI_U16 u16Y;
 } MI_DISP_Position_t;
-
-typedef enum
-{
-    E_MI_DISP_SYNC_MODE_INVALID = 0,
-    E_MI_DISP_SYNC_MODE_CHECK_PTS,
-    E_MI_DISP_SYNC_MODE_FREE_RUN,
-    E_MI_DISP_SYNC_MODE_NUM,
-} MI_DISP_SyncMode_e;
-
-typedef enum
-{
-    E_MI_LAYER_INPUTPORT_STATUS_INVALID = 0,
-    E_MI_LAYER_INPUTPORT_STATUS_PAUSE,
-    E_MI_LAYER_INPUTPORT_STATUS_RESUME,
-    E_MI_LAYER_INPUTPORT_STATUS_STEP,
-    E_MI_LAYER_INPUTPORT_STATUS_REFRESH,
-    E_MI_LAYER_INPUTPORT_STATUS_SHOW,
-    E_MI_LAYER_INPUTPORT_STATUS_HIDE,
-    E_MI_LAYER_INPUTPORT_STATUS_NUM,
-} MI_DISP_InputPortStatus_e;
 
 typedef struct MI_DISP_QueryChannelStatus_s
 {
@@ -330,12 +340,46 @@ typedef struct MI_DISP_VgaParam_s
 typedef struct MI_DISP_HdmiParam_s
 {
     MI_DISP_Csc_t stCsc;                     /* color space */
+    MI_U32 u32Gain;                          /* current gain of HDMI signals. [0, 64). default:0x30 */
+    MI_U32 u32Sharpness;
 } MI_DISP_HdmiParam_t;
+
+typedef struct MI_DISP_LcdParam_s
+{
+    MI_DISP_Csc_t stCsc;                     /* color space */
+    MI_U32 u32Sharpness;
+} MI_DISP_LcdParam_t;
 
 typedef struct MI_DISP_CvbsParam_s
 {
     MI_BOOL bEnable;
 } MI_DISP_CvbsParam_t;
+
+
+typedef struct MI_DISP_RotateConfig_s
+{
+    MI_DISP_RotateMode_e eRotateMode;
+}MI_DISP_RotateConfig_t;
+
+typedef struct
+{
+    MI_U16 u16RedOffset;
+    MI_U16 u16GreenOffset;
+    MI_U16 u16BlueOffset;
+
+    MI_U16 u16RedColor;  // 00~FF, 0x80 is no change
+    MI_U16 u16GreenColor;// 00~FF, 0x80 is no change
+    MI_U16 u16BlueColor; // 00~FF, 0x80 is no change
+}MI_DISP_ColorTemperature_t;
+
+typedef struct
+{
+    MI_BOOL bEn;
+    MI_U16 u16EntryNum;
+    MI_U8 *pu8ColorR;
+    MI_U8 *pu8ColorG;
+    MI_U8 *pu8ColorB;
+}MI_DISP_GammaParam_t;
 
 #ifdef __cplusplus
 extern "C" {
