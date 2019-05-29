@@ -336,11 +336,11 @@ static MI_S32 CreateDispDev(SsCropContext *pCropC)
     stInputPortAttr.stDispWin.u16Y      = 0;
 
     stInputPortAttr.stDispWin.u16Width  = 640;//pCropC->cropwidth;
-    stInputPortAttr.stDispWin.u16Height = 480;//pCropC->cropheight;
+    stInputPortAttr.stDispWin.u16Height = 352;//pCropC->cropheight;
 
     stInputPortAttr.u16SrcWidth = 640;//pCropC->cropwidth;
 
-    stInputPortAttr.u16SrcHeight = 480;//pCropC->cropheight;
+    stInputPortAttr.u16SrcHeight = 352;//pCropC->cropheight;
     STCHECKRESULT(MI_DISP_SetInputPortAttr(0, 0, &stInputPortAttr));
     //STCHECKRESULT(MI_DISP_GetInputPortAttr(0, 0, &stInputPortAttr));
     stRotateConfig.eRotateMode = E_MI_DISP_ROTATE_NONE;
@@ -354,6 +354,107 @@ static MI_S32 CreateDispDev(SsCropContext *pCropC)
 
     return 0;
 }
+
+static int ss_h264_decode_extradata(const uint8_t *data, int size,
+                             int *is_avc, int *nal_length_size,
+                             int err_recognition, void *logctx)
+{
+    int ret;
+    int j;
+    MI_VDEC_VideoStream_t stVdecStream;
+    uint8_t *extradata_buf;
+    char start_code[]={0,0,0,1};
+    
+    if (!data || size <= 0)
+        return -1;
+
+    if (data[0] == 1) {
+        int i, cnt, nalsize;
+        const uint8_t *p = data;
+
+        *is_avc = 1;
+
+        if (size < 7) {
+            av_log(logctx, AV_LOG_ERROR, "avcC %d too short\n", size);
+            return AVERROR_INVALIDDATA;
+        }
+
+        // Decode sps from avcC
+        cnt = *(p + 5) & 0x1f; // Number of sps
+        p  += 6;
+        for (i = 0; i < cnt; i++) {
+            nalsize = AV_RB16(p) + 2;
+            if (nalsize > size - (p - data))
+                return AVERROR_INVALIDDATA;
+            printf("\n");
+            printf("SPS: ");
+            for(j = 0;j < nalsize;j++)
+            {
+                printf("%x,",*(p+j));
+            }
+            printf("\n");
+            extradata_buf = av_mallocz(nalsize+2);
+            if (!extradata_buf)
+                return AVERROR(ENOMEM);
+            memcpy(extradata_buf,start_code,sizeof(start_code));
+            memcpy(extradata_buf+sizeof(start_code),p+2,nalsize-2);
+            stVdecStream.pu8Addr = extradata_buf;
+            stVdecStream.u32Len = nalsize + 2;
+            stVdecStream.u64PTS = 0;
+            stVdecStream.bEndOfFrame = 1;
+            stVdecStream.bEndOfStream = 0;
+            
+            //printf("size: %d,data: %x,%x,%x,%x,%x,%x,%x,%x\n",stVdecStream.u32Len,stVdecStream.pu8Addr[0],stVdecStream.pu8Addr[1],\
+                    //stVdecStream.pu8Addr[2],stVdecStream.pu8Addr[3],stVdecStream.pu8Addr[4],stVdecStream.pu8Addr[5],stVdecStream.pu8Addr[6],stVdecStream.pu8Addr[7]);
+            ret = MI_VDEC_SendStream(0, &stVdecStream, 20);
+            if(0 != ret)
+            {
+                printf("MI_VDEC_SendStream fail\n");
+                return AVERROR_INVALIDDATA;
+            }
+            av_freep(&extradata_buf);
+
+            p += nalsize;
+        }
+        // Decode pps from avcC
+        cnt = *(p++); // Number of pps
+        for (i = 0; i < cnt; i++) {
+            nalsize = AV_RB16(p) + 2;
+            if (nalsize > size - (p - data))
+                return AVERROR_INVALIDDATA;
+            printf("\n");
+            printf("PPS: ");
+            for(j = 0;j < nalsize;j++)
+            {
+                printf("%x,",*(p+j));
+            }
+            printf("\n");
+            extradata_buf = av_mallocz(nalsize+2);
+            if (!extradata_buf)
+                return AVERROR(ENOMEM);
+            memcpy(extradata_buf,start_code,sizeof(start_code));
+            memcpy(extradata_buf+sizeof(start_code),p+2,nalsize-2);
+            stVdecStream.pu8Addr = extradata_buf;
+            stVdecStream.u32Len = nalsize + 2;
+            stVdecStream.u64PTS = 0;
+            stVdecStream.bEndOfFrame = 1;
+            stVdecStream.bEndOfStream = 0;
+            
+            ret = MI_VDEC_SendStream(0, &stVdecStream, 20);
+            if(0 != ret)
+            {
+                printf("MI_VDEC_SendStream fail\n");
+                return AVERROR_INVALIDDATA;
+            }
+            av_freep(&extradata_buf);
+            p += nalsize;
+        }
+        // Store right nal length size that will be used to parse all other nals
+        *nal_length_size = (data[4] & 0x03) + 1;
+    }
+    return size;
+}
+
 
 
 static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
@@ -381,26 +482,14 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
     else
     {
         s->f->width = 640;
-        s->f->height = 480;
+        s->f->height = 352;
     }
     s32Ret = av_frame_get_buffer(s->f, 32);
     if (s32Ret < 0) 
     {
         av_frame_free(&s->f);
     }
-    #if 0
-    //check h264 or avc1
-    if (avctx->extradata_size > 0 && avctx->extradata) 
-    {
-        s32Ret = ff_h264_decode_extradata(avctx->extradata, avctx->extradata_size,
-                                       &s->ps, &s->is_avc, &s->nal_length_size,
-                                       avctx->err_recognition, avctx);
-        if (s32Ret < 0) {
-            ss_h264_decode_end(avctx);
-            return s32Ret;
-        }
-    }
-    #endif
+
     ST_Sys_Init();
 
     //init vdec
@@ -444,6 +533,19 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
     stDstChnPort.u32ChnId = 0;
     stDstChnPort.u32PortId = 0;
     MI_SYS_BindChnPort(&stSrcChnPort, &stDstChnPort, 30, 30);
+
+
+    //check h264 or avc1
+    if (avctx->extradata_size > 0 && avctx->extradata) 
+    {
+        s32Ret = ss_h264_decode_extradata(avctx->extradata, avctx->extradata_size,
+                                       &s->is_avc, &s->nal_length_size,
+                                       avctx->err_recognition, avctx);
+        if (s32Ret < 0) {
+            ss_h264_decode_end(avctx);
+            return s32Ret;
+        }
+    }
 
     return 0;
 }
@@ -517,8 +619,8 @@ static int ss_h264_decode_frame(AVCodecContext *avctx, void *data,
     stVdecStream.bEndOfStream = 0;
 
     usleep(40*1000);
-    printf("size: %d,data: %x,%x,%x,%x,%x,%x,%x,%x\n",avpkt->size,stVdecStream.pu8Addr[0],stVdecStream.pu8Addr[1],\
-            stVdecStream.pu8Addr[2],stVdecStream.pu8Addr[3],stVdecStream.pu8Addr[4],stVdecStream.pu8Addr[5],stVdecStream.pu8Addr[6],stVdecStream.pu8Addr[7]);
+    //printf("size: %d,data: %x,%x,%x,%x,%x,%x,%x,%x\n",avpkt->size,stVdecStream.pu8Addr[0],stVdecStream.pu8Addr[1],\
+            //stVdecStream.pu8Addr[2],stVdecStream.pu8Addr[3],stVdecStream.pu8Addr[4],stVdecStream.pu8Addr[5],stVdecStream.pu8Addr[6],stVdecStream.pu8Addr[7]);
     s32Ret = MI_VDEC_SendStream(0, &stVdecStream, 20);
     if(MI_SUCCESS != s32Ret)
     {

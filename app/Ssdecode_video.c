@@ -9,6 +9,8 @@
 #include <pthread.h>
 #include <sys/stat.h>
 #include <stdbool.h>
+#include <arpa/inet.h>
+
 
 //编码
 #include "libavcodec/avcodec.h"
@@ -150,7 +152,25 @@ int main(int argc, char **argv)
         {
             //7.解码一帧视频压缩数据
             //ret = avcodec_decode_video2(pFormatCtx, pFrame, &got_picture, packet);
+            const char start_code[4] = { 0, 0, 0, 1 };
+            if(memcmp(start_code, packet->data, 4) != 0)
+            {//is avc1 code, have no start code of H264
+                int len = 0;
+                uint8_t *p = packet->data;
 
+                do 
+                {//add start_code for each NAL, one frame may have multi NALs.
+                    len = ntohl(*((long*)p));
+                    memcpy(p, start_code, 4);
+
+                    p += 4;
+                    p += len;
+                    if(p >= packet->data + packet->size)
+                    {
+                        break;
+                    }
+                } while (1);
+            }
             ret = avcodec_send_packet(pCodecCtx, packet);
             if(ret < 0)
             {
