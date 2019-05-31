@@ -237,9 +237,9 @@ static inline int decode_vui_parameters(GetBitContext *gb, AVCodecContext *avctx
 
         if (sps->num_reorder_frames > 16U
             /* max_dec_frame_buffering || max_dec_frame_buffering > 16 */) {
-            av_log(avctx, AV_LOG_ERROR,
-                   "Clipping illegal num_reorder_frames %d\n",
-                   sps->num_reorder_frames);
+            //av_log(avctx, AV_LOG_ERROR,
+                   //"Clipping illegal num_reorder_frames %d\n",
+                   //sps->num_reorder_frames);
             sps->num_reorder_frames = 16;
             return AVERROR_INVALIDDATA;
         }
@@ -364,7 +364,7 @@ int ff_h264_decode_seq_parameter_set(GetBitContext *gb, AVCodecContext *avctx,
     sps_id    = get_ue_golomb_31(gb);
 
     if (sps_id >= MAX_SPS_COUNT) {
-        av_log(avctx, AV_LOG_ERROR, "sps_id %u out of range\n", sps_id);
+        //av_log(avctx, AV_LOG_ERROR, "sps_id %u out of range\n", sps_id);
         goto fail;
     }
 

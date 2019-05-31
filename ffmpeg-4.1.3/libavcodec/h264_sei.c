@@ -65,7 +65,7 @@ static int decode_picture_timing(H264SEIPictureTiming *h, GetBitContext *gb,
             sps = (const SPS *)ps->sps_list[i]->data;
 
     if (!sps) {
-        av_log(logctx, AV_LOG_ERROR, "SPS unavailable in decode_picture_timing\n");
+        //av_log(logctx, AV_LOG_ERROR, "SPS unavailable in decode_picture_timing\n");
         return AVERROR_PS_NOT_FOUND;
     }
 
@@ -295,8 +295,8 @@ static int decode_buffering_period(H264SEIBufferingPeriod *h, GetBitContext *gb,
 
     sps_id = get_ue_golomb_31(gb);
     if (sps_id > 31 || !ps->sps_list[sps_id]) {
-        av_log(logctx, AV_LOG_ERROR,
-               "non-existing SPS %d referenced in buffering period\n", sps_id);
+        //av_log(logctx, AV_LOG_ERROR,
+               //"non-existing SPS %d referenced in buffering period\n", sps_id);
         return sps_id > 31 ? AVERROR_INVALIDDATA : AVERROR_PS_NOT_FOUND;
     }
     sps = (const SPS*)ps->sps_list[sps_id]->data;
@@ -425,8 +425,8 @@ int ff_h264_sei_decode(H264SEIContext *h, GetBitContext *gb,
         } while (get_bits(gb, 8) == 255);
 
         if (size > get_bits_left(gb) / 8) {
-            av_log(logctx, AV_LOG_ERROR, "SEI type %d size %d truncated at %d\n",
-                   type, 8*size, get_bits_left(gb));
+            //av_log(logctx, AV_LOG_ERROR, "SEI type %d size %d truncated at %d\n",
+                   //type, 8*size, get_bits_left(gb));
             return AVERROR_INVALIDDATA;
         }
         next = get_bits_count(gb) + 8 * size;

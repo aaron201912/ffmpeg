@@ -9,17 +9,17 @@ CPP_FLAGS  = $(COM_FLAGS) -std=c++11
 
 INCLUDES  += -I. -I../sstar/include/ -I../ffmpeg/include/
 
-TARGET_NAME  = ssffmpeg
+TARGET_NAME  = SsPlayer
 
 CPP_SRCS  =  
 
-C_SRCS    =  Ssdecode_video.c
+C_SRCS    =  SsPlayer.c
 			
 CPP_OBJS = $(patsubst %.cpp, %.cpp.o, $(CPP_SRCS))
 C_OBJS = $(patsubst %.c, %.c.o, $(C_SRCS))
 
 LIB_PATH  = -L. -L../sstar/lib -L../ffmpeg/lib
-LIB_NAME += -lavformat -lavcodec -lavutil -lswscale -lswresample -pthread -lm -lmi_vdec -lmi_sys -lmi_divp -lmi_disp -lmi_hdmi
+LIB_NAME += -lavformat -lavcodec -lavutil -lswscale -lswresample -pthread -lm -lmi_vdec -lmi_sys -lmi_divp -lmi_disp -lmi_hdmi -lmi_ao -ldl
 
 
 .PHONY: all prepare clean

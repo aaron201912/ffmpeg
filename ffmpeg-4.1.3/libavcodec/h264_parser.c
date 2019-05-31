@@ -370,8 +370,8 @@ static inline int parse_nal_units(AVCodecParserContext *s,
             p->ps.pps = (const PPS*)p->ps.pps_ref->data;
 
             if (!p->ps.sps_list[p->ps.pps->sps_id]) {
-                av_log(avctx, AV_LOG_ERROR,
-                       "non-existing SPS %u referenced\n", p->ps.pps->sps_id);
+                //av_log(avctx, AV_LOG_ERROR,
+                       //"non-existing SPS %u referenced\n", p->ps.pps->sps_id);
                 goto fail;
             }
 

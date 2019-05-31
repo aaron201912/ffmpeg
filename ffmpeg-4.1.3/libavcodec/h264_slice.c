@@ -1775,8 +1775,8 @@ static int h264_slice_header_parse(const H264Context *h, H264SliceContext *sl,
     pps = (const PPS*)h->ps.pps_list[sl->pps_id]->data;
 
     if (!h->ps.sps_list[pps->sps_id]) {
-        av_log(h->avctx, AV_LOG_ERROR,
-               "non-existing SPS %u referenced\n", pps->sps_id);
+        //av_log(h->avctx, AV_LOG_ERROR,
+               //"non-existing SPS %u referenced\n", pps->sps_id);
         return AVERROR_INVALIDDATA;
     }
     sps = (const SPS*)h->ps.sps_list[pps->sps_id]->data;
