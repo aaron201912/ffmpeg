@@ -502,18 +502,10 @@ static MI_S32 CreateDispDev(void)
     return 0;
 }
 
-int sdk_Deinit(void)
+int sdk_Unbind(void)
 {
     ST_Sys_BindInfo_t stBindInfo;
-     
-    ST_Hdmi_DeInit(0);
-    MI_DISP_DisableInputPort(0 ,0);
-    
-    MI_DISP_DisableVideoLayer(0);
-    MI_DISP_UnBindVideoLayer(0, 0);
 
-     MI_DISP_Disable(0);
-     
     memset(&stBindInfo, 0, sizeof(ST_Sys_BindInfo_t));
 
     stBindInfo.stSrcChnPort.eModId = E_MI_MODULE_ID_VDEC;
@@ -527,15 +519,64 @@ int sdk_Deinit(void)
     stBindInfo.stDstChnPort.u32PortId = 0;
     
     STCHECKRESULT(ST_Sys_UnBind(&stBindInfo));
+
+    return SUCCESS;
+}
+
+int sdk_Deinit(void)
+{
+    ST_Sys_BindInfo_t stBindInfo;
+     
+    ST_Hdmi_DeInit(0);
+    MI_DISP_DisableInputPort(0 ,0);
     
-    STCHECKRESULT(MI_VDEC_StopChn(0));
-    STCHECKRESULT(MI_VDEC_DestroyChn(0));
+    MI_DISP_DisableVideoLayer(0);
+    MI_DISP_UnBindVideoLayer(0, 0);
+
+     MI_DISP_Disable(0);
+    #if 0
+    memset(&stBindInfo, 0, sizeof(ST_Sys_BindInfo_t));
+
+    stBindInfo.stSrcChnPort.eModId = E_MI_MODULE_ID_VDEC;
+    stBindInfo.stSrcChnPort.u32DevId = 0;
+    stBindInfo.stSrcChnPort.u32ChnId = 0;
+    stBindInfo.stSrcChnPort.u32PortId = 0;
+
+    stBindInfo.stDstChnPort.eModId = E_MI_MODULE_ID_DISP;
+    stBindInfo.stDstChnPort.u32DevId = 0;
+    stBindInfo.stDstChnPort.u32ChnId = 0;
+    stBindInfo.stDstChnPort.u32PortId = 0;
+    
+    STCHECKRESULT(ST_Sys_UnBind(&stBindInfo));
+    #endif
+    //STCHECKRESULT(MI_VDEC_StopChn(0));
+    //STCHECKRESULT(MI_VDEC_DestroyChn(0));
 
     ss_ao_Deinit();
     STCHECKRESULT(MI_SYS_Exit());
 
     return SUCCESS;
 
+}
+
+int sdk_bind(void)
+{
+    MI_SYS_ChnPort_t stSrcChnPort;
+    MI_SYS_ChnPort_t stDstChnPort;
+
+    //bind vdec to disp
+    stSrcChnPort.eModId = E_MI_MODULE_ID_VDEC;
+    stSrcChnPort.u32DevId = 0;
+    stSrcChnPort.u32ChnId = 0;
+    stSrcChnPort.u32PortId = 0;
+
+    stDstChnPort.eModId = E_MI_MODULE_ID_DISP;
+    stDstChnPort.u32DevId = 0;
+    stDstChnPort.u32ChnId = 0;
+    stDstChnPort.u32PortId = 0;
+    MI_SYS_BindChnPort(&stSrcChnPort, &stDstChnPort, 30, 30);
+
+    return SUCCESS;
 }
 
 int sdk_Init(void)
@@ -546,7 +587,7 @@ int sdk_Init(void)
     MI_SYS_ChnPort_t stDstChnPort;
 
     ST_Sys_Init();
-
+#if 0
     //init vdec
     memset(&stVdecChnAttr, 0, sizeof(MI_VDEC_ChnAttr_t));
     stVdecChnAttr.eCodecType =E_MI_VDEC_CODEC_TYPE_H264;
@@ -572,12 +613,12 @@ int sdk_Init(void)
     stChnPort.u32PortId = 0;
 
     STCHECKRESULT(MI_SYS_SetChnOutputPortDepth(&stChnPort, 0, 6));
-
+#endif
     //init disp
     CreateDispDev();
     
     usleep(2*1000*1000);
-
+#if 0
     //bind vdec to disp
     stSrcChnPort.eModId = E_MI_MODULE_ID_VDEC;
     stSrcChnPort.u32DevId = 0;
@@ -589,7 +630,7 @@ int sdk_Init(void)
     stDstChnPort.u32ChnId = 0;
     stDstChnPort.u32PortId = 0;
     MI_SYS_BindChnPort(&stSrcChnPort, &stDstChnPort, 30, 30);
-    
+#endif
     //init audio
     ss_ao_Init();
     
@@ -715,7 +756,7 @@ int main (int argc, char **argv)
     int ret;
     //Patch for skip avformat_find_stream_info send frame to ss hw decode
     pVideoCodeCtx->debug = 1;
-    
+    sdk_bind();
     //6.一帧一帧读取压缩的音频数据AVPacket
     while (av_read_frame(pFormatCtx, packet) >= 0) {
     
@@ -809,6 +850,7 @@ int main (int argc, char **argv)
     }
     
     sdk_Deinit();
+    sdk_Unbind();
     av_frame_free(&frame);
     av_free(out_buffer);
     swr_free(&swrCtx);

@@ -64,6 +64,16 @@
 #include "rectangle.h"
 #include "thread.h"
 
+#define STCHECKRESULT(result)\
+    if (result != MI_SUCCESS)\
+    {\
+        printf("[%s %d]exec function failed\n", __FUNCTION__, __LINE__);\
+        return 1;\
+    }\
+    else\
+    {\
+        printf("(%s %d)exec function pass\n", __FUNCTION__,__LINE__);\
+    }
 
 static av_cold int ss_h264_decode_end(AVCodecContext *avctx)
 {
@@ -71,6 +81,9 @@ static av_cold int ss_h264_decode_end(AVCodecContext *avctx)
     SsH264Context *s = avctx->priv_data;
     printf("ss_h264_decode_end\n");
     av_frame_free(&s->f);
+
+    STCHECKRESULT(MI_VDEC_StopChn(0));
+    STCHECKRESULT(MI_VDEC_DestroyChn(0));
     return 0;
 }
 
@@ -197,6 +210,33 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
     {
         av_frame_free(&s->f);
     }
+
+    //init vdec
+    memset(&stVdecChnAttr, 0, sizeof(MI_VDEC_ChnAttr_t));
+    stVdecChnAttr.eCodecType =E_MI_VDEC_CODEC_TYPE_H264;
+    stVdecChnAttr.stVdecVideoAttr.u32RefFrameNum = 5;
+    stVdecChnAttr.eVideoMode = E_MI_VDEC_VIDEO_MODE_FRAME;
+    stVdecChnAttr.u32BufSize = 1 * 1024 * 1024;
+    stVdecChnAttr.u32PicWidth = 1920;//avctx->width;
+    stVdecChnAttr.u32PicHeight = 1080;//avctx->height;
+    stVdecChnAttr.eInplaceMode = E_MI_VDEC_INPLACE_MODE_OFF;
+    stVdecChnAttr.u32Priority = 0;
+    MI_VDEC_CreateChn(0, &stVdecChnAttr);
+    MI_VDEC_StartChn(0);
+
+    MI_VDEC_OutputPortAttr_t stOutputPortAttr;
+    stOutputPortAttr.u16Width = 640;
+    stOutputPortAttr.u16Height = 352;
+    MI_VDEC_SetOutputPortAttr(0, &stOutputPortAttr);
+
+    memset(&stChnPort, 0x0, sizeof(MI_SYS_ChnPort_t));
+    stChnPort.eModId = E_MI_MODULE_ID_VDEC;
+    stChnPort.u32DevId = 0;
+    stChnPort.u32ChnId = 0;
+    stChnPort.u32PortId = 0;
+
+    STCHECKRESULT(MI_SYS_SetChnOutputPortDepth(&stChnPort, 0, 6));
+    
     //check h264 or avc1
     if (avctx->extradata_size > 0 && avctx->extradata) 
     {
