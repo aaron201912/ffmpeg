@@ -7,7 +7,7 @@ COM_FLAGS = -Wall -O2 -fPIC -mcpu=cortex-a9 -mfpu=neon-fp16 -mfloat-abi=hard -mt
 C_FLAGS	   = $(COM_FLAGS) -std=c11
 CPP_FLAGS  = $(COM_FLAGS) -std=c++11
 
-INCLUDES  += -I. -I../sstar/include/ -I../ffmpeg/include/
+INCLUDES  += -I. -I../sstar/include/ -I../ffmpeg-4.1.3/host/include/
 
 TARGET_NAME  = SsPlayer
 
@@ -18,7 +18,7 @@ C_SRCS    =  SsPlayer.c
 CPP_OBJS = $(patsubst %.cpp, %.cpp.o, $(CPP_SRCS))
 C_OBJS = $(patsubst %.c, %.c.o, $(C_SRCS))
 
-LIB_PATH  = -L. -L../sstar/lib -L../ffmpeg/lib
+LIB_PATH  = -L. -L../sstar/lib -L../ffmpeg-4.1.3/host/lib
 LIB_NAME += -lavformat -lavcodec -lavutil -lswscale -lswresample -pthread -lm -lmi_vdec -lmi_sys -lmi_divp -lmi_disp -lmi_hdmi -lmi_ao -ldl
 
 
