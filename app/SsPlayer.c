@@ -443,7 +443,7 @@ int ss_ao_Init(void)
     return 0;
 }
 
-static MI_S32 CreateDispDev(void)
+static MI_S32 CreateDispDev(AVCodecContext *pVideoCodeCtx)
 {
     MI_DISP_PubAttr_t stPubAttr;
     //MI_DISP_VideoLayerAttr_t stLayerAttr;
@@ -482,14 +482,14 @@ static MI_S32 CreateDispDev(void)
     stInputPortAttr.stDispWin.u16X      = 0;
     stInputPortAttr.stDispWin.u16Y      = 0;
 
-    stInputPortAttr.stDispWin.u16Width  = 640;//pCropC->cropwidth;
-    stInputPortAttr.stDispWin.u16Height = 352;//pCropC->cropheight;
+    stInputPortAttr.stDispWin.u16Width  = pVideoCodeCtx->width;
+    stInputPortAttr.stDispWin.u16Height = pVideoCodeCtx->height;
 
-    stInputPortAttr.u16SrcWidth = 640;//pCropC->cropwidth;
+    stInputPortAttr.u16SrcWidth = pVideoCodeCtx->width;
 
-    stInputPortAttr.u16SrcHeight = 352;//pCropC->cropheight;
+    stInputPortAttr.u16SrcHeight = pVideoCodeCtx->height;
     STCHECKRESULT(MI_DISP_SetInputPortAttr(0, 0, &stInputPortAttr));
-    //STCHECKRESULT(MI_DISP_GetInputPortAttr(0, 0, &stInputPortAttr));
+    
     stRotateConfig.eRotateMode = E_MI_DISP_ROTATE_NONE;
     STCHECKRESULT(MI_DISP_SetVideoLayerRotateMode(0, &stRotateConfig));
     STCHECKRESULT(MI_DISP_EnableInputPort(0, 0));
@@ -525,8 +525,6 @@ int sdk_Unbind(void)
 
 int sdk_Deinit(void)
 {
-    ST_Sys_BindInfo_t stBindInfo;
-     
     ST_Hdmi_DeInit(0);
     MI_DISP_DisableInputPort(0 ,0);
     
@@ -534,23 +532,6 @@ int sdk_Deinit(void)
     MI_DISP_UnBindVideoLayer(0, 0);
 
      MI_DISP_Disable(0);
-    #if 0
-    memset(&stBindInfo, 0, sizeof(ST_Sys_BindInfo_t));
-
-    stBindInfo.stSrcChnPort.eModId = E_MI_MODULE_ID_VDEC;
-    stBindInfo.stSrcChnPort.u32DevId = 0;
-    stBindInfo.stSrcChnPort.u32ChnId = 0;
-    stBindInfo.stSrcChnPort.u32PortId = 0;
-
-    stBindInfo.stDstChnPort.eModId = E_MI_MODULE_ID_DISP;
-    stBindInfo.stDstChnPort.u32DevId = 0;
-    stBindInfo.stDstChnPort.u32ChnId = 0;
-    stBindInfo.stDstChnPort.u32PortId = 0;
-    
-    STCHECKRESULT(ST_Sys_UnBind(&stBindInfo));
-    #endif
-    //STCHECKRESULT(MI_VDEC_StopChn(0));
-    //STCHECKRESULT(MI_VDEC_DestroyChn(0));
 
     ss_ao_Deinit();
     STCHECKRESULT(MI_SYS_Exit());
@@ -579,7 +560,7 @@ int sdk_bind(void)
     return SUCCESS;
 }
 
-int sdk_Init(void)
+int sdk_Init(AVCodecContext *pVideoCodeCtx)
 {
     MI_VDEC_ChnAttr_t stVdecChnAttr;
     MI_SYS_ChnPort_t stChnPort;
@@ -615,7 +596,7 @@ int sdk_Init(void)
     STCHECKRESULT(MI_SYS_SetChnOutputPortDepth(&stChnPort, 0, 6));
 #endif
     //init disp
-    CreateDispDev();
+    CreateDispDev(pVideoCodeCtx);
     
     usleep(2*1000*1000);
 #if 0
@@ -639,10 +620,14 @@ int sdk_Init(void)
 
 int main (int argc, char **argv)
 {
-	const char *filename;// *outfilename;
-	
-	filename    = argv[1];
-    //outfilename = argv[2];
+    const char *filename, *outAudiofilename,*outVideofilename;
+    struct SwsContext *sws_ctx;
+    AVFrame *pFrameYUV;
+    uint8_t *Vout_buffer;
+
+    filename    = argv[1];
+    outAudiofilename = argv[2];
+    outVideofilename = argv[3];
     
     //1.注册组件
     av_register_all();
@@ -654,10 +639,7 @@ int main (int argc, char **argv)
         printf("%s %d fail!\n",__FUNCTION__,__LINE__);
         return FAIL;
     }
-    
-    //init sdk
-    sdk_Init();
-    
+ 
     //3.获取音频信息
     if (avformat_find_stream_info(pFormatCtx, NULL) < 0) {
         printf("%s %d fail!\n",__FUNCTION__,__LINE__);
@@ -675,7 +657,7 @@ int main (int argc, char **argv)
             break;
         }
     }
-	for (i = 0; i < pFormatCtx->nb_streams; i++) {
+    for (i = 0; i < pFormatCtx->nb_streams; i++) {
         //根据类型判断是否是音频流
         if (pFormatCtx->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO) {
             video_stream_idx = i;
@@ -686,29 +668,33 @@ int main (int argc, char **argv)
     //4.获取解码器
     //根据索引拿到对应的流,根据流拿到解码器上下文
     AVCodecContext *pAudioCodeCtx = pFormatCtx->streams[audio_stream_idx]->codec;
-	
-	AVCodecContext *pVideoCodeCtx = pFormatCtx->streams[video_stream_idx]->codec;
-	
+
+    AVCodecContext *pVideoCodeCtx = pFormatCtx->streams[video_stream_idx]->codec;
+    
+    printf("video code width: %d,height: %d,codeid: %d\n",pVideoCodeCtx->width,pVideoCodeCtx->height,pVideoCodeCtx->codec_id);
+
+    sdk_Init(pVideoCodeCtx);
+
     //再根据上下文拿到编解码id，通过该id拿到解码器
     AVCodec *pAudioCodec = avcodec_find_decoder(pAudioCodeCtx->codec_id);
     if (pAudioCodec == NULL) {
         printf("%s %d fail!\n",__FUNCTION__,__LINE__);
         return FAIL;
     }
-	
-	AVCodec *pVideoCodec = avcodec_find_decoder(pVideoCodeCtx->codec_id);
+
+    AVCodec *pVideoCodec = avcodec_find_decoder(pVideoCodeCtx->codec_id);
     if (pVideoCodec == NULL) {
         printf("%s %d fail!\n",__FUNCTION__,__LINE__);
         return FAIL;
     }
-	
+
     //5.打开解码器
     if (avcodec_open2(pAudioCodeCtx, pAudioCodec, NULL) < 0) {
         printf("%s %d fail!\n",__FUNCTION__,__LINE__);
         return FAIL;
     }
-	
-	if (avcodec_open2(pVideoCodeCtx, pVideoCodec, NULL) < 0) {
+
+    if (avcodec_open2(pVideoCodeCtx, pVideoCodec, NULL) < 0) {
         printf("%s %d fail!\n",__FUNCTION__,__LINE__);
         return FAIL;
     }
@@ -716,7 +702,24 @@ int main (int argc, char **argv)
     AVPacket *packet = av_malloc(sizeof(AVPacket));
     //解压缩数据
     AVFrame *frame = av_frame_alloc();
-    
+
+    //none h264 sw decode need transcode to NV12 for disp input
+    if(pVideoCodeCtx->codec_id != AV_CODEC_ID_H264)
+    {
+        //转换成YUV420P
+        pFrameYUV = av_frame_alloc();
+        //只有指定了AVFrame的像素格式、画面大小才能真正分配内存
+        //缓冲区分配内存
+        Vout_buffer = (uint8_t *)av_malloc(avpicture_get_size(AV_PIX_FMT_NV12, pVideoCodeCtx->width, pVideoCodeCtx->height));
+        //初始化缓冲区
+        avpicture_fill((AVPicture *)pFrameYUV, Vout_buffer, AV_PIX_FMT_NV12, pVideoCodeCtx->width, pVideoCodeCtx->height);
+
+        //用于转码（缩放）的参数，转之前的宽高，转之后的宽高，格式等
+        sws_ctx = sws_getContext(pVideoCodeCtx->width,pVideoCodeCtx->height,pVideoCodeCtx->pix_fmt,
+                                                pVideoCodeCtx->width, pVideoCodeCtx->height, AV_PIX_FMT_NV12,
+                                                SWS_BICUBIC, NULL, NULL, NULL);
+    }
+
     //frame->16bit 44100 PCM 统一音频采样格式与采样率
     SwrContext *swrCtx = swr_alloc();
     //重采样设置选项-----------------------------------------------------------start
@@ -754,13 +757,23 @@ int main (int argc, char **argv)
     uint8_t *out_buffer = (uint8_t *) av_malloc(2 * AUDIO_INPUT_SAMPRATE);
     
     int ret;
-    //Patch for skip avformat_find_stream_info send frame to ss hw decode
-    pVideoCodeCtx->debug = 1;
-    sdk_bind();
+
+    //h264 hw decode need bind vdec 2 disp
+    if(pVideoCodeCtx->codec_id == AV_CODEC_ID_H264)
+    {
+        //Patch for skip avformat_find_stream_info send frame to ss hw decode
+        pVideoCodeCtx->debug = 1;
+        sdk_bind();
+    }
+    
+    //FILE *fp_yuv = fopen(outVideofilename, "wb+");
+    //FILE *fp_pcm = fopen(outAudiofilename, "wb+");
+
     //6.一帧一帧读取压缩的音频数据AVPacket
     while (av_read_frame(pFormatCtx, packet) >= 0) {
     
-        if (packet->stream_index == audio_stream_idx) {
+        if(packet->stream_index == audio_stream_idx) 
+        {
         
             MI_AUDIO_Frame_t stAoSendFrame;
             MI_S32 s32RetSendStatus = 0;
@@ -772,87 +785,137 @@ int main (int argc, char **argv)
             if(ret < 0)
             {
                 printf("avcodec_send_packet fail!\n");
-                return FAIL;
+                continue;
             }
 
             ret = avcodec_receive_frame(pAudioCodeCtx, frame);
-            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-                return FAIL;
-            else if (ret < 0)
+            if (ret < 0 && ret != AVERROR(EAGAIN))
             {
-                fprintf(stderr, "Error during decoding\n");
-                exit(1);
+                printf("avcodec_receive_frame fail\n");
+                return ret;
             }
-
-            fflush(stdout);
-            
-            swr_convert(swrCtx, &out_buffer, 2 * AUDIO_INPUT_SAMPRATE, (const uint8_t **)frame->data, frame->nb_samples);
-            int out_buffer_size = av_samples_get_buffer_size(NULL, out_channel_nb, frame->nb_samples,
-            out_sample_fmt, 1);
-
-            //read data and send to AO module
-            stAoSendFrame.u32Len = out_buffer_size;
-            stAoSendFrame.apVirAddr[0] = out_buffer;
-            stAoSendFrame.apVirAddr[1] = NULL;
-
-            do{
-                s32RetSendStatus = MI_AO_SendFrame(AoDevId, AoChn, &stAoSendFrame, 128);
-            }while(s32RetSendStatus == MI_AO_ERR_NOBUF);
-
-            if(s32RetSendStatus != MI_SUCCESS)
+            if(ret >= 0)
             {
-                printf("[Warning]: MI_AO_SendFrame fail, error is 0x%x: \n",s32RetSendStatus);
-            }
+                swr_convert(swrCtx, &out_buffer, 2 * AUDIO_INPUT_SAMPRATE, (const uint8_t **)frame->data, frame->nb_samples);
+                int out_buffer_size = av_samples_get_buffer_size(NULL, out_channel_nb, frame->nb_samples,
+                out_sample_fmt, 1);
 
+                //read data and send to AO module
+                stAoSendFrame.u32Len = out_buffer_size;
+                stAoSendFrame.apVirAddr[0] = out_buffer;
+                stAoSendFrame.apVirAddr[1] = NULL;
+
+                do{
+                    s32RetSendStatus = MI_AO_SendFrame(AoDevId, AoChn, &stAoSendFrame, 128);
+                }while(s32RetSendStatus == MI_AO_ERR_NOBUF);
+
+                if(s32RetSendStatus != MI_SUCCESS)
+                {
+                    printf("[Warning]: MI_AO_SendFrame fail, error is 0x%x: \n",s32RetSendStatus);
+                }
+            }
         }
-		if(packet->stream_index == video_stream_idx)
-		{
-            //7.解码一帧视频压缩数据
 
-            const char start_code[4] = { 0, 0, 0, 1 };
-            if(memcmp(start_code, packet->data, 4) != 0)
-            {//is avc1 code, have no start code of H264
-                int len = 0;
-                uint8_t *p = packet->data;
+        if(packet->stream_index == video_stream_idx)
+        {
+            //detect avi format
+            if(pVideoCodeCtx->codec_id == AV_CODEC_ID_H264)
+            {
+                const char start_code[4] = { 0, 0, 0, 1 };
+                if(memcmp(start_code, packet->data, 4) != 0)
+                {//is avc1 code, have no start code of H264
+                    int len = 0;
+                    uint8_t *p = packet->data;
 
-                do 
-                {//add start_code for each NAL, one frame may have multi NALs.
-                    len = ntohl(*((long*)p));
-                    memcpy(p, start_code, 4);
+                    do 
+                    {//add start_code for each NAL, one frame may have multi NALs.
+                        len = ntohl(*((long*)p));
+                        memcpy(p, start_code, 4);
 
-                    p += 4;
-                    p += len;
-                    if(p >= packet->data + packet->size)
-                    {
-                        break;
-                    }
-                } while (1);
+                        p += 4;
+                        p += len;
+                        if(p >= packet->data + packet->size)
+                        {
+                            break;
+                        }
+                    } while (1);
+                }
             }
-            
+            //7.解码一帧视频压缩数据
             ret = avcodec_send_packet(pVideoCodeCtx, packet);
             if(ret < 0)
             {
                 printf("avcodec_send_packet fail!\n");
-                return FAIL;
+                continue;
             }
 
             ret = avcodec_receive_frame(pVideoCodeCtx, frame);
-            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF)
-                return FAIL;
-            else if (ret < 0)
+
+            if (ret < 0 && ret != AVERROR(EAGAIN))
             {
-                fprintf(stderr, "Error during decoding\n");
-                exit(1);
+                printf("avcodec_receive_frame fail\n");
+                return ret;
             }
-            fflush(stdout);
+            
+            //none h264 sw decode need put frame to disp
+            if(pVideoCodeCtx->codec_id != AV_CODEC_ID_H264)
+            {
+                if(ret >= 0)
+                {
+                    sws_scale(sws_ctx, frame->data, frame->linesize, 0, pVideoCodeCtx->height,pFrameYUV->data, pFrameYUV->linesize);
+
+                    int y_size = pVideoCodeCtx->width * pVideoCodeCtx->height;
+
+                    MI_SYS_BUF_HANDLE hHandle;
+                    MI_SYS_ChnPort_t pstSysChnPort;
+                    MI_SYS_BufConf_t stBufConf;
+                    MI_SYS_BufInfo_t stBufInfo;
+
+                    pstSysChnPort.eModId = E_MI_MODULE_ID_DISP;
+                    pstSysChnPort.u32ChnId = 0;
+                    pstSysChnPort.u32DevId = 0;
+                    pstSysChnPort.u32PortId = 0;
+
+                    memset(&stBufInfo , 0 , sizeof(MI_SYS_BufInfo_t));
+                    memset(&stBufConf , 0 , sizeof(MI_SYS_BufConf_t));
+
+                    stBufConf.eBufType = E_MI_SYS_BUFDATA_FRAME;
+                    stBufConf.u64TargetPts = 0;
+                    stBufConf.stFrameCfg.u16Width = pVideoCodeCtx->width;
+                    stBufConf.stFrameCfg.u16Height = pVideoCodeCtx->height;
+                    stBufConf.stFrameCfg.eFormat = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
+                    stBufConf.stFrameCfg.eFrameScanMode = E_MI_SYS_FRAME_SCAN_MODE_PROGRESSIVE;
+
+                    if(MI_SUCCESS == MI_SYS_ChnInputPortGetBuf(&pstSysChnPort,&stBufConf,&stBufInfo,&hHandle, -1))
+                    {
+                        stBufInfo.stFrameData.eCompressMode = E_MI_SYS_COMPRESS_MODE_NONE;
+                        stBufInfo.stFrameData.eFieldType = E_MI_SYS_FIELDTYPE_NONE;
+                        stBufInfo.stFrameData.eTileMode = E_MI_SYS_FRAME_TILE_MODE_NONE;
+                        stBufInfo.bEndOfStream = FALSE;
+
+                        memcpy(stBufInfo.stFrameData.pVirAddr[0],pFrameYUV->data[0],y_size);
+                        memcpy(stBufInfo.stFrameData.pVirAddr[1],pFrameYUV->data[1],y_size/2);
+
+                        //stBufInfo.stFrameData.pVirAddr[0] = pFrameYUV->data[0];
+                        //stBufInfo.stFrameData.pVirAddr[1] = pFrameYUV->data[1];
+
+                        MI_SYS_ChnInputPortPutBuf(hHandle ,&stBufInfo , FALSE);
+                    }
+                }
+            }
         }
         av_free_packet(packet);
     }
-    
+    if(pVideoCodeCtx->codec_id == AV_CODEC_ID_H264)
+    {
+        sdk_Unbind();
+    }
     sdk_Deinit();
-    sdk_Unbind();
+
     av_frame_free(&frame);
+    av_frame_free(&pFrameYUV);
     av_free(out_buffer);
+	av_free(Vout_buffer);
     swr_free(&swrCtx);
     avcodec_close(pAudioCodeCtx);
     avformat_close_input(&pFormatCtx);
