@@ -27,7 +27,7 @@
 #include "video.h"
 #include "audio.h"
 
-static AVPacket flush_pkt;
+AVPacket flush_pkt;
 
 static player_stat_t *player_init(const char *p_input_file);
 static int player_deinit(player_stat_t *is);
@@ -288,7 +288,7 @@ static int player_deinit(player_stat_t *is)
     pthread_join(is->audioPlay_tid, NULL);
     pthread_join(is->videoPlay_tid, NULL);
     printf("pthread_join finish 11\n");
-    av_frame_free(is->p_frm_yuv);
+    av_frame_free(&is->p_frm_yuv);
     
     printf("pthread_join finish\n");
     avformat_close_input(&is->p_fmt_ctx);

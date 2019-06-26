@@ -118,13 +118,12 @@ static int demux_thread(void *arg)
 
     pthread_mutex_t wait_mutex;
     CheckFuncResult(pthread_mutex_init(&wait_mutex, NULL));
-    
-    //AVPacket *pkt = av_malloc(sizeof(AVPacket));
-
+    is->eof = 0;
 
     // 4. 解复用处理
     while (1)
     {
+        
         if (is->abort_request)
         {
             printf("demux thread exit\n");
@@ -159,7 +158,7 @@ static int demux_thread(void *arg)
         ret = av_read_frame(is->p_fmt_ctx, pkt);
         if (ret < 0)
         {
-            if ((ret == AVERROR_EOF))// || avio_feof(ic->pb)) && !is->eof)
+            if (((ret == AVERROR_EOF) || avio_feof(is->p_fmt_ctx->pb)) && !is->eof)
             {
                 // 输入文件已读完，则往packet队列中发送NULL packet，以冲洗(flush)解码器，否则解码器中缓存的帧取不出来
                 if (is->video_idx >= 0)
@@ -170,24 +169,25 @@ static int demux_thread(void *arg)
                 {
                     packet_queue_put_nullpacket(&is->audio_pkt_queue, is->audio_idx);
                 }
+                is->eof = 1;
             }
-            #if 0
+
             pthread_mutex_lock(&wait_mutex);
             
             gettimeofday(&now, NULL);
             outtime.tv_sec = now.tv_sec;
             outtime.tv_nsec = now.tv_usec * 1000 + 10 * 1000 * 1000;//timeout 10ms
-            printf("cond time wait 11\n");
             pthread_cond_timedwait(&is->continue_read_thread,&wait_mutex,&outtime);
-            printf("cond time wait 11 finish\n");
             
-            //SDL_CondWaitTimeout(is->continue_read_thread, wait_mutex, 10);
             pthread_mutex_unlock(&wait_mutex);
-            #endif
-            printf("av_read_frame fail\n");
-            usleep(10*1000);
+            
             continue;
         }
+        else
+        {
+            is->eof = 0;
+        }
+            
         
         // 4.3 根据当前packet类型(音频、视频、字幕)，将其存入对应的packet队列
         if (pkt->stream_index == is->audio_idx)
@@ -207,7 +207,6 @@ static int demux_thread(void *arg)
         }
     }
 
-    //av_freep(&pkt);
     pthread_mutex_destroy(&wait_mutex);
     return 0;
 }

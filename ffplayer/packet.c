@@ -66,6 +66,11 @@ int packet_queue_get(packet_queue_t *q, AVPacket *pkt, int block)
 
     while (1)
     {
+        if(q->abort_request)
+        {
+            ret = -1;
+            break;
+        }
         p_pkt_node = q->first_pkt;
         if (p_pkt_node)             // 队列非空，取一个出来
         {

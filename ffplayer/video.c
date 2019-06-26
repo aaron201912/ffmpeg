@@ -20,9 +20,9 @@
 #include<sys/stat.h>
 
 
-
-
 static int fdv;
+extern AVPacket flush_pkt;
+
 
 static int queue_picture(player_stat_t *is, AVFrame *src_frame, double pts, double duration, int64_t pos)
 {
@@ -112,7 +112,7 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             return -1;
         }
         
-        if (pkt.data == NULL)
+        if (pkt.data == flush_pkt.data)
         {
             // 复位解码器内部状态/刷新内部缓冲区。
             avcodec_flush_buffers(p_codec_ctx);
@@ -127,7 +127,6 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             {
                 av_log(NULL, AV_LOG_ERROR, "receive_frame and send_packet both returned EAGAIN, which is an API violation.\n");
             }
-
             av_packet_unref(&pkt);
         }
     }
@@ -330,10 +329,8 @@ retry:
     if (frame_queue_nb_remaining(&is->video_frm_queue) == 0)  // 所有帧已显示
     {    
         // nothing to do, no picture to display in the queue
-        printf("show all frame already size: %d\n",is->video_frm_queue.size);
         return;
     }
-#if 1
 
     double last_duration, duration, delay;
     frame_t *vp, *lastvp;
@@ -395,7 +392,6 @@ retry:
             goto retry;
         }
     }
-#endif
     // 删除当前读指针元素，读指针+1。若未丢帧，读指针从lastvp更新到vp；若有丢帧，读指针从vp更新到nextvp
     frame_queue_next(&is->video_frm_queue);
 

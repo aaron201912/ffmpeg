@@ -162,6 +162,7 @@ typedef struct {
     int abort_request;
     int paused;
     int step;
+    int eof;
 
     pthread_cond_t continue_read_thread;
     pthread_t read_tid;           // demux解复用线程
