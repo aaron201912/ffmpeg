@@ -47,10 +47,16 @@ typedef enum
 
 typedef enum
 {
-    E_MI_AUDIO_SAMPLE_RATE_8000 =8000, /* 8kHz sampling rate */
-    E_MI_AUDIO_SAMPLE_RATE_16000 =16000, /* 16kHz sampling rate */
-    E_MI_AUDIO_SAMPLE_RATE_32000 =32000, /* 32kHz sampling rate */
-    E_MI_AUDIO_SAMPLE_RATE_48000 =48000, /* 48kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_8000 = 8000, /* 8kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_11052 = 11052, /* 11.052kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_12000 = 12000, /* 12kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_16000 = 16000, /* 16kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_22050 = 22050, /* 22.05kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_24000 = 24000, /* 24kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_32000 = 32000, /* 32kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_44100 = 44100, /* 44.1kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_48000 = 48000, /* 48kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_96000 = 96000, /* 96kHz sampling rate */
     E_MI_AUDIO_SAMPLE_RATE_INVALID,
 }MI_AUDIO_SampleRate_e;
 

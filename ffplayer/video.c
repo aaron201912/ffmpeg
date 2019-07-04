@@ -326,9 +326,14 @@ static void video_refresh(void *opaque, double *remaining_time)
     static bool first_frame = true;
     
 retry:
+    // 暂停处理：不停播放上一帧图像
+    if (is->paused)
+        goto display;
+        
     if (frame_queue_nb_remaining(&is->video_frm_queue) == 0)  // 所有帧已显示
     {    
         // nothing to do, no picture to display in the queue
+        //printf("already last frame: %d\n",is->video_frm_queue.size);
         return;
     }
 
@@ -348,8 +353,8 @@ retry:
     }
 
     // 暂停处理：不停播放上一帧图像
-    if (is->paused)
-        goto display;
+    //if (is->paused)
+        //goto display;
 
     /* compute nominal last_duration */
     last_duration = vp_duration(is, lastvp, vp);        // 上一帧播放时长：vp->pts - lastvp->pts
@@ -394,6 +399,11 @@ retry:
     }
     // 删除当前读指针元素，读指针+1。若未丢帧，读指针从lastvp更新到vp；若有丢帧，读指针从vp更新到nextvp
     frame_queue_next(&is->video_frm_queue);
+    
+    if (is->step && !is->paused)
+    {
+        stream_toggle_pause(is);
+    }
 
 display:
     video_display(is);                      // 取出当前帧vp(若有丢帧是nextvp)进行播放
@@ -569,25 +579,7 @@ static int open_video_playing(void *arg)
     int ret;
     int buf_size;
     uint8_t* buffer = NULL;
-    AVFrame *pF = NULL;
-#if 0
-    is->p_frm_yuv = av_frame_alloc();
-    if (is->p_frm_yuv == NULL)
-    {
-        printf("av_frame_alloc() for p_frm_raw failed\n");
-        return -1;
-    }
-#endif
-    //FIX ME!!! if not add this will cause malloc(): memory corruption at swr_alloc_set_opts
-    //SwrContext *swrCtx = swr_alloc();
-    #if 0
-    pF = av_frame_alloc();
-    if (pF == NULL)
-    {
-        printf("av_frame_alloc() for p_frm_raw failed\n");
-        return -1;
-    }
-    #endif
+    
     // 为AVFrame.*data[]手工分配缓冲区，用于存储sws_scale()中目的帧视频数据
     buf_size = av_image_get_buffer_size(AV_PIX_FMT_NV12, 
                                         is->p_vcodec_ctx->width, 

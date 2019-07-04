@@ -63,6 +63,13 @@
 
 #define FF_QUIT_EVENT    (SDL_USEREVENT + 2)
 
+enum {
+    AV_SYNC_AUDIO_MASTER, /* default choice */
+    AV_SYNC_VIDEO_MASTER,
+    AV_SYNC_EXTERNAL_CLOCK, /* synchronize to an external clock */
+};
+
+
 typedef struct {
     double pts;                     // 当前帧(待播放)显示时间戳，播放后，当前帧变成上一帧
     double pts_drift;               // 当前帧显示时间戳与当前系统时钟时间的差值
@@ -135,6 +142,7 @@ typedef struct {
 
     play_clock_t audio_clk;                   // 音频时钟
     play_clock_t video_clk;                   // 视频时钟
+    play_clock_t extclk;
     double frame_timer;
 
     packet_queue_t audio_pkt_queue;
@@ -161,8 +169,15 @@ typedef struct {
     
     int abort_request;
     int paused;
+    int last_paused;
+    int read_pause_return;
     int step;
     int eof;
+    int seek_req;
+    int seek_flags;
+    int av_sync_type;
+    int64_t seek_pos;
+    int64_t seek_rel;
 
     pthread_cond_t continue_read_thread;
     pthread_t read_tid;           // demux解复用线程
@@ -178,5 +193,6 @@ int player_running(const char *p_input_file);
 double get_clock(play_clock_t *c);
 void set_clock_at(play_clock_t *c, double pts, int serial, double time);
 void set_clock(play_clock_t *c, double pts, int serial);
+void stream_toggle_pause(player_stat_t *is);
 
 #endif

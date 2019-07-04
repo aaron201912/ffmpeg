@@ -234,13 +234,15 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
     av_unused double audio_clock0;
     int wanted_nb_samples;
     frame_t *af;
-
+    
+    if (is->paused)
+        return -1;
 
     // 若队列头部可读，则由af指向可读帧
     if (!(af = frame_queue_peek_readable(&is->audio_frm_queue)))
         return -1;
 
-    //frame_queue_next(&is->audio_frm_queue);
+    frame_queue_next(&is->audio_frm_queue);
     // 根据frame中指定的音频参数获取缓冲区的大小
     data_size = av_samples_get_buffer_size(NULL, af->frame->channels,   // 本行两参数：linesize，声道数
         af->frame->nb_samples,       // 本行一参数：本帧中包含的单个声道中的样本数
@@ -371,6 +373,8 @@ static int audio_playing_thread(void *arg)
 {
     player_stat_t *is = (player_stat_t *)arg;
     int audio_size, len1,len;
+    int pause = 0;
+    int last_pause =0;
 
     
     while(1)
@@ -386,11 +390,25 @@ static int audio_playing_thread(void *arg)
         if (audio_size < 0)
         {
             /* if error, just output silence */
+            
+            pause = 1;
+            if(pause != last_pause)
+            {
+
+                last_pause = pause;
+                MI_AO_PauseChn(0,0);
+            }
             is->p_audio_frm = NULL;
             is->audio_frm_size = SDL_AUDIO_MIN_BUFFER_SIZE / is->audio_param_tgt.frame_size * is->audio_param_tgt.frame_size;
         }
         else
         {
+            pause = 0;
+            if(pause != last_pause)
+            {
+                last_pause = pause;
+                MI_AO_ResumeChn(0,0);
+            }
             is->audio_frm_size = audio_size;
         }
 
@@ -419,7 +437,7 @@ static int audio_playing_thread(void *arg)
                 printf("[Warning]: MI_AO_SendFrame fail, error is 0x%x: \n",s32RetSendStatus);
             }
 
-            frame_queue_next(&is->audio_frm_queue);
+            //frame_queue_next(&is->audio_frm_queue);
         }
 
         // is->audio_write_buf_size是本帧中尚未拷入SDL音频缓冲区的数据量
@@ -431,7 +449,7 @@ static int audio_playing_thread(void *arg)
             // 更新音频时钟，更新时刻：每次往声卡缓冲区拷入数据后
             // 前面audio_decode_frame中更新的is->audio_clock是以音频帧为单位，所以此处第二个参数要减去未拷贝数据量占用的时间
             set_clock_at(&is->audio_clk,
-                is->audio_clock /*- (double)(2 * is->audio_hw_buf_size + is->audio_write_buf_size) / is->audio_param_tgt.bytes_per_sec*/,
+                is->audio_clock - (double)(is->audio_hw_buf_size) / is->audio_param_tgt.bytes_per_sec,
                 is->audio_clock_serial,
                 audio_callback_time / 1000000.0);
             //printf("audio clk: %lf,curtime: %ld,audio_callback_time: %ld\n",is->audio_clock,is->audio_clock_serial,audio_callback_time);

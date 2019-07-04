@@ -2,6 +2,8 @@
 #include "packet.h"
 #include <sys/time.h>
 
+extern AVPacket flush_pkt;
+
 static int decode_interrupt_cb(void *ctx)
 {
     player_stat_t *is = ctx;
@@ -105,6 +107,14 @@ static int stream_has_enough_packets(AVStream *st, int stream_id, packet_queue_t
            queue->nb_packets > MIN_FRAMES && (!queue->duration || av_q2d(st->time_base) * queue->duration > 1.0);
 }
 
+static void step_to_next_frame(player_stat_t *is)
+{
+    /* if the stream is paused unpause it, then step */
+    if (is->paused)
+        stream_toggle_pause(is);
+    is->step = 1;
+}
+
 /* this thread gets the stream from the disk or the network */
 static int demux_thread(void *arg)
 {
@@ -129,6 +139,73 @@ static int demux_thread(void *arg)
             printf("demux thread exit\n");
             break;
         }
+        //printf("loop start paused: %d,last_paused: %d\n",is->paused,is->last_paused);
+        if (is->paused != is->last_paused) {
+            is->last_paused = is->paused;
+            if (is->paused)
+            {
+                is->read_pause_return = av_read_pause(is->p_fmt_ctx);
+            }
+            else
+            {
+                av_read_play(is->p_fmt_ctx);
+            }
+        }
+
+        if(is->paused)
+        {
+            /* wait 10 ms */
+            pthread_mutex_lock(&wait_mutex);
+            
+            gettimeofday(&now, NULL);
+            outtime.tv_sec = now.tv_sec;
+            outtime.tv_nsec = now.tv_usec * 1000 + 10 * 1000 * 1000;//timeout 10ms
+            
+            pthread_cond_timedwait(&is->continue_read_thread,&wait_mutex,&outtime);
+            
+            //SDL_CondWaitTimeout(is->continue_read_thread, wait_mutex, 10);
+            pthread_mutex_unlock(&wait_mutex);
+            
+            continue;
+            
+        }
+
+        if (is->seek_req) {
+            int64_t seek_target = is->seek_pos;
+            int64_t seek_min    = is->seek_rel > 0 ? seek_target - is->seek_rel + 2: INT64_MIN;
+            int64_t seek_max    = is->seek_rel < 0 ? seek_target - is->seek_rel - 2: INT64_MAX;
+            
+            // FIXME the +-2 is due to rounding being not done in the correct direction in generation
+            // of the seek_pos/seek_rel variables
+
+            ret = avformat_seek_file(is->p_fmt_ctx, -1, seek_min, seek_target, seek_max, is->seek_flags);
+            if (ret < 0) {
+                av_log(NULL, AV_LOG_ERROR,
+                       "%s: error while seeking\n", is->p_fmt_ctx->url);
+            } else {
+                if (is->audio_idx >= 0) {
+                    packet_queue_flush(&is->audio_pkt_queue);
+                    packet_queue_put(&is->audio_pkt_queue, &flush_pkt);
+                }
+                if (is->video_idx >= 0) {
+                    packet_queue_flush(&is->video_pkt_queue);
+                    packet_queue_put(&is->video_pkt_queue, &flush_pkt);
+                }
+                /*
+                if (is->seek_flags & AVSEEK_FLAG_BYTE) {
+                   set_clock(&is->extclk, NAN, 0);
+                } else {
+                   set_clock(&is->extclk, seek_target / (double)AV_TIME_BASE, 0);
+                }
+                */
+            }
+            is->seek_req = 0;
+            //is->queue_attachments_req = 1;
+            is->eof = 0;
+            if (is->paused)
+                step_to_next_frame(is);
+        }
+        
         
         /* if the queue are full, no need to read more */
         if (is->audio_pkt_queue.size + is->video_pkt_queue.size > MAX_QUEUE_SIZE ||

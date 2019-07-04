@@ -19,7 +19,7 @@ CPP_OBJS = $(patsubst %.cpp, %.cpp.o, $(CPP_SRCS))
 C_OBJS = $(patsubst %.c, %.c.o, $(C_SRCS))
 
 LIB_PATH  = -L. -L../sstar/lib -L../ffmpeg-4.1.3/host/lib
-LIB_NAME += -lavformat -lavcodec -lavutil -lswscale -lswresample -pthread -lm -lmi_vdec -lmi_sys -lmi_divp -lmi_disp -lmi_hdmi -lmi_ao -ldl
+LIB_NAME += -lavformat -lavcodec -lavutil -lswscale -lswresample -pthread -lm -lmi_vdec -lmi_sys -lmi_divp -lmi_disp -lmi_hdmi -lmi_ao -ldl -lmi_common
 
 
 .PHONY: all prepare clean

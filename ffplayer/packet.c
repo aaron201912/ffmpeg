@@ -45,7 +45,12 @@ int packet_queue_put(packet_queue_t *q, AVPacket *pkt)
     }
     q->last_pkt = pkt_list;
     q->nb_packets++;
-    //printf("put pkt nb: %d\n",q->nb_packets);
+#if 0    
+    if(pkt->stream_index == 0)
+        printf("put video pkt queue nb: %d\n",q->nb_packets);
+    else
+        printf("put audio pkt queue nb: %d\n",q->nb_packets);
+#endif
 
     q->size += pkt_list->pkt.size + sizeof(*pkt_list);
     
@@ -83,7 +88,12 @@ int packet_queue_get(packet_queue_t *q, AVPacket *pkt, int block)
             q->size -= p_pkt_node->pkt.size + sizeof(*p_pkt_node);
             *pkt = p_pkt_node->pkt;
             av_free(p_pkt_node);
-            //printf("get pkt queue nb: %d\n",q->nb_packets);
+#if 0
+            if(pkt->stream_index == 0)
+                printf("get video pkt queue nb: %d\n",q->nb_packets);
+            else
+                printf("get audio pkt queue nb: %d\n",q->nb_packets);
+#endif
             ret = 1;
             break;
         }

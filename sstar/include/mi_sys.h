@@ -4,7 +4,7 @@
   Unless otherwise stipulated in writing, any and all information contained
  herein regardless in any format shall remain the sole proprietary of
  Sigmastar Technology Corp. and be kept in strict confidence
- (??Sigmastar Confidential Information??) by the recipient.
+ (��Sigmastar Confidential Information��) by the recipient.
  Any unauthorized act including without limitation unauthorized disclosure,
  copying, use, reproduction, sale, distribution, modification, disassembling,
  reverse engineering and compiling of the contents of Sigmastar Confidential
@@ -18,7 +18,7 @@
 #include "mi_sys_datatype.h"
 
 #define SYS_MAJOR_VERSION 2
-#define SYS_SUB_VERSION 9
+#define SYS_SUB_VERSION 11
 #define MACRO_TO_STR(macro) #macro
 #define SYS_VERSION_STR(major_version,sub_version) ({char *tmp = sub_version/100 ? \
                                     "mi_sys_version_" MACRO_TO_STR(major_version)"." MACRO_TO_STR(sub_version) : sub_version/10 ? \
@@ -107,7 +107,7 @@ MI_S32 MI_SYS_Mmap(MI_U64 phyAddr, MI_U32 u32Size , void **ppVirtualAddress , MI
 MI_S32 MI_SYS_Munmap(void *pVirtualAddress, MI_U32 u32Size);
 MI_S32 MI_SYS_FlushInvCache(void *pVirtualAddress, MI_U32 u32Length);
 
-#ifndef __KERNEL__
+#ifdef __USER__
 #define DEBUG_YUV_USER_API
 #ifdef DEBUG_YUV_USER_API
 typedef  FILE* FILE_HANDLE;

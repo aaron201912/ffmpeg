@@ -4,7 +4,7 @@
   Unless otherwise stipulated in writing, any and all information contained
  herein regardless in any format shall remain the sole proprietary of
  Sigmastar Technology Corp. and be kept in strict confidence
- (??Sigmastar Confidential Information??) by the recipient.
+ (��Sigmastar Confidential Information��) by the recipient.
  Any unauthorized act including without limitation unauthorized disclosure,
  copying, use, reproduction, sale, distribution, modification, disassembling,
  reverse engineering and compiling of the contents of Sigmastar Confidential
@@ -268,6 +268,13 @@ typedef enum
    E_MI_SYS_PER_CHN_PORT_OUTPUT_POOL=3,
 }MI_SYS_InsidePrivatePoolType_e;
 
+typedef enum
+{
+    E_MI_SYS_FRAME_ISP_INFO_TYPE_NONE,
+    E_MI_SYS_FRAME_ISP_INFO_TYPE_GLOBAL_GRADIENT
+}MI_SYS_FrameIspInfoType_e;
+
+
 typedef struct MI_SYS_ChnPort_s
 {
     MI_ModuleId_e eModId;
@@ -323,7 +330,14 @@ typedef enum
 #define MI_SYS_REALTIME_MAGIC_VADDR ((void*)0x46414B45) //"FAKE"
 #define MI_SYS_REALTIME_MAGIC_PITCH ((MI_U32)0x46414B45) //"FAKE"
 
-
+typedef struct MI_SYS_FrameIspInfo_s
+{
+    MI_SYS_FrameIspInfoType_e eType;
+    union
+    {
+        MI_U32 u32GlobalGradient;
+    }uIspInfo;
+}MI_SYS_FrameIspInfo_t;
 
 //N.B. in MI_SYS_FrameData_t should never support u32Size,
 //for other values are enough,and not support u32Size is general standard method.
@@ -345,9 +359,11 @@ typedef  struct  MI_SYS_FrameData_s
     MI_U32 u32Stride[3];
     MI_U32 u32BufSize;//total size that allocated for this buffer,include consider alignment.
 
-
     MI_U16 u16RingBufStartLine;//Valid in case RINGBUF_FRAME_DATA,  u16RingBufStartLine must be LGE than 0 and less than u16Height
     MI_U16 u16RingBufRealTotalHeight;///Valid in case RINGBUF_FRAME_DATA,  u16RingBufStartLine must be LGE than u16Height
+
+    MI_SYS_FrameIspInfo_t stFrameIspInfo;//isp info of each frame
+    MI_SYS_WindowRect_t stContentCropWindow;
 } MI_SYS_FrameData_t;
 
 typedef  struct  MI_SYS_BufInfo_s
@@ -363,7 +379,6 @@ typedef  struct  MI_SYS_BufInfo_s
         MI_SYS_FrameData_t stFrameData;
         MI_SYS_RawData_t stRawData;
     };
-    MI_SYS_PerFrameMetaBuf_t stPerFrameMetaBuf;
 } MI_SYS_BufInfo_t;
 
 typedef struct MI_SYS_FrameBufExtraConfig_s
@@ -391,11 +406,6 @@ typedef struct MI_SYS_BufRawConfig_s
     MI_U32 u32Size;
 }MI_SYS_BufRawConfig_t;
 
-typedef struct MI_SYS_MetaDataConfig_s
-{
-    MI_U32 u32Size;
-}MI_SYS_MetaDataConfig_t;
-
 typedef struct MI_SYS_BufConf_s
 {
     MI_SYS_BufDataType_e eBufType;
@@ -405,7 +415,6 @@ typedef struct MI_SYS_BufConf_s
     {
         MI_SYS_BufFrameConfig_t stFrameCfg;
         MI_SYS_BufRawConfig_t stRawCfg;
-        MI_SYS_MetaDataConfig_t stMetaCfg;
     };
 }MI_SYS_BufConf_t;
 
