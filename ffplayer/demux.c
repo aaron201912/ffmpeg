@@ -39,7 +39,8 @@ static int demux_init(player_stat_t *is)
         goto fail;
     }
     is->p_fmt_ctx = p_fmt_ctx;
-
+	double totle_seconds = p_fmt_ctx->duration * av_q2d(AV_TIME_BASE_Q);
+	printf("Total time of video : %f\n", totle_seconds);
     // 1.2 搜索流信息：读取一段视频文件数据，尝试解码，将取到的流信息填入p_fmt_ctx->streams
     //     ic->streams是一个指针数组，数组大小是pFormatCtx->nb_streams
     err = avformat_find_stream_info(p_fmt_ctx, NULL);
@@ -104,7 +105,7 @@ static int stream_has_enough_packets(AVStream *st, int stream_id, packet_queue_t
     return stream_id < 0 ||
            queue->abort_request ||
            (st->disposition & AV_DISPOSITION_ATTACHED_PIC) ||
-           queue->nb_packets > MIN_FRAMES && (!queue->duration || av_q2d(st->time_base) * queue->duration > 1.0);
+           (queue->nb_packets > MIN_FRAMES && (!queue->duration || av_q2d(st->time_base) * queue->duration > 1.0));
 }
 
 static void step_to_next_frame(player_stat_t *is)
@@ -119,7 +120,7 @@ static void step_to_next_frame(player_stat_t *is)
 static int demux_thread(void *arg)
 {
     player_stat_t *is = (player_stat_t *)arg;
-    AVFormatContext *p_fmt_ctx = is->p_fmt_ctx;
+//	AVFormatContext *p_fmt_ctx = is->p_fmt_ctx;
     int ret;
     AVPacket pkt1, *pkt = &pkt1;
 
@@ -267,15 +268,14 @@ static int demux_thread(void *arg)
             
         
         // 4.3 根据当前packet类型(音频、视频、字幕)，将其存入对应的packet队列
-        if (pkt->stream_index == is->audio_idx)
-        {
-            packet_queue_put(&is->audio_pkt_queue, pkt);
-            //printf("put audio pkt end\n");
-        }
-        else if (pkt->stream_index == is->video_idx)
+		if (pkt->stream_index == is->audio_idx)
+		{
+		    packet_queue_put(&is->audio_pkt_queue, pkt);
+		    //printf("put audio pkt end\n");
+		}
+		else if (pkt->stream_index == is->video_idx)
         {
             packet_queue_put(&is->video_pkt_queue, pkt);
-            
             //printf("put video pkt end\n");
         }
         else

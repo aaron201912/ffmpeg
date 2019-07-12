@@ -14,9 +14,9 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <sys/resource.h>
-#include<sys/mman.h>
-#include<sys/types.h>
-#include<sys/stat.h>
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 //sdk audio input/outout param
 #define     AUDIO_INPUT_SAMPRATE       48000
@@ -63,6 +63,7 @@ static int audio_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
                 AVRational tb = (AVRational) { 1, frame->sample_rate };
                 if (frame->pts != AV_NOPTS_VALUE)
                 {
+//                	printf("frame pts before convert : %d.\n", frame->pts);
                     frame->pts = av_rescale_q(frame->pts, p_codec_ctx->pkt_timebase, tb);
                 }
                 else
@@ -154,14 +155,14 @@ static int audio_decode_thread(void *arg)
 
             if (!(af = frame_queue_peek_writable(&is->audio_frm_queue)))
                 goto the_end;
-            
+
             af->pts = (p_frame->pts == AV_NOPTS_VALUE) ? NAN : p_frame->pts * av_q2d(tb);
             
             af->pos = p_frame->pkt_pos;
             //-af->serial = is->auddec.pkt_serial;
             // 当前帧包含的(单个声道)采样数/采样率就是当前帧的播放时长
             af->duration = av_q2d((AVRational) { p_frame->nb_samples, p_frame->sample_rate });
-
+//			printf("audio frame pts : %d, time pts : %f, audio duration : %f.\n", p_frame->pts, af->pts, af->duration);
             // 将frame数据拷入af->frame，af->frame指向音频frame队列尾部
             av_frame_move_ref(af->frame, p_frame);
             // 更新音频frame队列大小及写指针

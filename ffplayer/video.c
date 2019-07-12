@@ -60,13 +60,15 @@ static int queue_picture(player_stat_t *is, AVFrame *src_frame, double pts, doub
 static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt_queue, AVFrame *frame)
 {
     int ret;
-    
+	
     while (1)
     {
         AVPacket pkt;
-
+	
         while (1)
         {
+//        	printf("get in video_decode_frame!\n");
+			
             if(p_pkt_queue->abort_request)
             {
                 return -1;
@@ -88,7 +90,8 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
                 else if (ret == AVERROR(EAGAIN))
                 {
                     //av_log(NULL, AV_LOG_INFO, "video avcodec_receive_frame(): output is not available in this state - "
-                            //"user must try to send new input\n");
+                    //"user must try to send new input\n");
+//					av_log(NULL, AV_LOG_ERROR, "cann't fetch a frame, try again!\n");
                     break;
                 }
                 else
@@ -100,18 +103,18 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             else
             {
                 frame->pts = frame->best_effort_timestamp;
-                //frame->pts = frame->pkt_dts;
+//				printf("best_effort_timestamp : %lld.\n", frame->pts);
                 return 1;   // 成功解码得到一个视频帧或一个音频帧，则返回
             }
         }
-        
+
         // 1. 取出一个packet。使用pkt对应的serial赋值给d->pkt_serial
         if (packet_queue_get(p_pkt_queue, &pkt, true) < 0)
         {
             printf("packet_queue_get fail\n");
             return -1;
         }
-        
+
         if (pkt.data == flush_pkt.data)
         {
             // 复位解码器内部状态/刷新内部缓冲区。
@@ -122,13 +125,14 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             // 2. 将packet发送给解码器
             //    发送packet的顺序是按dts递增的顺序，如IPBBPBB
             //    pkt.pos变量可以标识当前packet在视频文件中的地址偏移
-            
+//			printf("send packet to decoder!\n");
             if (avcodec_send_packet(p_codec_ctx, &pkt) == AVERROR(EAGAIN))
             {
                 av_log(NULL, AV_LOG_ERROR, "receive_frame and send_packet both returned EAGAIN, which is an API violation.\n");
             }
             av_packet_unref(&pkt);
         }
+//		printf("exit out video_decode_frame!\n");
     }
 }
 
@@ -150,6 +154,11 @@ static int video_decode_thread(void *arg)
         return AVERROR(ENOMEM);
     }
 
+	printf("video time base : %f ms.\n", 1000 * av_q2d(tb));
+	printf("frame rate num : %d. frame rate den : %d.\n", frame_rate.num, frame_rate.den);
+
+	printf("get in video decode thread!\n");
+	
     while (1)
     {
         if(is->abort_request)
@@ -163,10 +172,11 @@ static int video_decode_thread(void *arg)
             printf("got pic fail\n");
             goto exit;
         }
-        
+
         duration = (frame_rate.num && frame_rate.den ? av_q2d((AVRational){frame_rate.den, frame_rate.num}) : 0);   // 当前帧播放时长
-        pts = (p_frame->pts == AV_NOPTS_VALUE) ? NAN : p_frame->pts * av_q2d(tb);   // 当前帧显示时间戳
-        
+		pts = (p_frame->pts == AV_NOPTS_VALUE) ? NAN : p_frame->pts * av_q2d(tb);   // 当前帧显示时间戳
+	
+//		printf("frame duration : %f. video frame clock : %f.\n", duration, pts);
         ret = queue_picture(is, p_frame, pts, duration, p_frame->pkt_pos);   // 将当前帧压入frame_queue
         av_frame_unref(p_frame);
 
@@ -248,72 +258,72 @@ static void update_video_pts(player_stat_t *is, double pts, int64_t pos, int ser
 
 static void video_display(player_stat_t *is)
 {
+	frame_t *vp;
 
-    frame_t *vp;
+	vp = frame_queue_peek_last(&is->video_frm_queue);
+	//printf("get vp disp ridx: %d,format: %d\n",is->video_frm_queue.rindex,vp->frame->format);
 
-    vp = frame_queue_peek_last(&is->video_frm_queue);
-    //printf("get vp disp ridx: %d,format: %d\n",is->video_frm_queue.rindex,vp->frame->format);
+	// 图像转换：p_frm_raw->data ==> p_frm_yuv->data
+	// 将源图像中一片连续的区域经过处理后更新到目标图像对应区域，处理的图像区域必须逐行连续
+	// plane: 如YUV有Y、U、V三个plane，RGB有R、G、B三个plane
+	// slice: 图像中一片连续的行，必须是连续的，顺序由顶部到底部或由底部到顶部
+	// stride/pitch: 一行图像所占的字节数，Stride=BytesPerPixel*Width+Padding，注意对齐
+	// AVFrame.*data[]: 每个数组元素指向对应plane
+	// AVFrame.linesize[]: 每个数组元素表示对应plane中一行图像所占的字节数
+	sws_scale(is->img_convert_ctx,                    // sws context
+	          (const uint8_t *const *)vp->frame->data,// src slice
+	          vp->frame->linesize,                    // src stride
+	          0,                                      // src slice y
+	          is->p_vcodec_ctx->height,               // src slice height
+	          is->p_frm_yuv->data,                    // dst planes
+	          is->p_frm_yuv->linesize                 // dst strides
+	         );
 
-    // 图像转换：p_frm_raw->data ==> p_frm_yuv->data
-    // 将源图像中一片连续的区域经过处理后更新到目标图像对应区域，处理的图像区域必须逐行连续
-    // plane: 如YUV有Y、U、V三个plane，RGB有R、G、B三个plane
-    // slice: 图像中一片连续的行，必须是连续的，顺序由顶部到底部或由底部到顶部
-    // stride/pitch: 一行图像所占的字节数，Stride=BytesPerPixel*Width+Padding，注意对齐
-    // AVFrame.*data[]: 每个数组元素指向对应plane
-    // AVFrame.linesize[]: 每个数组元素表示对应plane中一行图像所占的字节数
-    sws_scale(is->img_convert_ctx,                      // sws context
-              (const uint8_t *const *)vp->frame->data,// src slice
-              vp->frame->linesize,                    // src stride
-              0,                                      // src slice y
-              is->p_vcodec_ctx->height,               // src slice height
-              is->p_frm_yuv->data,                    // dst planes
-              is->p_frm_yuv->linesize                 // dst strides
-             );
-    int ysize;
-    ysize = vp->frame->width * vp->frame->height;
-    
-    //printf("save yuv width: %d,height: %d\n",vp->frame->width,vp->frame->height);
-    //put stream to ss disp start
-    MI_SYS_BUF_HANDLE hHandle;
-    MI_SYS_ChnPort_t pstSysChnPort;
-    MI_SYS_BufConf_t stBufConf;
-    MI_SYS_BufInfo_t stBufInfo;
+	int ysize;
+	ysize = vp->frame->width * vp->frame->height;
+	
+	//printf("save yuv width: %d,height: %d\n",vp->frame->width,vp->frame->height);
+	//put stream to ss disp start
+	MI_SYS_BUF_HANDLE hHandle;
+	MI_SYS_ChnPort_t  pstSysChnPort;
+	MI_SYS_BufConf_t  stBufConf;
+	MI_SYS_BufInfo_t  stBufInfo;
 
-    pstSysChnPort.eModId = E_MI_MODULE_ID_DISP;
-    pstSysChnPort.u32ChnId = 0;
-    pstSysChnPort.u32DevId = 0;
-    pstSysChnPort.u32PortId = 0;
+	pstSysChnPort.eModId    = E_MI_MODULE_ID_DISP;
+	pstSysChnPort.u32ChnId  = 0;
+	pstSysChnPort.u32DevId  = 0;
+	pstSysChnPort.u32PortId = 0;
 
-    memset(&stBufInfo , 0 , sizeof(MI_SYS_BufInfo_t));
-    memset(&stBufConf , 0 , sizeof(MI_SYS_BufConf_t));
+	memset(&stBufInfo , 0 , sizeof(MI_SYS_BufInfo_t));
+	memset(&stBufConf , 0 , sizeof(MI_SYS_BufConf_t));
 
-    stBufConf.eBufType = E_MI_SYS_BUFDATA_FRAME;
-    stBufConf.u64TargetPts = 0;
-    stBufConf.stFrameCfg.u16Width = is->p_vcodec_ctx->width;
-    stBufConf.stFrameCfg.u16Height = is->p_vcodec_ctx->height;
-    stBufConf.stFrameCfg.eFormat = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
-    stBufConf.stFrameCfg.eFrameScanMode = E_MI_SYS_FRAME_SCAN_MODE_PROGRESSIVE;
+	stBufConf.eBufType = E_MI_SYS_BUFDATA_FRAME;
+	stBufConf.u64TargetPts = 0;
+	stBufConf.stFrameCfg.u16Width = is->p_vcodec_ctx->width;
+	stBufConf.stFrameCfg.u16Height = is->p_vcodec_ctx->height;
+	stBufConf.stFrameCfg.eFormat = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
+	stBufConf.stFrameCfg.eFrameScanMode = E_MI_SYS_FRAME_SCAN_MODE_PROGRESSIVE;
 
-    if(MI_SUCCESS == MI_SYS_ChnInputPortGetBuf(&pstSysChnPort,&stBufConf,&stBufInfo,&hHandle, -1))
-    {
-        stBufInfo.stFrameData.eCompressMode = E_MI_SYS_COMPRESS_MODE_NONE;
-        stBufInfo.stFrameData.eFieldType = E_MI_SYS_FIELDTYPE_NONE;
-        stBufInfo.stFrameData.eTileMode = E_MI_SYS_FRAME_TILE_MODE_NONE;
-        stBufInfo.bEndOfStream = FALSE;
+	if(MI_SUCCESS == MI_SYS_ChnInputPortGetBuf(&pstSysChnPort,&stBufConf,&stBufInfo,&hHandle, -1))
+	{
+	    stBufInfo.stFrameData.eCompressMode = E_MI_SYS_COMPRESS_MODE_NONE;
+	    stBufInfo.stFrameData.eFieldType    = E_MI_SYS_FIELDTYPE_NONE;
+	    stBufInfo.stFrameData.eTileMode     = E_MI_SYS_FRAME_TILE_MODE_NONE;
+	    stBufInfo.bEndOfStream = FALSE;
 
-        memcpy(stBufInfo.stFrameData.pVirAddr[0],is->p_frm_yuv->data[0],ysize);
-        memcpy(stBufInfo.stFrameData.pVirAddr[1],is->p_frm_yuv->data[1],ysize/2);
+//	    memcpy(stBufInfo.stFrameData.pVirAddr[0],is->p_frm_yuv->data[0],ysize);
+//	    memcpy(stBufInfo.stFrameData.pVirAddr[1],is->p_frm_yuv->data[1],ysize/2);
 
-        //stBufInfo.stFrameData.pVirAddr[0] = pFrameYUV->data[0];
-        //stBufInfo.stFrameData.pVirAddr[1] = pFrameYUV->data[1];
+	    memcpy(stBufInfo.stFrameData.pVirAddr[0],vp->frame->data[0],ysize);
+	    memcpy(stBufInfo.stFrameData.pVirAddr[1],vp->frame->data[1],ysize/2);
 
-        MI_SYS_ChnInputPortPutBuf(hHandle ,&stBufInfo , FALSE);
-    }
-    //put stream to ss disp end
-    
-    //write(fdv, is->p_frm_yuv->data[0], ysize);
-    //write(fdv, is->p_frm_yuv->data[1], ysize/4);
-    //write(fdv, is->p_frm_yuv->data[2], ysize/4);
+	    MI_SYS_ChnInputPortPutBuf(hHandle ,&stBufInfo , FALSE);
+	}
+	//put stream to ss disp end
+
+	//write(fdv, is->p_frm_yuv->data[0], ysize);
+	//write(fdv, is->p_frm_yuv->data[1], ysize/4);
+	//write(fdv, is->p_frm_yuv->data[2], ysize/4);
 
 }
 
@@ -330,80 +340,80 @@ retry:
     if (is->paused)
         goto display;
         
-    if (frame_queue_nb_remaining(&is->video_frm_queue) == 0)  // 所有帧已显示
+    if (frame_queue_nb_remaining(&is->video_frm_queue) <= 0)  // 所有帧已显示
     {    
         // nothing to do, no picture to display in the queue
         //printf("already last frame: %d\n",is->video_frm_queue.size);
         return;
     }
 
-    double last_duration, duration, delay;
-    frame_t *vp, *lastvp;
+	double last_duration, duration, delay;
+	frame_t *vp, *lastvp;
 
-    /* dequeue the picture */
-    lastvp = frame_queue_peek_last(&is->video_frm_queue);     // 上一帧：上次已显示的帧
-    vp = frame_queue_peek(&is->video_frm_queue);              // 当前帧：当前待显示的帧
-    //printf("refresh ridx: %d,rs:%d,widx: %d,size: %d,maxsize: %d\n",is->video_frm_queue.rindex,is->video_frm_queue.rindex_shown,is->video_frm_queue.windex,is->video_frm_queue.size,is->video_frm_queue.max_size);
-    //printf("lastpos: %ld,lastpts: %lf,vppos: %ld,vppts: %lf\n",lastvp->pos,lastvp->pts,vp->pos,vp->pts);
-    // lastvp和vp不是同一播放序列(一个seek会开始一个新播放序列)，将frame_timer更新为当前时间
-    if (first_frame)
-    {
-        is->frame_timer = av_gettime_relative() / 1000000.0;
-        first_frame = false;
-    }
+	/* dequeue the picture */
+	lastvp = frame_queue_peek_last(&is->video_frm_queue);     // 上一帧：上次已显示的帧
+	vp = frame_queue_peek(&is->video_frm_queue);              // 当前帧：当前待显示的帧
+	//printf("refresh ridx: %d,rs:%d,widx: %d,size: %d,maxsize: %d\n",is->video_frm_queue.rindex,is->video_frm_queue.rindex_shown,is->video_frm_queue.windex,is->video_frm_queue.size,is->video_frm_queue.max_size);
+	//printf("lastpos: %ld,lastpts: %lf,vppos: %ld,vppts: %lf\n",lastvp->pos,lastvp->pts,vp->pos,vp->pts);
+	// lastvp和vp不是同一播放序列(一个seek会开始一个新播放序列)，将frame_timer更新为当前时间
+	if (first_frame)
+	{
+	    is->frame_timer = av_gettime_relative() / 1000000.0;
+	    first_frame = false;
+	}
 
-    // 暂停处理：不停播放上一帧图像
-    //if (is->paused)
-        //goto display;
+//	// 暂停处理：不停播放上一帧图像
+//	//if (is->paused)
+//	    //goto display;
 
-    /* compute nominal last_duration */
-    last_duration = vp_duration(is, lastvp, vp);        // 上一帧播放时长：vp->pts - lastvp->pts
-    delay = compute_target_delay(last_duration, is);    // 根据视频时钟和同步时钟的差值，计算delay值
-    //printf("last_duration: %d,delay: %d\n",last_duration,delay);
-    time= av_gettime_relative()/1000000.0;
-    // 当前帧播放时刻(is->frame_timer+delay)大于当前时刻(time)，表示播放时刻未到
-    if (time < is->frame_timer + delay) {
-        // 播放时刻未到，则更新刷新时间remaining_time为当前时刻到下一播放时刻的时间差
-        *remaining_time = FFMIN(is->frame_timer + delay - time, *remaining_time);
-        // 播放时刻未到，则不播放，直接返回
-        //printf("not ready play\n");
-        return;
-    }
+	/* compute nominal last_duration */
+	last_duration = vp_duration(is, lastvp, vp);        // 上一帧播放时长：vp->pts - lastvp->pts
+	delay = compute_target_delay(last_duration, is);    // 根据视频时钟和同步时钟的差值，计算delay值
+	//printf("last_duration: %d,delay: %d\n",last_duration,delay);
+	time= av_gettime_relative()/1000000.0;
+	// 当前帧播放时刻(is->frame_timer+delay)大于当前时刻(time)，表示播放时刻未到
+	if (time < is->frame_timer + delay) {
+	    // 播放时刻未到，则更新刷新时间remaining_time为当前时刻到下一播放时刻的时间差
+	    *remaining_time = FFMIN(is->frame_timer + delay - time, *remaining_time);
+	    // 播放时刻未到，则不播放，直接返回
+	    //printf("not ready play\n");
+	    return;
+	}
+//	printf("remaining time : %f. duration : %f.\n", *remaining_time, last_duration);
+	// 更新frame_timer值
+	is->frame_timer += delay;
+	// 校正frame_timer值：若frame_timer落后于当前系统时间太久(超过最大同步域值)，则更新为当前系统时间
+	if (delay > 0 && time - is->frame_timer > AV_SYNC_THRESHOLD_MAX)
+	{
+	    is->frame_timer = time;
+	}
 
-    // 更新frame_timer值
-    is->frame_timer += delay;
-    // 校正frame_timer值：若frame_timer落后于当前系统时间太久(超过最大同步域值)，则更新为当前系统时间
-    if (delay > 0 && time - is->frame_timer > AV_SYNC_THRESHOLD_MAX)
-    {
-        is->frame_timer = time;
-    }
+	pthread_mutex_lock(&is->video_frm_queue.mutex);
+	if (!isnan(vp->pts))
+	{
+	    update_video_pts(is, vp->pts, vp->pos, vp->serial); // 更新视频时钟：时间戳、时钟时间
+	}
+	pthread_mutex_unlock(&is->video_frm_queue.mutex);
 
-    pthread_mutex_lock(&is->video_frm_queue.mutex);
-    if (!isnan(vp->pts))
-    {
-        update_video_pts(is, vp->pts, vp->pos, vp->serial); // 更新视频时钟：时间戳、时钟时间
-    }
-    pthread_mutex_unlock(&is->video_frm_queue.mutex);
-
-    // 是否要丢弃未能及时播放的视频帧
-    if (frame_queue_nb_remaining(&is->video_frm_queue) > 1)  // 队列中未显示帧数>1(只有一帧则不考虑丢帧)
-    {         
-        frame_t *nextvp = frame_queue_peek_next(&is->video_frm_queue);  // 下一帧：下一待显示的帧
-        duration = vp_duration(is, vp, nextvp);             // 当前帧vp播放时长 = nextvp->pts - vp->pts
-        // 当前帧vp未能及时播放，即下一帧播放时刻(is->frame_timer+duration)小于当前系统时刻(time)
-        if (time > is->frame_timer + duration)
-        {
-            frame_queue_next(&is->video_frm_queue);   // 删除上一帧已显示帧，即删除lastvp，读指针加1(从lastvp更新到vp)
-            goto retry;
-        }
-    }
-    // 删除当前读指针元素，读指针+1。若未丢帧，读指针从lastvp更新到vp；若有丢帧，读指针从vp更新到nextvp
+	// 是否要丢弃未能及时播放的视频帧
+	if (frame_queue_nb_remaining(&is->video_frm_queue) > 1)  // 队列中未显示帧数>1(只有一帧则不考虑丢帧)
+	{         
+	    frame_t *nextvp = frame_queue_peek_next(&is->video_frm_queue);  // 下一帧：下一待显示的帧
+	    duration = vp_duration(is, vp, nextvp);             // 当前帧vp播放时长 = nextvp->pts - vp->pts
+	    // 当前帧vp未能及时播放，即下一帧播放时刻(is->frame_timer+duration)小于当前系统时刻(time)
+	    if (time > is->frame_timer + duration)
+	    {
+	        frame_queue_next(&is->video_frm_queue);   // 删除上一帧已显示帧，即删除lastvp，读指针加1(从lastvp更新到vp)
+	        goto retry;
+	    }
+	}
+	// 删除当前读指针元素，读指针+1。若未丢帧，读指针从lastvp更新到vp；若有丢帧，读指针从vp更新到nextvp
     frame_queue_next(&is->video_frm_queue);
     
-    if (is->step && !is->paused)
-    {
-        stream_toggle_pause(is);
-    }
+	if (is->step && !is->paused)
+	{
+	    stream_toggle_pause(is);
+	}
 
 display:
     video_display(is);                      // 取出当前帧vp(若有丢帧是nextvp)进行播放
@@ -426,7 +436,7 @@ static int video_playing_thread(void *arg)
         }
         if (remaining_time > 0.0)
         {
-            //printf("delay time: %lf\n",remaining_time);
+//			printf("delay time: %lf\n",remaining_time);
             av_usleep((unsigned)(remaining_time * 1000000.0));
         }
         remaining_time = REFRESH_RATE;
@@ -579,6 +589,7 @@ static int open_video_playing(void *arg)
     int ret;
     int buf_size;
     uint8_t* buffer = NULL;
+	AVPixFmtDescriptor *desc;
     
     // 为AVFrame.*data[]手工分配缓冲区，用于存储sws_scale()中目的帧视频数据
     buf_size = av_image_get_buffer_size(AV_PIX_FMT_NV12, 
@@ -598,7 +609,7 @@ static int open_video_playing(void *arg)
     ret = av_image_fill_arrays(is->p_frm_yuv->data,     // dst data[]
                                is->p_frm_yuv->linesize, // dst linesize[]
                                buffer,                  // src buffer
-                               AV_PIX_FMT_NV12,      // pixel format
+                               AV_PIX_FMT_NV12,         // pixel format
                                is->p_vcodec_ctx->width, // width
                                is->p_vcodec_ctx->height,// height
                                1                        // align
@@ -615,13 +626,15 @@ static int open_video_playing(void *arg)
     //     如果解码后得到图像的不被SDL支持，不进行图像转换的话，SDL是无法正常显示图像的
     //     如果解码后得到图像的能被SDL支持，则不必进行图像转换
     //     这里为了编码简便，统一转换为SDL支持的格式AV_PIX_FMT_YUV420P==>SDL_PIXELFORMAT_IYUV
-    
+	desc = av_pix_fmt_desc_get(is->p_vcodec_ctx->pix_fmt);
+	printf("videp output format : %s.\n", desc->name);
+	
     is->img_convert_ctx = sws_getContext(is->p_vcodec_ctx->width,   // src width
                                          is->p_vcodec_ctx->height,  // src height
                                          is->p_vcodec_ctx->pix_fmt, // src format
                                          is->p_vcodec_ctx->width,   // dst width
                                          is->p_vcodec_ctx->height,  // dst height
-                                         AV_PIX_FMT_NV12,        // dst format
+                                         AV_PIX_FMT_NV12,           // dst format
                                          SWS_BICUBIC,               // flags
                                          NULL,                      // src filter
                                          NULL,                      // dst filter
@@ -683,8 +696,12 @@ static int open_video_stream(player_stat_t *is)
     }
 
     is->p_vcodec_ctx = p_codec_ctx;
+	is->p_vcodec_ctx->debug = true;
     printf("codec width: %d,height: %d\n",is->p_vcodec_ctx->width,is->p_vcodec_ctx->height);
-    
+
+	// 1.4.1 初始化DISP
+	CheckFuncResult(ss_disp_Init(is->p_vcodec_ctx));
+	
     // 2. 创建视频解码线程
     CheckFuncResult(pthread_create(&is->videoDecode_tid, NULL, video_decode_thread, is));
 
@@ -694,8 +711,6 @@ static int open_video_stream(player_stat_t *is)
 int open_video(player_stat_t *is)
 {
     open_video_stream(is);
-    //init sdk disp
-    CheckFuncResult(ss_disp_Init(is->p_vcodec_ctx));
     sleep(1);
     open_video_playing(is);
 

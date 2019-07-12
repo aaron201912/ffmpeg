@@ -135,6 +135,7 @@ extern AVCodec ff_h263p_encoder;
 extern AVCodec ff_h263p_decoder;
 extern AVCodec ff_h263_v4l2m2m_decoder;
 extern AVCodec ff_ssh264_decoder;
+extern AVCodec ff_sshevc_decoder;
 extern AVCodec ff_h264_decoder;
 extern AVCodec ff_h264_crystalhd_decoder;
 extern AVCodec ff_h264_v4l2m2m_decoder;
