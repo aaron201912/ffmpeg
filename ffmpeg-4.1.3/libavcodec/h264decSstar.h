@@ -98,15 +98,15 @@ typedef struct mpeg_rational_s {
         int num;
         int den;
  
-    } mpeg_rational_t;
+} mpeg_rational_t;
  
-    typedef struct video_size_s {
- 
-        uint16_t        width;
-        uint16_t        height;
-        mpeg_rational_t pixel_aspect;
- 
-    } video_size_t;
+typedef struct video_size_s {
+
+    uint16_t        width;
+    uint16_t        height;
+    mpeg_rational_t pixel_aspect;
+
+} video_size_t;
 
 typedef struct {
  
@@ -116,7 +116,13 @@ typedef struct {
         uint8_t   profile;
         uint8_t   level;
  
-    } h264_sps_data_t;
+} h264_sps_data_t;
+
+typedef struct {
+	int     size;
+	uint8_t *data;
+	int64_t pts;
+} vdec_stream_t;
 	
 #define NOCACHE
 

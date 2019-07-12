@@ -270,14 +270,14 @@ static void video_display(player_stat_t *is)
 	// stride/pitch: 一行图像所占的字节数，Stride=BytesPerPixel*Width+Padding，注意对齐
 	// AVFrame.*data[]: 每个数组元素指向对应plane
 	// AVFrame.linesize[]: 每个数组元素表示对应plane中一行图像所占的字节数
-	sws_scale(is->img_convert_ctx,                    // sws context
-	          (const uint8_t *const *)vp->frame->data,// src slice
-	          vp->frame->linesize,                    // src stride
-	          0,                                      // src slice y
-	          is->p_vcodec_ctx->height,               // src slice height
-	          is->p_frm_yuv->data,                    // dst planes
-	          is->p_frm_yuv->linesize                 // dst strides
-	         );
+//	sws_scale(is->img_convert_ctx,                    // sws context
+//	          (const uint8_t *const *)vp->frame->data,// src slice
+//	          vp->frame->linesize,                    // src stride
+//	          0,                                      // src slice y
+//	          is->p_vcodec_ctx->height,               // src slice height
+//	          is->p_frm_yuv->data,                    // dst planes
+//	          is->p_frm_yuv->linesize                 // dst strides
+//	         );
 
 	int ysize;
 	ysize = vp->frame->width * vp->frame->height;
@@ -627,7 +627,7 @@ static int open_video_playing(void *arg)
     //     如果解码后得到图像的能被SDL支持，则不必进行图像转换
     //     这里为了编码简便，统一转换为SDL支持的格式AV_PIX_FMT_YUV420P==>SDL_PIXELFORMAT_IYUV
 	desc = av_pix_fmt_desc_get(is->p_vcodec_ctx->pix_fmt);
-	printf("videp output format : %s.\n", desc->name);
+	printf("video prefix format : %s.\n", desc->name);
 	
     is->img_convert_ctx = sws_getContext(is->p_vcodec_ctx->width,   // src width
                                          is->p_vcodec_ctx->height,  // src height

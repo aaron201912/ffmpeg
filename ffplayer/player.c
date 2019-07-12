@@ -346,17 +346,14 @@ static int player_deinit(player_stat_t *is)
     printf("video frame_queue_destory finish\n");
     frame_queue_destory(&is->audio_frm_queue);
     printf("audio frame_queue_destory finish\n");
-    printf("1123\n");
+
     pthread_cond_destroy(&is->continue_read_thread);
-    printf("1132\n");
-    printf("11\n");
+
     sws_freeContext(is->img_convert_ctx);
-    printf("22\n");
+
     av_free(is->filename);
-    printf("33\n");
     
     av_freep(&is);
-    printf("44\n");
 
     return 0;
 }
