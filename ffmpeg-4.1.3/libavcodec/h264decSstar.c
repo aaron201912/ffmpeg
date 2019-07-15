@@ -89,6 +89,9 @@ static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
 	MI_SYS_ChnPort_t  stChnPort;
 	void * pvirFramAddr = NULL;
 
+	uint8_t *in_data[4] = {NULL};
+	int  in_linesize[4] = {ssctx->f->width, ssctx->f->width, 0, 0};
+
     stChnPort.eModId    = E_MI_MODULE_ID_VDEC;
     stChnPort.u32DevId  = 0;
     stChnPort.u32ChnId  = 0;
@@ -101,8 +104,8 @@ static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
 	{
 		// 计算bufsize时注意height是数据对齐后的结果
 //		ssctx->f->pts	 = stBufInfo.u64Pts;
-		ssctx->f->width  = stBufInfo.stFrameData.u32Stride[0];
-		ssctx->f->height = stBufInfo.stFrameData.u16Height;
+//		ssctx->f->width  = stBufInfo.stFrameData.u32Stride[0];
+//		ssctx->f->height = stBufInfo.stFrameData.u16Height;
 
 		// 重新map输出内存的地址
 		bufsize = ssctx->f->width * ssctx->f->height * 2;
@@ -110,15 +113,26 @@ static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
 			av_log(ssctx, AV_LOG_ERROR, "MI_SYS_Mmap failed!\n");
 		stBufInfo.stFrameData.pVirAddr[0] = pvirFramAddr;
 
-		if (stBufInfo.stFrameData.pVirAddr[0])
-		{
-			memcpy(ssctx->f->data[0],stBufInfo.stFrameData.pVirAddr[0], bufsize / 2);
-			memcpy(ssctx->f->data[1],stBufInfo.stFrameData.pVirAddr[1], bufsize / 4);
-		}
+		in_data[0] = (uint8_t *)av_mallocz(bufsize / 2);
+		in_data[1] = (uint8_t *)av_mallocz(bufsize / 4);
+		memcpy(in_data[0],stBufInfo.stFrameData.pVirAddr[0], bufsize / 2);
+		memcpy(in_data[1],stBufInfo.stFrameData.pVirAddr[1], bufsize / 4);
 		
 		if (MI_SUCCESS != MI_SYS_ChnOutputPortPutBuf(stHandle)) {
 			av_log(ssctx, AV_LOG_ERROR, "vdec output put buf error!\n");
-		}	
+		}
+		// 数据格式转换
+		sws_scale(ssctx->img_ctx,                    // sws context
+		          (const uint8_t *const *)in_data,   // src slice
+		          in_linesize,                       // src stride
+		          0,                                 // src slice y
+		          ssctx->f->height,                  // src slice height
+		          ssctx->f->data,                    // dst planes
+		          ssctx->f->linesize                 // dst strides
+	         	  );
+		
+		av_freep(&in_data[0]);
+		av_freep(&in_data[1]);		
 
 		// 拷贝数据至输出frame
 		if (ssctx->f->buf[0]) {
@@ -466,7 +480,7 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
     s->f = av_frame_alloc();
     if (!s->f) 
         return 0;
-    s->f->format = AV_PIX_FMT_NV12;
+    s->f->format = AV_PIX_FMT_YUV420P;
     s->f->width  = avctx->width;
     s->f->height = avctx->height;
 
@@ -474,14 +488,33 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
 		desc = av_pix_fmt_desc_get(avctx->pix_fmt);
 		printf("video prefix format : %s.\n", desc->name);		
 	} else {
-		avctx->pix_fmt  = AV_PIX_FMT_NV12;
+		avctx->pix_fmt  = AV_PIX_FMT_YUV420P;
 	}
 
-    s32Ret = av_frame_get_buffer(s->f, 32);
+    s32Ret = av_frame_get_buffer(s->f, 1);
     if (s32Ret < 0) 
     {
         av_frame_free(&s->f);
     }
+	
+ 	// 硬件解码器解码后的图像格式是NV12,统一转成420P	
+    s->img_ctx = sws_getContext( avctx->width,   			// src width
+                                 avctx->height,  			// src height
+                                 AV_PIX_FMT_NV12, 			// src format
+                                 avctx->width,   			// dst width
+                                 avctx->height,  			// dst height
+                                 avctx->pix_fmt,            // dst format
+                                 SWS_FAST_BILINEAR,         // 转换算法
+                                 NULL,                      // src filter
+                                 NULL,                      // dst filter
+                                 NULL                       // param
+                               );
+    if (s->img_ctx == NULL)
+    {
+        av_log(avctx, AV_LOG_ERROR, "sws_getContext() failed\n");
+        return -1;
+    }
+	
     if(avctx->width != 0)
     {
         //init vdec

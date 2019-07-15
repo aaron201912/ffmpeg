@@ -33,6 +33,14 @@
 #include "libavutil/buffer.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/thread.h"
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libswscale/swscale.h>
+#include <libswresample/swresample.h>
+#include <libavutil/frame.h>
+#include <libavutil/time.h>
+#include <libavutil/imgutils.h>
+
 #include "h264_parse.h"
 #include "h264_ps.h"
 #include "h2645_parse.h"
@@ -63,7 +71,7 @@ typedef struct SsH264Context {
     H264ParamSets ps;
     int is_avc;           ///< this flag is != 0 if codec is avc1
     int nal_length_size;  ///< Number of bytes used for nal length (1, 2 or 4)
-    
+    struct SwsContext *img_ctx;
 } SsH264Context;
 typedef struct SsCropContext {
     int x;
