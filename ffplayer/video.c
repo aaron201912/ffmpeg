@@ -261,6 +261,7 @@ static void video_display(player_stat_t *is)
 	frame_t *vp;
 
 	vp = frame_queue_peek_last(&is->video_frm_queue);
+//	vp->frame->linesize[AV_NUM_DATA_POINTERS] = {vp->frame->width, vp->frame->width, 0, 0, 0, 0, 0, 0};
 	//printf("get vp disp ridx: %d,format: %d\n",is->video_frm_queue.rindex,vp->frame->format);
 
 	// 图像转换：p_frm_raw->data ==> p_frm_yuv->data
@@ -270,18 +271,18 @@ static void video_display(player_stat_t *is)
 	// stride/pitch: 一行图像所占的字节数，Stride=BytesPerPixel*Width+Padding，注意对齐
 	// AVFrame.*data[]: 每个数组元素指向对应plane
 	// AVFrame.linesize[]: 每个数组元素表示对应plane中一行图像所占的字节数
-//	sws_scale(is->img_convert_ctx,                    // sws context
-//	          (const uint8_t *const *)vp->frame->data,// src slice
-//	          vp->frame->linesize,                    // src stride
-//	          0,                                      // src slice y
-//	          is->p_vcodec_ctx->height,               // src slice height
-//	          is->p_frm_yuv->data,                    // dst planes
-//	          is->p_frm_yuv->linesize                 // dst strides
-//	         );
+	sws_scale(is->img_convert_ctx,                    // sws context
+	          (const uint8_t *const *)vp->frame->data,// src slice
+	          vp->frame->linesize,                    // src stride
+	          0,                                      // src slice y
+	          is->p_vcodec_ctx->height,               // src slice height
+	          is->p_frm_yuv->data,                    // dst planes
+	          is->p_frm_yuv->linesize                 // dst strides
+	         );
 
 	int ysize;
 	ysize = vp->frame->width * vp->frame->height;
-	
+
 	//printf("save yuv width: %d,height: %d\n",vp->frame->width,vp->frame->height);
 	//put stream to ss disp start
 	MI_SYS_BUF_HANDLE hHandle;
@@ -311,20 +312,24 @@ static void video_display(player_stat_t *is)
 	    stBufInfo.stFrameData.eTileMode     = E_MI_SYS_FRAME_TILE_MODE_NONE;
 	    stBufInfo.bEndOfStream = FALSE;
 
-//	    memcpy(stBufInfo.stFrameData.pVirAddr[0],is->p_frm_yuv->data[0],ysize);
-//	    memcpy(stBufInfo.stFrameData.pVirAddr[1],is->p_frm_yuv->data[1],ysize/2);
-
-	    memcpy(stBufInfo.stFrameData.pVirAddr[0],vp->frame->data[0],ysize);
-	    memcpy(stBufInfo.stFrameData.pVirAddr[1],vp->frame->data[1],ysize/2);
+	    memcpy(stBufInfo.stFrameData.pVirAddr[0],is->p_frm_yuv->data[0],ysize);
+	    memcpy(stBufInfo.stFrameData.pVirAddr[1],is->p_frm_yuv->data[1],ysize/2);
 
 	    MI_SYS_ChnInputPortPutBuf(hHandle ,&stBufInfo , FALSE);
 	}
 	//put stream to ss disp end
 
-	//write(fdv, is->p_frm_yuv->data[0], ysize);
-	//write(fdv, is->p_frm_yuv->data[1], ysize/4);
-	//write(fdv, is->p_frm_yuv->data[2], ysize/4);
+//	FILE *fpread0 = fopen("pic_before.yuv", "a+");
+//	fwrite(vp->frame->data[0], 1, ysize, fpread0);
+//	fwrite(vp->frame->data[1], 1, ysize / 2, fpread0);
+//	fwrite(vp->frame->data[2], 1, ysize / 4, fpread0);
+//	fclose(fpread0);
 
+//	FILE *fpread1 = fopen("pic_later.yuv", "a+");
+//	fwrite(is->p_frm_yuv->data[0], 1, ysize, fpread1);
+//	fwrite(is->p_frm_yuv->data[1], 1, ysize / 2, fpread1);
+//	fwrite(is->p_frm_yuv->data[2], 1, ysize / 4, fpread1);
+//	fclose(fpread1);
 }
 
 /* called to display each frame */
@@ -635,7 +640,7 @@ static int open_video_playing(void *arg)
                                          is->p_vcodec_ctx->width,   // dst width
                                          is->p_vcodec_ctx->height,  // dst height
                                          AV_PIX_FMT_NV12,           // dst format
-                                         SWS_BICUBIC,               // flags
+                                         SWS_FAST_BILINEAR,               // flags
                                          NULL,                      // src filter
                                          NULL,                      // dst filter
                                          NULL                       // param

@@ -12,6 +12,14 @@
 #include "libavutil/buffer.h"
 #include "libavutil/intreadwrite.h"
 #include "libavutil/thread.h"
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libswscale/swscale.h>
+#include <libswresample/swresample.h>
+#include <libavutil/frame.h>
+#include <libavutil/time.h>
+#include <libavutil/imgutils.h>
+
 
 #include "avcodec.h"
 #include "bswapdsp.h"
@@ -80,6 +88,8 @@ typedef struct SsHevcContext {
     // type of the first VCL NAL of the current frame
     enum HEVCNALUnitType first_nal_type;
 	enum HEVCNALUnitType nal_unit_type;
+
+	struct SwsContext *img_ctx;
 
     uint8_t context_initialized;
 	uint8_t eos, last_eos;

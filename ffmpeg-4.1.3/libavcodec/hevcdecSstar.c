@@ -77,6 +77,7 @@ MI_SYS_ChnPort_t  stChnPort;
 pthread_args_t pfuncd;
 pthread_cond_t continue_thread;
 
+
 #if 0
 
 static void * ss_hevc_get_frame(void * args);
@@ -84,20 +85,26 @@ static void * ss_hevc_get_frame(void * args);
 
 static void * ss_hevc_get_frame(void * args)
 {
-	MI_U32 s32Ret, Ysize, UVsize;
+	MI_U32 s32Ret;
 	MI_SYS_BUF_HANDLE hHandle = MI_HANDLE_NULL;
     MI_SYS_BufInfo_t stBufInfo;
-	MI_SYS_ChnPort_t stChnPort;
 
 	pthread_args_t *pargs = (pthread_args_t *)args;
 	SsHevcContext *s      = pargs->ssctx;
 	AVCodecInternal *avci = pargs->avci;
 
+	uint8_t *in_data[4] = {NULL};
+	int  in_linesize[4] = {s->frame->width, s->frame->width, 0, 0}; 
+	int  bufsize = ssctx->frame->width * ssctx->frame->height * 2;
+	
+	in_data[0] = (uint8_t *)av_mallocz(bufsize / 2);
+	in_data[1] = (uint8_t *)av_mallocz(bufsize / 4);
+
 	stChnPort.eModId	= E_MI_MODULE_ID_VDEC;
 	stChnPort.u32DevId	= 0;
 	stChnPort.u32ChnId	= 0;
 	stChnPort.u32PortId = 0;
-	MI_SYS_SetChnOutputPortDepth(&stChnPort, 2, 5);
+	MI_SYS_SetChnOutputPortDepth(&stChnPort, 5, 10);
 
 	printf("get in ss_hevc_get_frame thread!\n");
 	
@@ -108,24 +115,28 @@ static void * ss_hevc_get_frame(void * args)
 		hHandle = MI_HANDLE_NULL;
 		if (MI_SUCCESS == (s32Ret = MI_SYS_ChnOutputPortGetBuf(&stChnPort, &stBufInfo, &hHandle)))
 		{
-			// 计算Ysize时注意height是数据对齐后的结果
-			s->frame->pts	 = stBufInfo.u64Pts;
-			s->frame->width  = stBufInfo.stFrameData.u32Stride[0];
-			s->frame->height = ALIGN_UP(stBufInfo.stFrameData.u16Height, 32);
-
-			Ysize  = s->frame->width * s->frame->height;
-			UVsize = stBufInfo.stFrameData.u32BufSize - Ysize;
-		
-			if (stBufInfo.stFrameData.pVirAddr[0] && stBufInfo.stFrameData.pVirAddr[1])
-			{
-			    memcpy(s->frame->data[0],stBufInfo.stFrameData.pVirAddr[0],Ysize);
-				memcpy(s->frame->data[1],stBufInfo.stFrameData.pVirAddr[1],UVsize);
-			}
+			ssctx->frame->pts	 = stBufInfo.u64Pts;
+			// 重新map输出内存的地址
+			if(MI_SUCCESS != MI_SYS_Mmap(stBufInfo.stFrameData.phyAddr[0], bufsize, &pvirFramAddr, TRUE))
+				av_log(ssctx->avctx, AV_LOG_ERROR, "MI_SYS_Mmap failed!\n");
+			stBufInfo.stFrameData.pVirAddr[0] = pvirFramAddr;
+			
+			memcpy(in_data[0],stBufInfo.stFrameData.pVirAddr[0], bufsize / 2);
+			memcpy(in_data[1],stBufInfo.stFrameData.pVirAddr[1], bufsize / 4);
 			
 			if (MI_SUCCESS != MI_SYS_ChnOutputPortPutBuf(hHandle)) {
 				av_log(pargs, AV_LOG_ERROR, "vdec output put buf error!\n");
 			}
 
+			// 数据格式转换
+			sws_scale(ssctx->img_ctx,                    // sws context
+			          (const uint8_t *const *)in_data,   // src slice
+			          in_linesize,                       // src stride
+			          0,                                 // src slice y
+			          ssctx->frame->height,              // src slice height
+			          ssctx->frame->data,                // dst planes
+			          ssctx->frame->linesize             // dst strides
+		         	  );
 			pthread_mutex_lock(&pargs->mutex);
 			// 拷贝数据至输出frame
 			if (s->frame->buf[0]) {
@@ -134,27 +145,19 @@ static void * ss_hevc_get_frame(void * args)
 			}
 			pthread_cond_signal(&pargs->cond);
 			pthread_mutex_unlock(&pargs->mutex);
-
+			
 			printf("wait frame buffer free!\n");
-			while (avci->buffer_frame->buf[0]) {	
-				pthread_cond_wait(&pargs->cond, &pargs->mutex);
+			while (avci->buffer_frame->buf[0]) {
+				av_usleep(2000);
 			}
 			printf("exit wait for buffer.\n");
-			
-//			printf("wait frame buffer free!\n");
-//			while (avci->buffer_frame->buf[0]) {
-//				av_usleep(2000);
-//			}
-//			printf("exit wait for buffer.\n");
-			
-			// 成功读取到一副图片就阻塞本线程,等待下一次送流
-//			pthread_mutex_lock(&pargs->mutex);				
-//			pthread_cond_wait(&pargs->cond, &pargs->mutex);
-//			pthread_mutex_unlock(&pargs->mutex);
 		}  else {
 			printf("### fetch frame ###\n");
 		}	
 	}
+	
+	av_freep(&in_data[0]);
+	av_freep(&in_data[1]);
 	
 	return NULL;
 }
@@ -168,6 +171,9 @@ static int ss_hevc_get_frame(SsHevcContext *ssctx, AVFrame *frame)
 	MI_SYS_BufInfo_t  stBufInfo;
 	void * pvirFramAddr = NULL;
 
+	uint8_t *in_data[4] = {NULL};
+	int  in_linesize[4] = {ssctx->frame->width, ssctx->frame->width, 0, 0};
+
 //	printf("get in ss_hevc_get_frame!\n");
 	
 	stHandle = MI_HANDLE_NULL; 
@@ -176,9 +182,10 @@ static int ss_hevc_get_frame(SsHevcContext *ssctx, AVFrame *frame)
 	{
 		// 计算bufsize时注意height是数据对齐后的结果
 //		ssctx->frame->pts	 = stBufInfo.u64Pts;
-		ssctx->frame->width  = stBufInfo.stFrameData.u32Stride[0];
+//		ssctx->frame->width  = stBufInfo.stFrameData.u32Stride[0];
 //		ssctx->frame->height = ALIGN_UP(stBufInfo.stFrameData.u16Height, 32);
-		ssctx->frame->height = stBufInfo.stFrameData.u16Height;
+//		ssctx->frame->height = stBufInfo.stFrameData.u16Height;
+//		ssctx->frame->height = stBufInfo.stFrameData.u16Height;
 
 		// 重新map输出内存的地址
 		bufsize = ssctx->frame->width * ssctx->frame->height * 2;
@@ -186,15 +193,29 @@ static int ss_hevc_get_frame(SsHevcContext *ssctx, AVFrame *frame)
 			av_log(ssctx->avctx, AV_LOG_ERROR, "MI_SYS_Mmap failed!\n");
 		stBufInfo.stFrameData.pVirAddr[0] = pvirFramAddr;
 
-		if (stBufInfo.stFrameData.pVirAddr[0])
-		{
-		    memcpy(ssctx->frame->data[0],stBufInfo.stFrameData.pVirAddr[0], bufsize / 2);
-			memcpy(ssctx->frame->data[1],stBufInfo.stFrameData.pVirAddr[1], bufsize / 4);
-		}
+		in_data[0] = (uint8_t *)av_mallocz(bufsize / 2);
+		in_data[1] = (uint8_t *)av_mallocz(bufsize / 4);
+		memcpy(in_data[0],stBufInfo.stFrameData.pVirAddr[0], bufsize / 2);
+		memcpy(in_data[1],stBufInfo.stFrameData.pVirAddr[1], bufsize / 4);
+
+//	    memcpy(ssctx->frame->data[0],stBufInfo.stFrameData.pVirAddr[0], bufsize / 2);
+//		memcpy(ssctx->frame->data[1],stBufInfo.stFrameData.pVirAddr[1], bufsize / 4);
 		
 		if (MI_SUCCESS != MI_SYS_ChnOutputPortPutBuf(stHandle)) {
 			av_log(ssctx->avctx, AV_LOG_ERROR, "vdec output put buf error!\n");
 		}	
+		// 数据格式转换
+		sws_scale(ssctx->img_ctx,                    // sws context
+		          (const uint8_t *const *)in_data,   // src slice
+		          in_linesize,                       // src stride
+		          0,                                 // src slice y
+		          ssctx->frame->height,              // src slice height
+		          ssctx->frame->data,                // dst planes
+		          ssctx->frame->linesize             // dst strides
+	         	  );
+		
+		av_freep(&in_data[0]);
+		av_freep(&in_data[1]);
 
 		// 拷贝数据至输出frame
 		if (ssctx->frame->buf[0]) {
@@ -461,6 +482,7 @@ static av_cold int ss_hevc_decode_free(AVCodecContext *avctx)
 		
 	av_frame_free(&s->frame);
 	ff_h2645_packet_uninit(&s->pkt);
+	sws_freeContext(s->img_ctx);
 	
 //	pfuncd.exit = true;
 //	pthread_attr_destroy(&(pfuncd.attr));
@@ -564,7 +586,7 @@ static av_cold int ss_hevc_decode_init(AVCodecContext *avctx)
 		av_log(avctx, AV_LOG_ERROR, "sshevc malloc frame error!\n");
 		return 0;
 	}
-	s->frame->format = AV_PIX_FMT_NV12;
+	s->frame->format = AV_PIX_FMT_YUV420P;
 	s->frame->width  = avctx->width;
 	s->frame->height = avctx->height;
 	
@@ -572,15 +594,33 @@ static av_cold int ss_hevc_decode_init(AVCodecContext *avctx)
 		desc = av_pix_fmt_desc_get(avctx->pix_fmt);
 		printf("video prefix format : %s.\n", desc->name);		
 	} else {
-		avctx->pix_fmt  = AV_PIX_FMT_NV12;
+		avctx->pix_fmt  = AV_PIX_FMT_YUV420P;
 	}
 
-	s32Ret = av_frame_get_buffer(s->frame, 32);
+	s32Ret = av_frame_get_buffer(s->frame, 1);
 	if (s32Ret < 0) 
 	{
 		av_frame_free(&s->frame);
 		av_log(avctx, AV_LOG_ERROR, "sshevc malloc frame buf error!\n");
 	}
+
+ 	// 硬件解码器解码后的图像格式是NV12,统一转成420P	
+    s->img_ctx = sws_getContext( avctx->width,   			// src width
+                                 avctx->height,  			// src height
+                                 AV_PIX_FMT_NV12, 			// src format
+                                 avctx->width,   			// dst width
+                                 avctx->height,  			// dst height
+                                 avctx->pix_fmt,            // dst format
+                                 SWS_FAST_BILINEAR,         // 转换算法
+                                 NULL,                      // src filter
+                                 NULL,                      // dst filter
+                                 NULL                       // param
+                               );
+    if (s->img_ctx == NULL)
+    {
+        av_log(avctx, AV_LOG_ERROR, "sws_getContext() failed\n");
+        return -1;
+    }		
 
 	// 初始化VDEC通道
 	if (MI_SUCCESS != (s32Ret = ss_hevc_vdec_init(avctx))){
@@ -663,9 +703,6 @@ static int ss_hevc_decode_frame(AVCodecContext *avctx, void *data,
 		// 从packet中提取编码数据送入解码器
 		if (MI_SUCCESS != ss_hevc_decode_nalu(s, avpkt))
 			av_log(avctx, AV_LOG_ERROR, "ss_hevc_decode_nalu failed!\n");
-
-//		// 启动取frame线程
-//		pthread_cond_signal(&(pfuncd.cond));
 
 //		printf("exit out ss_hevc_decode_frame!\n");
 
