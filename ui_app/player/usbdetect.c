@@ -49,33 +49,34 @@ static MI_S32 DetectUsbDev(void)
             {
                 if ((pSeek[2] >= 'a' && pSeek[2] <= 'z'))
                 {
-                    if (pSeek[3] == ' ' || pSeek[3] == 0)
-                    {
-                        memcpy(g_devName, pSeek, 3);
-                        fclose(pFile);
-                        pFile = NULL;
-
-                        return MI_SUCCESS;
-                    }
-                    else if (pSeek[3] >= '1' && pSeek[3] <= '9')
+                    if (pSeek[3] >= '1' && pSeek[3] <= '9')
                     {
                         memcpy(g_devName, pSeek, 4);
-                        fclose(pFile);
-                        pFile = NULL;
-
-                        return MI_SUCCESS;
+                        goto close_file;
                     }
-
+                    else if (pSeek[3] == ' ' || pSeek[3] == 0)
+                    {
+                        if (!strlen(g_devName))
+                        {
+                            memcpy(g_devName, pSeek, 3);
+                        }
+                    }
                 }
             }
         }
 
+close_file:
         fclose(pFile);
         pFile = NULL;
     }
 
-    printf("Can't find usb device\n");
-    return -1;
+    if (!strlen(g_devName))
+    {
+        printf("Can't find usb device\n");
+        return -1;
+    }
+
+    return MI_SUCCESS;
 }
 
 static MI_S32 CheckUsbDevMountStatus()
