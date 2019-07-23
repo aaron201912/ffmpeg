@@ -47,13 +47,25 @@ static MI_S32 DetectUsbDev(void)
             pSeek = strstr(pCurLine, "sd");
             if (pSeek)
             {
-                if ((pSeek[2] >= 'a' && pSeek[2] <= 'z') && (pSeek[3] >= '1' && pSeek[3] <= '9'))
+                if ((pSeek[2] >= 'a' && pSeek[2] <= 'z'))
                 {
-                    memcpy(g_devName, pSeek, 4);
-                    fclose(pFile);
-                    pFile = NULL;
+                    if (pSeek[3] == ' ' || pSeek[3] == 0)
+                    {
+                        memcpy(g_devName, pSeek, 3);
+                        fclose(pFile);
+                        pFile = NULL;
 
-                    return MI_SUCCESS;
+                        return MI_SUCCESS;
+                    }
+                    else if (pSeek[3] >= '1' && pSeek[3] <= '9')
+                    {
+                        memcpy(g_devName, pSeek, 4);
+                        fclose(pFile);
+                        pFile = NULL;
+
+                        return MI_SUCCESS;
+                    }
+
                 }
             }
         }
