@@ -278,20 +278,9 @@ static void video_display(player_stat_t *is)
               is->p_frm_yuv->data,                    // dst planes
               is->p_frm_yuv->linesize                 // dst strides
              );
-    int ysize;
-    ysize = is->p_vcodec_ctx->width * is->p_vcodec_ctx->height;
-    is->playerController.fpDisplayVideo(is->p_vcodec_ctx->width, is->p_vcodec_ctx->height, is->p_frm_yuv->data[0], is->p_frm_yuv->data[1]);
-//	FILE *fpread0 = fopen("pic_before.yuv", "a+");
-//	fwrite(vp->frame->data[0], 1, ysize, fpread0);
-//	fwrite(vp->frame->data[1], 1, ysize / 2, fpread0);
-//	fwrite(vp->frame->data[2], 1, ysize / 4, fpread0);
-//	fclose(fpread0);
 
-//	FILE *fpread1 = fopen("pic_later.yuv", "a+");
-//	fwrite(is->p_frm_yuv->data[0], 1, ysize, fpread1);
-//	fwrite(is->p_frm_yuv->data[1], 1, ysize / 2, fpread1);
-//	fwrite(is->p_frm_yuv->data[2], 1, ysize / 4, fpread1);
-//	fclose(fpread1);
+	is->playerController.fpDisplayVideo(is->out_width, is->out_height, is->p_frm_yuv->data[0], is->p_frm_yuv->data[1]);		 
+//	is->playerController.fpDisplayVideo(is->p_vcodec_ctx->width, is->p_vcodec_ctx->height, is->p_frm_yuv->data[0], is->p_frm_yuv->data[1]);
 }
 
 /* called to display each frame */
@@ -328,10 +317,6 @@ retry:
         is->frame_timer = av_gettime_relative() / 1000000.0;
         first_frame = false;
     }
-
-//	// 暂停处理：不停播放上一帧图像
-//	//if (is->paused)
-//	    //goto display;
 
     /* compute nominal last_duration */
     last_duration = vp_duration(is, lastvp, vp);        // 上一帧播放时长：vp->pts - lastvp->pts
@@ -425,10 +410,10 @@ static int open_video_playing(void *arg)
     
     // 为AVFrame.*data[]手工分配缓冲区，用于存储sws_scale()中目的帧视频数据
     buf_size = av_image_get_buffer_size(AV_PIX_FMT_NV12,
-                                        is->p_vcodec_ctx->width,
-                                        is->p_vcodec_ctx->height,
-                                        // is->out_width,
-                                        // is->out_height,
+                                        // is->p_vcodec_ctx->width,
+                                        // is->p_vcodec_ctx->height,
+                                        is->out_width,
+                                        is->out_height,
                                         1
                                         );
     //printf("alloc size: %d,width: %d,height: %d\n",buf_size,is->p_vcodec_ctx->width,is->p_vcodec_ctx->height);
@@ -444,10 +429,10 @@ static int open_video_playing(void *arg)
                                is->p_frm_yuv->linesize, // dst linesize[]
                                buffer,                  // src buffer
                                AV_PIX_FMT_NV12,      // pixel format
-                               is->p_vcodec_ctx->width, // width
-                               is->p_vcodec_ctx->height,// height
-                               // is->out_width,
-                               // is->out_height,
+                               // is->p_vcodec_ctx->width, // width
+                               // is->p_vcodec_ctx->height,// height
+                               is->out_width,
+                               is->out_height,
                                1                        // align
                                );
     if (ret < 0)
@@ -468,10 +453,10 @@ static int open_video_playing(void *arg)
     is->img_convert_ctx = sws_getContext(is->p_vcodec_ctx->width,   // src width
                                          is->p_vcodec_ctx->height,  // src height
                                          is->p_vcodec_ctx->pix_fmt, // src format
-                                         is->p_vcodec_ctx->width,   // dst width
-                                         is->p_vcodec_ctx->height,  // dst height
-                                         // is->out_width,
-                                         // is->out_height,
+                                         // is->p_vcodec_ctx->width,   // dst width
+                                         // is->p_vcodec_ctx->height,  // dst height
+                                         is->out_width,
+                                         is->out_height,
                                          AV_PIX_FMT_NV12,        // dst format
                                          SWS_FAST_BILINEAR,               // flags
                                          NULL,                      // src filter

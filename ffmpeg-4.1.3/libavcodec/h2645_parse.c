@@ -106,26 +106,29 @@ int ff_h2645_extract_rbsp(const uint8_t *src, int length,
             if (src[si + 2] == 3) { // escape
                 dst[di++] = 0;
                 dst[di++] = 0;
-                dst[di++] = 3;
-                si       += 3;
-                #if 0
-                if (nal->skipped_bytes_pos) {
-                    nal->skipped_bytes++;
-                    if (nal->skipped_bytes_pos_size < nal->skipped_bytes) {
-                        nal->skipped_bytes_pos_size *= 2;
-                        av_assert0(nal->skipped_bytes_pos_size >= nal->skipped_bytes);
-                        av_reallocp_array(&nal->skipped_bytes_pos,
-                                nal->skipped_bytes_pos_size,
-                                sizeof(*nal->skipped_bytes_pos));
-                        if (!nal->skipped_bytes_pos) {
-                            nal->skipped_bytes_pos_size = 0;
-                            return AVERROR(ENOMEM);
-                        }
-                    }
-                    if (nal->skipped_bytes_pos)
-                        nal->skipped_bytes_pos[nal->skipped_bytes-1] = di - 1;
-                }
-                #endif
+              
+				if (CONFIG_SSH264_DECODER || CONFIG_SSHEVC_DECODER) {
+					dst[di++] = 3;
+					si		 += 3;
+				} else {
+					si		 += 3;
+					if (nal->skipped_bytes_pos) {
+						nal->skipped_bytes++;
+						if (nal->skipped_bytes_pos_size < nal->skipped_bytes) {
+							nal->skipped_bytes_pos_size *= 2;
+							av_assert0(nal->skipped_bytes_pos_size >= nal->skipped_bytes);
+							av_reallocp_array(&nal->skipped_bytes_pos,
+									nal->skipped_bytes_pos_size,
+									sizeof(*nal->skipped_bytes_pos));
+							if (!nal->skipped_bytes_pos) {
+								nal->skipped_bytes_pos_size = 0;
+								return AVERROR(ENOMEM);
+							}
+						}
+						if (nal->skipped_bytes_pos)
+							nal->skipped_bytes_pos[nal->skipped_bytes-1] = di - 1;
+					}
+				}
                 continue;
             } else // next start code
                 goto nsc;
