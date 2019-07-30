@@ -347,6 +347,8 @@ retry:
     }
     pthread_mutex_unlock(&is->video_frm_queue.mutex);
 
+//	printf("frame pts : %.2f. clock pts : %.2f\n", vp->pts, is->video_clk.pts);
+
     // 是否要丢弃未能及时播放的视频帧
     if (frame_queue_nb_remaining(&is->video_frm_queue) > 1)  // 队列中未显示帧数>1(只有一帧则不考虑丢帧)
     {

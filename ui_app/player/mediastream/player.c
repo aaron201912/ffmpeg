@@ -51,7 +51,7 @@ static int get_master_sync_type(player_stat_t *is) {
 
 
 /* get the current master clock value */
-static double get_master_clock(player_stat_t *is)
+double get_master_clock(player_stat_t *is)
 {
     double val;
 
@@ -284,28 +284,25 @@ int player_deinit(player_stat_t *is)
     pthread_join(is->videoDecode_tid, NULL);
     pthread_join(is->audioPlay_tid, NULL);
     pthread_join(is->videoPlay_tid, NULL);
-    printf("pthread_join finish 11\n");
+
     av_frame_free(&is->p_frm_yuv);
     
-    printf("pthread_join finish\n");
     avformat_close_input(&is->p_fmt_ctx);
-    printf("avformat_close_input finish\n");
 
     packet_queue_destroy(&is->video_pkt_queue);
-    printf("video packet_queue_destroy finish\n");
     
     packet_queue_destroy(&is->audio_pkt_queue);
-    printf("audio packet_queue_destroy finish\n");
-    
     /* free all pictures */
     frame_queue_destory(&is->video_frm_queue);
-    printf("video frame_queue_destory finish\n");
+
     frame_queue_destory(&is->audio_frm_queue);
-    printf("audio frame_queue_destory finish\n");
 
     pthread_cond_destroy(&is->continue_read_thread);
+	
     sws_freeContext(is->img_convert_ctx);
+	
     av_free(is->filename);
+	
     av_freep(&is);
 
     return 0;
@@ -332,7 +329,7 @@ void toggle_pause(player_stat_t *is)
     is->step = 0;
 }
 
-static void stream_seek(player_stat_t *is, int64_t pos, int64_t rel, int seek_by_bytes)
+void stream_seek(player_stat_t *is, int64_t pos, int64_t rel, int seek_by_bytes)
 {
     if (!is->seek_req) {
         is->seek_pos = pos;
@@ -344,7 +341,6 @@ static void stream_seek(player_stat_t *is, int64_t pos, int64_t rel, int seek_by
         pthread_cond_signal(&is->continue_read_thread);
     }
 }
-
 
 
 int player_running(const char *p_input_file)

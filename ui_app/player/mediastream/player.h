@@ -48,7 +48,7 @@
 #define MAX_AUDIO_FRAME_SIZE 192000
 
 #define MAX_QUEUE_SIZE (15 * 1024 * 1024)
-#define MIN_FRAMES 25
+#define MIN_FRAMES 18
 
 /* Minimum SDL audio buffer size, in samples. */
 #define SDL_AUDIO_MIN_BUFFER_SIZE 512
@@ -202,7 +202,7 @@ typedef struct {
     pthread_t audioPlay_tid;    //audio播放线程
     pthread_t videoDecode_tid;  //video解码线程
     pthread_t videoPlay_tid;    //video播放线程
-
+    
     player_control_t playerController;
 }   player_stat_t;
 
@@ -214,5 +214,9 @@ double get_clock(play_clock_t *c);
 void set_clock_at(play_clock_t *c, double pts, int serial, double time);
 void set_clock(play_clock_t *c, double pts, int serial);
 void stream_toggle_pause(player_stat_t *is);
+
+double get_master_clock(player_stat_t *is);
+void stream_seek(player_stat_t *is, int64_t pos, int64_t rel, int seek_by_bytes);
+
 
 #endif
