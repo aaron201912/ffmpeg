@@ -202,7 +202,8 @@ typedef struct {
     pthread_t audioPlay_tid;    //audio播放线程
     pthread_t videoDecode_tid;  //video解码线程
     pthread_t videoPlay_tid;    //video播放线程
-    
+
+	double fps;
     player_control_t playerController;
 }   player_stat_t;
 

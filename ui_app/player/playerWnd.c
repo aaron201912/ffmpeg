@@ -73,7 +73,7 @@
 #define AUDIO_CHN       0
 #define AUDIO_SAMPLE_PER_FRAME  1024
 
-#define FILE_FILTER_NUM         5
+#define FILE_FILTER_NUM         6
 
 typedef struct _FileTree_t
 {
@@ -130,7 +130,7 @@ static MI_S32 g_s32SelectIdx = 0;
 static MI_U8 g_pu8RootPath[256] = "/customer";
 static MI_U8 g_pu8FullPath[256] = {0};
 static MI_U8 g_pu8SelectPath[256] = {0};            // save select file
-static char *g_pFileFilter[FILE_FILTER_NUM] = {".mp4", ".mpg", ".avi", ".wav", ".flv"/*, ".rmvb"*/};
+static char *g_pFileFilter[FILE_FILTER_NUM] = {".mp4", ".mpg", ".avi", ".wav", ".flv", ".mkv"/*, ".rmvb"*/};
 
 // playing page
 static MI_BOOL g_bShowPlayToolBar = FALSE;          // select file list page or playing page
@@ -198,7 +198,7 @@ static Rect_t g_stPlayToolBarItem[] = {
     {  0,   0,  50,   50}, { 50,   0,  14,  50}, { 64,   0, 960,  50}, {  0,  50, 1024, 550},
     {  0, 520, 1024,  80}, { 20, 520, 984,  30}, { 20, 550,  80,  48}, {105, 550,   80,  48},
     {190, 550,   80,  48}, {275, 550,  80,  48}, {360, 550,  80,  48}, {480, 559,   32,  32},
-    {520, 550, 260, 50}, {804, 560,  200,  50}
+    {520, 550, 260, 50}, {804, 550,  200,  50}
 };
 #endif
 
@@ -388,7 +388,6 @@ static NCS_WND_TEMPLATE _playFileWnd_ctrl_tmpl[] = {
         WS_EX_TRANSPARENT,
         "",
         play_trk_props,
-        //play_trk_rdr_info,
         g_rdr_info,
         play_trk_handlers,
         NULL,
@@ -501,7 +500,6 @@ static NCS_WND_TEMPLATE _playFileWnd_ctrl_tmpl[] = {
         WS_EX_TRANSPARENT,
         "",
         voice_trk_props,
-        //play_trk_rdr_info,
         g_rdr_info2,
         voice_trk_handlers,
         NULL,
@@ -960,22 +958,29 @@ MI_S32 ResumeAudio()
 MI_S32 PlayComplete()
 {
     mButton *pPlayObj = (mButton*)ncsGetChildObj(hMainPlayFileWnd, IDC_PLAYFILE_BUTTON_PLAY_PAUSE);
-    mStatic *pSpeedModeObj = (mStatic*)ncsGetChildObj(hMainPlayFileWnd, IDC_PLAYFILE_STATIC_SPEED_MODE);
+    mStatic *pTimeObj = (mStatic*)ncsGetChildObj(hMainPlayFileWnd, IDC_PLAYFILE_STATIC_PLAY_TIME);
+	mTrackBar *pProcessObj = (mStatic*)ncsGetChildObj(hMainPlayFileWnd, IDC_PLAYFILE_TRACKBAR_PLAY_PROGRESS);
 
-    // stop play video & audio
+	init_clock(&g_pstPlayStat->video_clk, &g_pstPlayStat->video_pkt_queue.serial);
+    init_clock(&g_pstPlayStat->audio_clk, &g_pstPlayStat->audio_pkt_queue.serial);
+
+   	toggle_pause(g_pstPlayStat);
     g_bPlaying = FALSE;
-    g_bPause = FALSE;
+    g_bPause = TRUE;
 
-    // sendmessage to stop playing
-    player_deinit(g_pstPlayStat);
-    StopPlayAudio();
-    StopPlayVideo();
 	// 文件流回到开始位置,显示第一帧后暂定等待
+	stream_seek(g_pstPlayStat, g_pstPlayStat->p_fmt_ctx->start_time, 0, 0);
+	
     SetBtnImg(pPlayObj, &g_play_btn);
     ResetPlayingStatus();
 
-    _c(pSpeedModeObj)->setProperty(pSpeedModeObj, NCSP_WIDGET_TEXT, (DWORD)"");
-    InvalidateRect(hMainPlayFileWnd, NULL, TRUE);
+	memcpy(time_info, "00:00:00", 8);
+	_c(pTimeObj)->setProperty(pTimeObj, NCSP_STATIC_ALIGN, NCS_ALIGN_CENTER);
+	_c(pTimeObj)->setProperty(pTimeObj, NCSP_WIDGET_TEXT, (DWORD)time_info);
+	InvalidateRect(pTimeObj->hwnd, NULL, TRUE);
+
+    _c(pProcessObj)->setProperty(pProcessObj, NCSP_TRKBAR_CURPOS, 0);
+    InvalidateRect(pProcessObj->hwnd, NULL, TRUE);
 
     return 0;
 }
@@ -1673,8 +1678,9 @@ static void playfast_btn_notify(mWidget *button, int id, int nc, DWORD add_data)
 		if (isnan(pos))
 			pos = (double)g_pstPlayStat->seek_pos / AV_TIME_BASE;
 		pos += 5.0;   // 每次快进5秒
-		if (g_pstPlayStat->p_fmt_ctx->start_time != AV_NOPTS_VALUE && pos < g_pstPlayStat->p_fmt_ctx->start_time / (double)AV_TIME_BASE)
-			pos = g_pstPlayStat->p_fmt_ctx->start_time / (double)AV_TIME_BASE;
+		
+		if (g_pstPlayStat->p_fmt_ctx->start_time != AV_NOPTS_VALUE && pos > g_pstPlayStat->p_fmt_ctx->duration / (double)AV_TIME_BASE)
+			pos = g_pstPlayStat->p_fmt_ctx->duration / (double)AV_TIME_BASE;
 		stream_seek(g_pstPlayStat, (int64_t)(pos * AV_TIME_BASE), (int64_t)(incr * AV_TIME_BASE), 0);
 	}
 }
@@ -1730,13 +1736,15 @@ static void play_trk_notify(mTrackBar* self, int id, int code, DWORD add_data)
 				t_value  = _c(pVideoObj)->getProperty(pVideoObj, NCSP_TRKBAR_CURPOS);
 				position = g_pstPlayStat->p_fmt_ctx->duration / play_trk_props[1].value * t_value;
 				s_time   = g_pstPlayStat->video_clk.pts;      // 获取当前时间戳
-				if (position > 0 && position < g_pstPlayStat->p_fmt_ctx->duration) 
+				if (position >= 0 && position <= g_pstPlayStat->p_fmt_ctx->duration) 
 				{
 					position += g_pstPlayStat->p_fmt_ctx->start_time;				
 					offset = position - s_time * AV_TIME_BASE;
 					// 仅当进度变化大于2秒时执行跳转
 					if (offset > 2000000 || offset < -2000000)
+					{
 						stream_seek(g_pstPlayStat, position, offset, 0);
+					}
 				}
 			}
 			break;
@@ -1779,8 +1787,10 @@ static BOOL onTimer(mWidget *widget, int message, int id, DWORD tick)
 {
 	double time;
 	char tmpstr[] = "--:--:--";
+	char fpsstr[] = "00.00";
 	uint32_t second, minute, hours;
 	mTrackBar *pProgressObj = (mTrackBar*)ncsGetChildObj(hMainPlayFileWnd, IDC_PLAYFILE_TRACKBAR_PLAY_PROGRESS);
+	mStatic *pFpsObj = (mStatic*)ncsGetChildObj(hMainPlayFileWnd, IDC_PLAYFILE_STATIC_SPEED_MODE);
 
 	time = g_pstPlayStat->video_clk.pts;
 	second = (uint32_t)time;
@@ -1797,8 +1807,17 @@ static BOOL onTimer(mWidget *widget, int message, int id, DWORD tick)
 	uint32_t total_time = g_pstPlayStat->p_fmt_ctx->duration / AV_TIME_BASE;
 	WPARAM t_value = (WPARAM)second * play_trk_props[1].value / total_time;
 //	printf("video trackbar value : %ld\n", t_value);
+	_c(pProgressObj)->setProperty(pProgressObj, NCSP_TRKBAR_THUMB_WIDTH, t_value);
 	_c(pProgressObj)->setProperty(pProgressObj, NCSP_TRKBAR_CURPOS, t_value);
 	InvalidateRect(pProgressObj->hwnd, NULL, TRUE);
+
+	if (g_pstPlayStat->paused) 
+		sprintf(fpsstr, "%.2f", 00.00);
+	else
+		sprintf(fpsstr, "%.2f", g_pstPlayStat->fps);
+	_c(pFpsObj)->setProperty(pFpsObj, NCSP_STATIC_ALIGN, NCS_ALIGN_CENTER);
+	_c(pFpsObj)->setProperty(pFpsObj, NCSP_WIDGET_TEXT, (DWORD)fpsstr);
+	InvalidateRect(pFpsObj->hwnd, NULL, TRUE);
 
 	return TRUE;
 }

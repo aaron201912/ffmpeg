@@ -14,9 +14,9 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <sys/resource.h>
-#include<sys/mman.h>
-#include<sys/types.h>
-#include<sys/stat.h>
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 
 static int fdv;
@@ -88,8 +88,6 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
                 }
                 else if (ret == AVERROR(EAGAIN))
                 {
-                    //av_log(NULL, AV_LOG_INFO, "video avcodec_receive_frame(): output is not available in this state - "
-                    //"user must try to send new input\n");
 //					av_log(NULL, AV_LOG_ERROR, "cann't fetch a frame, try again!\n");
                     break;
                 }
@@ -153,7 +151,7 @@ static int video_decode_thread(void *arg)
         return AVERROR(ENOMEM);
     }
 
-	printf("video time base : %f ms.\n", 1000 * av_q2d(tb));
+	printf("video time base : %.2fms.\n", 1000 * av_q2d(tb));
 	printf("frame rate num : %d. frame rate den : %d.\n", frame_rate.num, frame_rate.den);
 
 	printf("get in video decode thread!\n");
@@ -257,7 +255,7 @@ static void update_video_pts(player_stat_t *is, double pts, int64_t pos, int ser
 
 static void video_display(player_stat_t *is)
 {
-
+	static double tmp_time, f_time, last_time;
     frame_t *vp;
 
     vp = frame_queue_peek_last(&is->video_frm_queue);
@@ -281,6 +279,13 @@ static void video_display(player_stat_t *is)
 
 	is->playerController.fpDisplayVideo(is->out_width, is->out_height, is->p_frm_yuv->data[0], is->p_frm_yuv->data[1]);		 
 //	is->playerController.fpDisplayVideo(is->p_vcodec_ctx->width, is->p_vcodec_ctx->height, is->p_frm_yuv->data[0], is->p_frm_yuv->data[1]);
+
+	tmp_time = av_gettime_relative();
+	f_time = tmp_time - last_time;
+	if (0 != f_time)
+		is->fps = 1000000 / f_time;
+	last_time = tmp_time;
+//	printf("actual fps of video is : %.2f.\n", v_fps);
 }
 
 /* called to display each frame */
@@ -298,8 +303,12 @@ retry:
         
     if (frame_queue_nb_remaining(&is->video_frm_queue) <= 0)  // 所有帧已显示
     {    
-        // nothing to do, no picture to display in the queue
-        //printf("already last frame: %d\n",is->video_frm_queue.size);
+        // if file is eof and there is no paket in queue, then do complete
+        if (is->eof && is->video_pkt_queue.nb_packets == 0)
+        {
+        	printf("video file has been played completely! packet num : %d.\n", is->video_pkt_queue.nb_packets);
+        	is->playerController.fpPlayComplete();
+        }
         return;
     }
 
