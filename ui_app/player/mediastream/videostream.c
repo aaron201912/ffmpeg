@@ -268,7 +268,7 @@ static void video_display(player_stat_t *is)
     // stride/pitch: 一行图像所占的字节数，Stride=BytesPerPixel*Width+Padding，注意对齐
     // AVFrame.*data[]: 每个数组元素指向对应plane
     // AVFrame.linesize[]: 每个数组元素表示对应plane中一行图像所占的字节数
-    sws_scale(is->img_convert_ctx,                      // sws context
+    sws_scale(is->img_convert_ctx,                    // sws context
               (const uint8_t *const *)vp->frame->data,// src slice
               vp->frame->linesize,                    // src stride
               0,                                      // src slice y
@@ -276,9 +276,49 @@ static void video_display(player_stat_t *is)
               is->p_frm_yuv->data,                    // dst planes
               is->p_frm_yuv->linesize                 // dst strides
              );
+	
+	long int bufsize = is->out_width * is->out_height;
+	
+	MI_SYS_BUF_HANDLE hHandle;
+	MI_SYS_ChnPort_t  pstSysChnPort;
+	MI_SYS_BufConf_t  stBufConf;
+	MI_SYS_BufInfo_t  stBufInfo;
 
-	is->playerController.fpDisplayVideo(is->out_width, is->out_height, is->p_frm_yuv->data[0], is->p_frm_yuv->data[1]);		 
-//	is->playerController.fpDisplayVideo(is->p_vcodec_ctx->width, is->p_vcodec_ctx->height, is->p_frm_yuv->data[0], is->p_frm_yuv->data[1]);
+	pstSysChnPort.eModId	 = E_MI_MODULE_ID_DISP;
+	pstSysChnPort.u32ChnId  = 0;
+	pstSysChnPort.u32DevId  = 0;
+	pstSysChnPort.u32PortId = 0;
+
+	memset(&stBufInfo , 0 , sizeof(MI_SYS_BufInfo_t));
+	memset(&stBufConf , 0 , sizeof(MI_SYS_BufConf_t));
+
+	stBufConf.eBufType = E_MI_SYS_BUFDATA_FRAME;
+	stBufConf.u64TargetPts = 0;
+	stBufConf.stFrameCfg.u16Width  = is->out_width;
+	stBufConf.stFrameCfg.u16Height = is->out_height;
+	stBufConf.stFrameCfg.eFormat = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
+	stBufConf.stFrameCfg.eFrameScanMode = E_MI_SYS_FRAME_SCAN_MODE_PROGRESSIVE;
+
+	if(MI_SUCCESS == MI_SYS_ChnInputPortGetBuf(&pstSysChnPort,&stBufConf,&stBufInfo,&hHandle, -1))
+	{
+		stBufInfo.stFrameData.eCompressMode = E_MI_SYS_COMPRESS_MODE_NONE;
+		stBufInfo.stFrameData.eFieldType	= E_MI_SYS_FIELDTYPE_NONE;
+		stBufInfo.stFrameData.eTileMode	    = E_MI_SYS_FRAME_TILE_MODE_NONE;
+		stBufInfo.bEndOfStream = FALSE;
+
+		memcpy(stBufInfo.stFrameData.pVirAddr[0], is->p_frm_yuv->data[0], bufsize);
+		memcpy(stBufInfo.stFrameData.pVirAddr[1], is->p_frm_yuv->data[1], bufsize / 2);
+
+//		FILE *fpread1 = fopen("pic_later.yuv", "a+");
+//		fwrite(stBufInfo.stFrameData.pVirAddr[0], 1, bufsize, fpread1);
+//		fwrite(stBufInfo.stFrameData.pVirAddr[1], 1, bufsize / 2, fpread1);
+//		fclose(fpread1);
+
+		MI_SYS_ChnInputPortPutBuf(hHandle ,&stBufInfo , FALSE);
+	}
+	else {
+		printf("get MI_SYS_ChnInputPortGetBuf failed!\n");
+	}
 
 	tmp_time = av_gettime_relative();
 	f_time = tmp_time - last_time;
@@ -421,8 +461,6 @@ static int open_video_playing(void *arg)
     
     // 为AVFrame.*data[]手工分配缓冲区，用于存储sws_scale()中目的帧视频数据
     buf_size = av_image_get_buffer_size(AV_PIX_FMT_NV12,
-                                        // is->p_vcodec_ctx->width,
-                                        // is->p_vcodec_ctx->height,
                                         is->out_width,
                                         is->out_height,
                                         1
@@ -439,11 +477,9 @@ static int open_video_playing(void *arg)
     ret = av_image_fill_arrays(is->p_frm_yuv->data,     // dst data[]
                                is->p_frm_yuv->linesize, // dst linesize[]
                                buffer,                  // src buffer
-                               AV_PIX_FMT_NV12,      // pixel format
-                               // is->p_vcodec_ctx->width, // width
-                               // is->p_vcodec_ctx->height,// height
-                               is->out_width,
-                               is->out_height,
+                               AV_PIX_FMT_NV12,         // pixel format
+                               is->out_width,           // src width
+                               is->out_height,          // src height
                                1                        // align
                                );
     if (ret < 0)
@@ -538,6 +574,95 @@ static int open_video_stream(player_stat_t *is)
 
     return 0;
 }
+
+MI_S32 sstar_disp_init(MI_PANEL_ParamConfig_t *stPanelParam, MI_U16 width, MI_U16 height)
+{
+    MI_SYS_Version_t stVersion;
+    MI_U64 u64Pts = 0;
+    MI_DISP_PubAttr_t stPubAttr;
+    MI_DISP_VideoLayerAttr_t stLayerAttr;
+    MI_DISP_DEV dispDev = DISP_DEV;
+    MI_DISP_LAYER dispLayer = DISP_LAYER;
+    MI_U32 u32InputPort = DISP_INPUTPORT;
+    MI_SYS_ChnPort_t stDispChnPort;
+    MI_DISP_InputPortAttr_t stInputPortAttr;
+
+	memset(&stPubAttr, 0, sizeof(MI_DISP_PubAttr_t));
+    stPubAttr.stSyncInfo.u16Vact = stPanelParam->u16Height;
+    stPubAttr.stSyncInfo.u16Vbb  = stPanelParam->u16VSyncBackPorch;
+    stPubAttr.stSyncInfo.u16Vfb  = stPanelParam->u16VTotal - (stPanelParam->u16VSyncWidth + stPanelParam->u16Height + stPanelParam->u16VSyncBackPorch);
+    stPubAttr.stSyncInfo.u16Hact = stPanelParam->u16Width;
+    stPubAttr.stSyncInfo.u16Hbb  = stPanelParam->u16HSyncBackPorch;
+    stPubAttr.stSyncInfo.u16Hfb  = stPanelParam->u16HTotal - (stPanelParam->u16HSyncWidth + stPanelParam->u16Width + stPanelParam->u16HSyncBackPorch);
+    stPubAttr.stSyncInfo.u16Bvact= 0;
+    stPubAttr.stSyncInfo.u16Bvbb = 0;
+    stPubAttr.stSyncInfo.u16Bvfb = 0;
+    stPubAttr.stSyncInfo.u16Hpw  = stPanelParam->u16HSyncWidth;
+    stPubAttr.stSyncInfo.u16Vpw  = stPanelParam->u16VSyncWidth;
+    stPubAttr.stSyncInfo.u32FrameRate = stPanelParam->u16DCLK*1000000/(stPanelParam->u16HTotal*stPanelParam->u16VTotal);
+    stPubAttr.eIntfSync  = E_MI_DISP_OUTPUT_USER;
+    stPubAttr.eIntfType  = E_MI_DISP_INTF_LCD;
+    stPubAttr.u32BgColor = YUYV_BLACK;
+    MI_DISP_SetPubAttr(dispDev, &stPubAttr);
+    MI_DISP_Enable(dispDev);
+
+    stLayerAttr.stVidLayerSize.u16Width  = stPanelParam->u16Width;
+    stLayerAttr.stVidLayerSize.u16Height = stPanelParam->u16Height;
+    stLayerAttr.ePixFormat = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
+    stLayerAttr.stVidLayerDispWin.u16X      = 0;
+    stLayerAttr.stVidLayerDispWin.u16Y      = 0;
+    stLayerAttr.stVidLayerDispWin.u16Width  = stPanelParam->u16Width;
+    stLayerAttr.stVidLayerDispWin.u16Height = stPanelParam->u16Height;
+    MI_DISP_SetVideoLayerAttr(dispLayer, &stLayerAttr);
+    MI_DISP_BindVideoLayer(dispLayer, dispDev);
+    MI_DISP_EnableVideoLayer(dispLayer);
+
+	memset(&stInputPortAttr, 0, sizeof(MI_DISP_InputPortAttr_t));
+    MI_DISP_GetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
+    stInputPortAttr.stDispWin.u16X      = 0;
+    stInputPortAttr.stDispWin.u16Y      = 0;
+    stInputPortAttr.stDispWin.u16Width  = width;
+    stInputPortAttr.stDispWin.u16Height = height;
+	stInputPortAttr.u16SrcWidth         = width;
+    stInputPortAttr.u16SrcHeight        = height;
+
+    MI_DISP_SetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
+    MI_DISP_GetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
+    MI_DISP_EnableInputPort(dispLayer, u32InputPort);
+    MI_DISP_SetInputPortSyncMode(dispLayer, u32InputPort, E_MI_DISP_SYNC_MODE_FREE_RUN);
+
+    MI_PANEL_Init(stPanelParam->eLinkType);
+    MI_PANEL_SetPanelParam(stPanelParam);
+    MI_GFX_Open();
+
+    return MI_SUCCESS;
+}
+
+void sstar_disp_deinit(void)
+{
+    MI_DISP_DEV dispDev = DISP_DEV;
+    MI_DISP_LAYER dispLayer = DISP_LAYER;
+    MI_U32 u32InputPort = DISP_INPUTPORT;
+
+    MI_GFX_Close();
+    MI_PANEL_DeInit();
+    MI_DISP_DisableInputPort(dispLayer, u32InputPort);
+    MI_DISP_DisableVideoLayer(dispLayer);
+    MI_DISP_UnBindVideoLayer(dispLayer, dispDev);
+    MI_DISP_Disable(dispDev);
+}
+
+MI_S32 sstar_open_display(void)
+{
+    MI_DISP_ShowInputPort(DISP_LAYER, DISP_INPUTPORT);
+	return 0;
+}
+
+void sstar_close_display(void)
+{
+    MI_DISP_HideInputPort(DISP_LAYER, DISP_INPUTPORT);
+}
+
 
 int open_video(player_stat_t *is)
 {

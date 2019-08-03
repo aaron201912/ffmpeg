@@ -125,25 +125,6 @@ static void sync_play_clock_to_slave(play_clock_t *c, play_clock_t *slave)
         set_clock(c, slave_clock, slave->serial);
 }
 
-static void do_exit(player_stat_t *is)
-{
-    if (is)
-    {
-        player_deinit(is);
-    }
-#if 0
-    if (is->sdl_video.renderer)
-        SDL_DestroyRenderer(is->sdl_video.renderer);
-    if (is->sdl_video.window)
-        SDL_DestroyWindow(is->sdl_video.window);
-#endif
-    //avformat_network_deinit();
-
-    //SDL_Quit();
-
-    exit(0);
-}
-
 player_stat_t *player_init(const char *p_input_file)
 {
     player_stat_t *is;
@@ -204,7 +185,6 @@ static void audio_decoder_abort(player_stat_t *is)
 {
     packet_queue_abort(&is->audio_pkt_queue);
     frame_queue_signal(&is->audio_frm_queue);
-    //SDL_WaitThread(d->decoder_tid, NULL);
     packet_queue_flush(&is->audio_pkt_queue);
 
     avcodec_free_context(&is->p_acodec_ctx);
@@ -214,7 +194,6 @@ static void video_decoder_abort(player_stat_t *is)
 {
     packet_queue_abort(&is->video_pkt_queue);
     frame_queue_signal(&is->video_frm_queue);
-    //SDL_WaitThread(d->decoder_tid, NULL);
     packet_queue_flush(&is->video_pkt_queue);
 
     avcodec_free_context(&is->p_vcodec_ctx);
@@ -342,58 +321,31 @@ void stream_seek(player_stat_t *is, int64_t pos, int64_t rel, int seek_by_bytes)
     }
 }
 
-
-int player_running(const char *p_input_file)
+MI_S32 sstar_sys_init(void)
 {
-    player_stat_t *is = NULL;
-    char cmd = 0;
-    double incr,pos, frac;
+    MI_SYS_Version_t stVersion;
+    MI_U64 u64Pts = 0;
 
-    is = player_init(p_input_file);
-    if (is == NULL)
-    {
-        printf("player init failed\n");
-        do_exit(is);
-    }
+    CheckFuncResult(MI_SYS_Init());
 
-    open_demux(is);
-    open_video(is);
-    open_audio(is);
+    memset(&stVersion, 0x0, sizeof(MI_SYS_Version_t));
 
-    //SDL_Event event;
+    CheckFuncResult(MI_SYS_GetVersion(&stVersion));
 
-    while (1)
-    {
-        cmd = getchar();
-        switch (cmd){
-        case 'q':
-            do_exit(is);
-            break;
-        case 'p':
-            toggle_pause(is);
-            break;
-        case 'b':
-            incr = seek_interval ? -seek_interval : -10.0;
-            goto do_seek;
-        case 'f':
-            incr = seek_interval ? seek_interval : 10.0;
+    CheckFuncResult(MI_SYS_GetCurPts(&u64Pts));
 
-do_seek:
+    u64Pts = 0xF1237890F1237890;
+    CheckFuncResult(MI_SYS_InitPtsBase(u64Pts));
 
-        pos = get_master_clock(is);
-        if (isnan(pos))
-            pos = (double)is->seek_pos / AV_TIME_BASE;
-        pos += incr;
-        if (is->p_fmt_ctx->start_time != AV_NOPTS_VALUE && pos < is->p_fmt_ctx->start_time / (double)AV_TIME_BASE)
-            pos = is->p_fmt_ctx->start_time / (double)AV_TIME_BASE;
-        stream_seek(is, (int64_t)(pos * AV_TIME_BASE), (int64_t)(incr * AV_TIME_BASE), 0);
-        
-            break;
-        default:
-            break;
-        }
+    u64Pts = 0xE1237890E1237890;
+    CheckFuncResult(MI_SYS_SyncPts(u64Pts));
 
-    }
-
-    return 0;
+    return MI_SUCCESS;
 }
+
+void sstar_sys_deinit(void)
+{
+	CheckFuncResult(MI_SYS_Exit());
+}
+
+

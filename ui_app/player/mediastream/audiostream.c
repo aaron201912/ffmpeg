@@ -13,26 +13,26 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <sys/resource.h>
-#include<sys/mman.h>
-#include<sys/types.h>
-#include<sys/stat.h>
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 
 //sdk audio input/outout param
-#define     AUDIO_INPUT_SAMPRATE       48000
-#define     AUDIO_INPUT_CHLAYOUT       AV_CH_LAYOUT_MONO
-#define     AUDIO_INPUT_SAMPFMT        AV_SAMPLE_FMT_S16
+#define     AUDIO_INPUT_SAMPRATE        48000
+#define     AUDIO_INPUT_CHLAYOUT        AV_CH_LAYOUT_MONO
+#define     AUDIO_INPUT_SAMPFMT         AV_SAMPLE_FMT_S16
 
 #define     AUDIO_OUTPUT_SAMPRATE       E_MI_AUDIO_SAMPLE_RATE_48000
 #define     AUDIO_OUTPUT_CHLAYOUT       E_MI_AUDIO_SOUND_MODE_MONO
 #define     AUDIO_OUTPUT_SAMPFMT        E_MI_AUDIO_BIT_WIDTH_16
 
-#define MI_AUDIO_SAMPLE_PER_FRAME 1024
+#define 	MI_AUDIO_SAMPLE_PER_FRAME   1024
 
 
-#define MI_AUDIO_MAX_SAMPLES_PER_FRAME     2048
-#define MI_AUDIO_MAX_FRAME_NUM             6
+#define 	MI_AUDIO_MAX_SAMPLES_PER_FRAME     2048
+#define 	MI_AUDIO_MAX_FRAME_NUM             6
 
-#define MI_AO_PCM_BUF_SIZE_BYTE      (MI_AUDIO_MAX_SAMPLES_PER_FRAME * MI_AUDIO_MAX_FRAME_NUM * 2 * 4)
+#define 	MI_AO_PCM_BUF_SIZE_BYTE      (MI_AUDIO_MAX_SAMPLES_PER_FRAME * MI_AUDIO_MAX_FRAME_NUM * 2 * 4)
 
 static int fda;
 static void sdl_audio_callback(void *opaque, uint8_t *stream, int len);
@@ -62,7 +62,6 @@ static int audio_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
                 AVRational tb = (AVRational) { 1, frame->sample_rate };
                 if (frame->pts != AV_NOPTS_VALUE)
                 {
-//                	printf("frame pts before convert : %d.\n", frame->pts);
                     frame->pts = av_rescale_q(frame->pts, p_codec_ctx->pkt_timebase, tb);
                 }
                 else
@@ -248,7 +247,7 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
         af->frame->nb_samples,       // 本行一参数：本帧中包含的单个声道中的样本数
         af->frame->format, 1);       // 本行两参数：采样格式，不对齐
 
-// 获取声道布局
+    // 获取声道布局
     dec_channel_layout =
         (af->frame->channel_layout && af->frame->channels == av_get_channel_layout_nb_channels(af->frame->channel_layout)) ?
         af->frame->channel_layout : av_get_default_channel_layout(af->frame->channels);
@@ -276,7 +275,7 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
                 "Cannot create sample rate converter for conversion of %d Hz %s %d channels to %d Hz %s %d channels!\n",
                 af->frame->sample_rate, av_get_sample_fmt_name(af->frame->format), af->frame->channels,
                 is->audio_param_tgt.freq, av_get_sample_fmt_name(is->audio_param_tgt.fmt), is->audio_param_tgt.channels);
-            swr_free(&is->audio_swr_ctx);
+			swr_free(&is->audio_swr_ctx);
             return -1;
         }
         // 使用frame中的参数更新is->audio_src，第一次更新后后面基本不用执行此if分支了，因为一个音频流中各frame通用参数一样
@@ -306,10 +305,9 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
             return -1;
         }
 
-        av_fast_malloc(&is->audio_frm_rwr, &is->audio_frm_rwr_size, out_size);
+        av_fast_mallocz(&is->audio_frm_rwr, &is->audio_frm_rwr_size, out_size);
         if (!is->audio_frm_rwr)
         {
-
             return AVERROR(ENOMEM);
         }
         //printf("tgt count: %d,channel: %d,size: %d\n",out_count,is->audio_param_tgt.channels,is->audio_frm_rwr_size);
@@ -320,7 +318,7 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
         if (len2 < 0)
         {
             av_log(NULL, AV_LOG_ERROR, "swr_convert() failed\n");
-            return -1;
+			goto fail;
         }
 
         if (len2 == out_count)
@@ -328,6 +326,7 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
             av_log(NULL, AV_LOG_WARNING, "audio buffer is probably too small\n");
             if (swr_init(is->audio_swr_ctx) < 0)
                 swr_free(&is->audio_swr_ctx);
+			goto fail;
         }
 
         is->p_audio_frm = is->audio_frm_rwr;
@@ -366,18 +365,18 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
         last_clock = is->audio_clock;
     }
 #endif
-    return resampled_data_size;
+	return resampled_data_size;
+fail:
+	av_freep(&is->audio_frm_rwr);
+    return -1;
 }
 
 static int audio_playing_thread(void *arg)
 {
     player_stat_t *is = (player_stat_t *)arg;
-    int audio_size, len1,len;
-	int pause = 0;
-    int last_pause =0;
-//    int start_time = 0;
-//    int current_time = 0;
-
+    int audio_size, len1, len, ret;
+	int last_paused = 0;
+	
     while(1)
     {
         if(is->abort_request)
@@ -387,41 +386,53 @@ static int audio_playing_thread(void *arg)
         }
         int64_t audio_callback_time = av_gettime_relative();
 
-        audio_size = audio_resample(is, audio_callback_time);
+		audio_size = audio_resample(is, audio_callback_time);
         if (audio_size < 0)
         {
             /* if error, just output silence */
-
-            pause = 1;
-            if(pause != last_pause)
+            if(is->paused != last_paused)
             {
-                last_pause = pause;
-                is->playerController.fpPauseAudio();
-                //MI_AO_PauseChn(0,0);	// call pause callback
+                last_paused = is->paused;
+                ret = MI_AO_PauseChn(AUDIO_DEV, AUDIO_CHN);
+				printf("pause audio output!\n");
             }
             is->p_audio_frm = NULL;
             is->audio_frm_size = SDL_AUDIO_MIN_BUFFER_SIZE / is->audio_param_tgt.frame_size * is->audio_param_tgt.frame_size;
         }
         else
         {
-            pause = 0;
-            if(pause != last_pause)
+            if(is->paused != last_paused)
             {
-                last_pause = pause;
-                is->playerController.fpResumeAudio();
-                //MI_AO_ResumeChn(0,0);	// call resume callback
+                last_paused = is->paused;
+				ret = MI_AO_ResumeChn(AUDIO_DEV, AUDIO_CHN);
+				printf("resume audio output!\n");
             }
             is->audio_frm_size = audio_size;
         }
-
+	
         if (is->p_audio_frm != NULL)
         {
             long long duration = (is->p_fmt_ctx->duration + (is->p_fmt_ctx->duration <= INT64_MAX - 5000 ? 5000 : 0)) / AV_TIME_BASE;
 
-            is->playerController.fpPlayAudio(is->p_audio_frm, is->audio_frm_size);
-            //is->playerController.fpGetCurrentPlayPos((MI_S32)duration, /*video_pts*/0);
+            MI_AUDIO_Frame_t stAoSendFrame;
+            MI_S32 s32RetSendStatus = 0;
+            MI_AUDIO_DEV AoDevId = AUDIO_DEV;
+            MI_AO_CHN AoChn      = AUDIO_CHN;
 
-            //is->playerController.fpPlayComplete();      // 需要判断音频和视频都已播放结束，再停止播放。
+            //read data and send to AO module
+            stAoSendFrame.u32Len = is->audio_frm_size;
+            stAoSendFrame.apVirAddr[0] = is->p_audio_frm;
+            stAoSendFrame.apVirAddr[1] = NULL;
+
+            do{
+                s32RetSendStatus = MI_AO_SendFrame(AoDevId, AoChn, &stAoSendFrame, 128);
+            }while(s32RetSendStatus == MI_AO_ERR_NOBUF);
+
+            if(s32RetSendStatus != MI_SUCCESS)
+            {
+                printf("[Warning]: MI_AO_SendFrame fail, error is 0x%x: \n",s32RetSendStatus);
+            }
+            // 需要判断音频和视频都已播放结束，再停止播放。
             //frame_queue_next(&is->audio_frm_queue);
         }
 
@@ -457,7 +468,7 @@ static int open_audio_playing(void *arg)
     // 若将解码后的frame直接送入SDL音频缓冲区，声音将无法正常播放。所以需要先将frame重采样(转换格式)为SDL支持的模式，
     // 然后送再写入SDL音频缓冲区
 
-    is->audio_param_tgt.fmt = AUDIO_INPUT_SAMPFMT;
+    is->audio_param_tgt.fmt  = AUDIO_INPUT_SAMPFMT;
     is->audio_param_tgt.freq = AUDIO_INPUT_SAMPRATE;
     is->audio_param_tgt.channel_layout = AUDIO_INPUT_CHLAYOUT;
 
@@ -550,10 +561,76 @@ static void sdl_audio_callback(void *opaque, uint8_t *stream, int len)
     }
 }
 
-int open_audio(player_stat_t *is)
+
+MI_S32 sstar_ao_init(MI_S32 volume)
 {
+    MI_AUDIO_Attr_t stSetAttr;
+    MI_AUDIO_Attr_t stGetAttr;
+    MI_AUDIO_DEV AoDevId = AUDIO_DEV;
+    MI_AO_CHN AoChn = AUDIO_CHN;
+
+    MI_S32 s32SetVolumeDb;
+    MI_S32 s32GetVolumeDb;
+
+    //set Ao Attr struct
+    memset(&stSetAttr, 0, sizeof(MI_AUDIO_Attr_t));
+    stSetAttr.eBitwidth = E_MI_AUDIO_BIT_WIDTH_16;
+    stSetAttr.eWorkmode = E_MI_AUDIO_MODE_I2S_MASTER;
+    stSetAttr.u32FrmNum = 6;
+    stSetAttr.u32PtNumPerFrm = MI_AUDIO_SAMPLE_PER_FRAME;
+    stSetAttr.u32ChnCnt = 1;
+
+    if(stSetAttr.u32ChnCnt == 2)
+    {
+        stSetAttr.eSoundmode = E_MI_AUDIO_SOUND_MODE_STEREO;
+    }
+    else if(stSetAttr.u32ChnCnt == 1)
+    {
+        stSetAttr.eSoundmode = E_MI_AUDIO_SOUND_MODE_MONO;
+    }
+
+    stSetAttr.eSamplerate = E_MI_AUDIO_SAMPLE_RATE_48000;
+
+    /* set ao public attr*/
+    MI_AO_SetPubAttr(AoDevId, &stSetAttr);
+
+    /* get ao device*/
+    MI_AO_GetPubAttr(AoDevId, &stGetAttr);
+
+    /* enable ao device */
+    MI_AO_Enable(AoDevId);
+
+    /* enable ao channel of device*/
+    MI_AO_EnableChn(AoDevId, AoChn);
+
+    /* if test AO Volume */
+    s32SetVolumeDb = volume * (MAX_AO_VOLUME - MIN_AO_VOLUME) / VOLUME_RANGE + MIN_AO_VOLUME;;
+    MI_AO_SetVolume(AoDevId, s32SetVolumeDb);
+    MI_AO_SetMute(AoDevId, FALSE);
+    /* get AO volume */
+    MI_AO_GetVolume(AoDevId, &s32GetVolumeDb);
+
+	return MI_SUCCESS;
+}
+
+void sstar_ao_deinit(void)
+{
+    MI_AUDIO_DEV AoDevId = AUDIO_DEV;
+    MI_AO_CHN AoChn = AUDIO_CHN;
+
+    /* disable ao channel of */
+    MI_AO_DisableChn(AoDevId, AoChn);
+
+    /* disable ao device */
+    MI_AO_Disable(AoDevId);
+}
+
+int open_audio(player_stat_t *is)
+{	
     open_audio_stream(is);
     open_audio_playing(is);
 
     return 0;
 }
+
+

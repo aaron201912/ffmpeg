@@ -52,8 +52,7 @@ static int demux_init(player_stat_t *is)
     }
 
     // 2. 查找第一个音频流/视频流
-    a_idx = -1;
-    v_idx = -1;
+    a_idx = v_idx = -1;
     for (i=0; i<(int)p_fmt_ctx->nb_streams; i++)
     {
         if ((p_fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) &&
@@ -88,8 +87,10 @@ static int demux_init(player_stat_t *is)
     is->audio_idx = a_idx;
     is->video_idx = v_idx;
     printf("audio idx: %d,video idx: %d\n",a_idx,v_idx);
-    is->p_audio_stream = p_fmt_ctx->streams[a_idx];
-    is->p_video_stream = p_fmt_ctx->streams[v_idx];
+	if (is->audio_idx >= 0)
+    	is->p_audio_stream = p_fmt_ctx->streams[a_idx];
+	if (is->video_idx >= 0)
+    	is->p_video_stream = p_fmt_ctx->streams[v_idx];
 
     return 0;
 }

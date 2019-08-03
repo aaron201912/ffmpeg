@@ -131,10 +131,6 @@ typedef struct {
 typedef struct {
     MI_S32 (*fpGetMediaInfo)();
     MI_S32 (*fpGetCurrentPlayPos)(MI_S32 s32Duration, MI_S32 s32CurrentPos);
-    MI_S32 (*fpDisplayVideo)(MI_S32 s32Width, MI_S32 s32Height, void *pYData, void *pUVData);
-    MI_S32 (*fpPlayAudio)(MI_U8 *pu8AudioData, MI_U32 u32DataLen);
-    MI_S32 (*fpPauseAudio)();
-    MI_S32 (*fpResumeAudio)();
     MI_S32 (*fpPlayComplete)();
     MI_S32 (*fpPlayError)();
 }   player_control_t;
@@ -164,7 +160,6 @@ typedef struct {
     struct SwsContext *img_convert_ctx;
     struct SwrContext *audio_swr_ctx;
     AVFrame *p_frm_yuv;
-    AVFrame *pF; //patch for malloc(): memory corruption
 
     audio_param_t audio_param_src;
     audio_param_t audio_param_tgt;
@@ -215,9 +210,10 @@ double get_clock(play_clock_t *c);
 void set_clock_at(play_clock_t *c, double pts, int serial, double time);
 void set_clock(play_clock_t *c, double pts, int serial);
 void stream_toggle_pause(player_stat_t *is);
-
 double get_master_clock(player_stat_t *is);
 void stream_seek(player_stat_t *is, int64_t pos, int64_t rel, int seek_by_bytes);
+MI_S32 sstar_sys_init(void);
+void sstar_sys_deinit(void);
 
 
 #endif
