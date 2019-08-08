@@ -39,8 +39,6 @@ static int demux_init(player_stat_t *is)
         goto fail;
     }
     is->p_fmt_ctx = p_fmt_ctx;
-	double totle_seconds = p_fmt_ctx->duration * av_q2d(AV_TIME_BASE_Q);
-	printf("Total time of video : %f\n", totle_seconds);
     // 1.2 搜索流信息：读取一段视频文件数据，尝试解码，将取到的流信息填入p_fmt_ctx->streams
     //     ic->streams是一个指针数组，数组大小是pFormatCtx->nb_streams
     err = avformat_find_stream_info(p_fmt_ctx, NULL);
@@ -87,6 +85,10 @@ static int demux_init(player_stat_t *is)
     is->audio_idx = a_idx;
     is->video_idx = v_idx;
     printf("audio idx: %d,video idx: %d\n",a_idx,v_idx);
+
+	double totle_seconds = p_fmt_ctx->duration * av_q2d(AV_TIME_BASE_Q);
+	printf("total time of file : %f\n", totle_seconds);
+
 	if (is->audio_idx >= 0)
     	is->p_audio_stream = p_fmt_ctx->streams[a_idx];
 	if (is->video_idx >= 0)
@@ -181,7 +183,9 @@ static int demux_thread(void *arg)
             // of the seek_pos/seek_rel variables
 
             ret = avformat_seek_file(is->p_fmt_ctx, -1, seek_min, seek_target, seek_max, is->seek_flags);
-            if (ret < 0) {
+			//ret = av_seek_frame(is->p_fmt_ctx, -1, seek_target, is->seek_flags);
+
+			if (ret < 0) {
                 av_log(NULL, AV_LOG_ERROR,
                        "%s: error while seeking\n", is->p_fmt_ctx->url);
             } else {
@@ -266,7 +270,6 @@ static int demux_thread(void *arg)
         {
             is->eof = 0;
         }
-
 
         // 4.3 根据当前packet类型(音频、视频、字幕)，将其存入对应的packet队列
         if (pkt->stream_index == is->audio_idx)

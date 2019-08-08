@@ -232,14 +232,29 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
     int64_t dec_channel_layout;
     av_unused double audio_clock0;
     int wanted_nb_samples;
-    frame_t *af;
+    frame_t *af = NULL;
+	frame_queue_t *f = &is->audio_frm_queue;
 
     if (is->paused)
         return -1;
 
     // 若队列头部可读，则由af指向可读帧
-    if (!(af = frame_queue_peek_readable(&is->audio_frm_queue)))
-        return -1;
+//	if (!(af = frame_queue_peek_readable(&is->audio_frm_queue)))
+//	    return -1;
+	
+    while (f->size - f->rindex_shown <= 0) {
+		if (is->audio_idx >= 0 && is->video_idx < 0 && is->eof && is->audio_pkt_queue.nb_packets == 0)
+		{	
+			is->audio_clock = NAN;
+			is->playerController.fpPlayComplete();
+			return -1;
+		} else {
+			pthread_mutex_lock(&f->mutex);
+        	pthread_cond_wait(&f->cond, &f->mutex);
+			pthread_mutex_unlock(&f->mutex);
+		}
+    }
+	af = &f->queue[(f->rindex + f->rindex_shown) % f->max_size];
 
     frame_queue_next(&is->audio_frm_queue);
     // 根据frame中指定的音频参数获取缓冲区的大小
@@ -351,7 +366,7 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
     }
     else
     {
-        is->audio_clock = NAN;
+    	is->audio_clock = NAN;
     }
     //printf("after pts: %lf,clock: %lf\n",af->pts,is->audio_clock);
     is->audio_clock_serial = af->serial;
@@ -394,8 +409,8 @@ static int audio_playing_thread(void *arg)
             {
                 last_paused = is->paused;
                 ret = MI_AO_PauseChn(AUDIO_DEV, AUDIO_CHN);
-				printf("pause audio output!\n");
-            }
+				printf("pause audio output! status : %d.\n", is->paused);
+            }		
             is->p_audio_frm = NULL;
             is->audio_frm_size = SDL_AUDIO_MIN_BUFFER_SIZE / is->audio_param_tgt.frame_size * is->audio_param_tgt.frame_size;
         }
@@ -450,7 +465,7 @@ static int audio_playing_thread(void *arg)
                 audio_callback_time / 1000000.0);
             //printf("audio clk: %lf,curtime: %ld,audio_callback_time: %ld\n",is->audio_clock,is->audio_clock_serial,audio_callback_time);
             //printf("update clk pts: %lf,lud: %lf,dif: %lf\n",is->audio_clk.pts,is->audio_clk.last_updated,is->audio_clk.pts_drift);
-        }
+		}
     }
 
     return 0;

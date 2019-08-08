@@ -252,18 +252,20 @@ int player_deinit(player_stat_t *is)
     if (is->audio_idx >= 0)
     {
         stream_component_close(is, is->audio_idx);
-        printf("audio stream_component_close finish\n");
+		pthread_join(is->audioDecode_tid, NULL);
+		pthread_join(is->audioPlay_tid, NULL);
+		sstar_ao_deinit();  
+		printf("close audio task finish!\n");
     }
     if (is->video_idx >= 0)
     {
         stream_component_close(is, is->video_idx);
-        printf("video stream_component_close finish\n");
+		pthread_join(is->videoDecode_tid, NULL);
+    	pthread_join(is->videoPlay_tid, NULL);
+		sstar_disp_deinit();
+		printf("close video task finish!\n");
     }
-    pthread_join(is->audioDecode_tid, NULL);
-    pthread_join(is->videoDecode_tid, NULL);
-    pthread_join(is->audioPlay_tid, NULL);
-    pthread_join(is->videoPlay_tid, NULL);
-
+   
     av_frame_free(&is->p_frm_yuv);
     
     avformat_close_input(&is->p_fmt_ctx);

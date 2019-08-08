@@ -26,11 +26,13 @@
 #define DISP_INPUTPORT  0
 
 int open_video(player_stat_t *is);
-MI_S32 sstar_disp_init(MI_PANEL_ParamConfig_t *stPanelParam, MI_U16 width, MI_U16 height);
+
+MI_S32 sstar_disp_init(MI_U16 width, MI_U16 height);
 void sstar_disp_deinit(void);
 
-MI_S32 sstar_open_display(void);
-void sstar_close_display(void);
+MI_S32 sstar_enable_display(MI_PANEL_ParamConfig_t *stPanelParam);
+void sstar_disable_display(void);
+
 
 
 #endif

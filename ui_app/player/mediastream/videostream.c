@@ -284,7 +284,7 @@ static void video_display(player_stat_t *is)
 	MI_SYS_BufConf_t  stBufConf;
 	MI_SYS_BufInfo_t  stBufInfo;
 
-	pstSysChnPort.eModId	 = E_MI_MODULE_ID_DISP;
+	pstSysChnPort.eModId	= E_MI_MODULE_ID_DISP;
 	pstSysChnPort.u32ChnId  = 0;
 	pstSysChnPort.u32DevId  = 0;
 	pstSysChnPort.u32PortId = 0;
@@ -344,11 +344,11 @@ retry:
     if (frame_queue_nb_remaining(&is->video_frm_queue) <= 0)  // 所有帧已显示
     {    
         // if file is eof and there is no paket in queue, then do complete
-        if (is->eof && is->video_pkt_queue.nb_packets == 0)
-        {
-        	printf("video file has been played completely! packet num : %d.\n", is->video_pkt_queue.nb_packets);
-        	is->playerController.fpPlayComplete();
-        }
+		if (is->video_idx >= 0 && is->eof && is->video_pkt_queue.nb_packets == 0)
+		{
+			//printf("video file has been played completely! packet num : %d.\n", is->video_pkt_queue.nb_packets);
+			is->playerController.fpPlayComplete();
+		}
         return;
     }
 
@@ -575,18 +575,62 @@ static int open_video_stream(player_stat_t *is)
     return 0;
 }
 
-MI_S32 sstar_disp_init(MI_PANEL_ParamConfig_t *stPanelParam, MI_U16 width, MI_U16 height)
-{
-    MI_SYS_Version_t stVersion;
-    MI_U64 u64Pts = 0;
-    MI_DISP_PubAttr_t stPubAttr;
+MI_S32 sstar_disp_init(MI_U16 width, MI_U16 height)
+{		
     MI_DISP_VideoLayerAttr_t stLayerAttr;
     MI_DISP_DEV dispDev = DISP_DEV;
     MI_DISP_LAYER dispLayer = DISP_LAYER;
     MI_U32 u32InputPort = DISP_INPUTPORT;
-    MI_SYS_ChnPort_t stDispChnPort;
     MI_DISP_InputPortAttr_t stInputPortAttr;
+	
+    stLayerAttr.stVidLayerSize.u16Width     = width;
+    stLayerAttr.stVidLayerSize.u16Height    = height;
+    stLayerAttr.ePixFormat = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
+    stLayerAttr.stVidLayerDispWin.u16X      = 0;
+    stLayerAttr.stVidLayerDispWin.u16Y      = 0;
+    stLayerAttr.stVidLayerDispWin.u16Width  = width;
+    stLayerAttr.stVidLayerDispWin.u16Height = height;
+    MI_DISP_SetVideoLayerAttr(dispLayer, &stLayerAttr);
+    MI_DISP_BindVideoLayer(dispLayer, dispDev);
+    MI_DISP_EnableVideoLayer(dispLayer);
 
+	memset(&stInputPortAttr, 0, sizeof(MI_DISP_InputPortAttr_t));
+    MI_DISP_GetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
+    stInputPortAttr.stDispWin.u16X      = 0;
+    stInputPortAttr.stDispWin.u16Y      = 0;
+    stInputPortAttr.stDispWin.u16Width  = width;
+    stInputPortAttr.stDispWin.u16Height = height;
+	stInputPortAttr.u16SrcWidth         = width;
+    stInputPortAttr.u16SrcHeight        = height;
+
+    MI_DISP_SetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
+    MI_DISP_GetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
+    MI_DISP_EnableInputPort(dispLayer, u32InputPort);
+    MI_DISP_SetInputPortSyncMode(dispLayer, u32InputPort, E_MI_DISP_SYNC_MODE_FREE_RUN);
+	MI_DISP_ShowInputPort(dispLayer, u32InputPort);
+
+    return MI_SUCCESS;
+}
+
+void sstar_disp_deinit(void)
+{
+    MI_DISP_DEV dispDev = DISP_DEV;
+    MI_DISP_LAYER dispLayer = DISP_LAYER;
+    MI_U32 u32InputPort = DISP_INPUTPORT;	
+	
+	MI_DISP_HideInputPort(dispLayer, u32InputPort);
+    MI_DISP_DisableInputPort(dispLayer, u32InputPort);
+    MI_DISP_DisableVideoLayer(dispLayer);
+    MI_DISP_UnBindVideoLayer(dispLayer, dispDev);
+}
+
+MI_S32 sstar_enable_display(MI_PANEL_ParamConfig_t *stPanelParam)
+{
+    MI_DISP_PubAttr_t stPubAttr;	
+    MI_DISP_DEV dispDev = DISP_DEV;	
+
+	sstar_sys_init();
+	
 	memset(&stPubAttr, 0, sizeof(MI_DISP_PubAttr_t));
     stPubAttr.stSyncInfo.u16Vact = stPanelParam->u16Height;
     stPubAttr.stSyncInfo.u16Vbb  = stPanelParam->u16VSyncBackPorch;
@@ -606,61 +650,22 @@ MI_S32 sstar_disp_init(MI_PANEL_ParamConfig_t *stPanelParam, MI_U16 width, MI_U1
     MI_DISP_SetPubAttr(dispDev, &stPubAttr);
     MI_DISP_Enable(dispDev);
 
-    stLayerAttr.stVidLayerSize.u16Width  = stPanelParam->u16Width;
-    stLayerAttr.stVidLayerSize.u16Height = stPanelParam->u16Height;
-    stLayerAttr.ePixFormat = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
-    stLayerAttr.stVidLayerDispWin.u16X      = 0;
-    stLayerAttr.stVidLayerDispWin.u16Y      = 0;
-    stLayerAttr.stVidLayerDispWin.u16Width  = stPanelParam->u16Width;
-    stLayerAttr.stVidLayerDispWin.u16Height = stPanelParam->u16Height;
-    MI_DISP_SetVideoLayerAttr(dispLayer, &stLayerAttr);
-    MI_DISP_BindVideoLayer(dispLayer, dispDev);
-    MI_DISP_EnableVideoLayer(dispLayer);
-
-	memset(&stInputPortAttr, 0, sizeof(MI_DISP_InputPortAttr_t));
-    MI_DISP_GetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
-    stInputPortAttr.stDispWin.u16X      = 0;
-    stInputPortAttr.stDispWin.u16Y      = 0;
-    stInputPortAttr.stDispWin.u16Width  = width;
-    stInputPortAttr.stDispWin.u16Height = height;
-	stInputPortAttr.u16SrcWidth         = width;
-    stInputPortAttr.u16SrcHeight        = height;
-
-    MI_DISP_SetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
-    MI_DISP_GetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
-    MI_DISP_EnableInputPort(dispLayer, u32InputPort);
-    MI_DISP_SetInputPortSyncMode(dispLayer, u32InputPort, E_MI_DISP_SYNC_MODE_FREE_RUN);
-
-    MI_PANEL_Init(stPanelParam->eLinkType);
+	MI_PANEL_Init(stPanelParam->eLinkType);
     MI_PANEL_SetPanelParam(stPanelParam);
     MI_GFX_Open();
 
-    return MI_SUCCESS;
-}
-
-void sstar_disp_deinit(void)
-{
-    MI_DISP_DEV dispDev = DISP_DEV;
-    MI_DISP_LAYER dispLayer = DISP_LAYER;
-    MI_U32 u32InputPort = DISP_INPUTPORT;
-
-    MI_GFX_Close();
-    MI_PANEL_DeInit();
-    MI_DISP_DisableInputPort(dispLayer, u32InputPort);
-    MI_DISP_DisableVideoLayer(dispLayer);
-    MI_DISP_UnBindVideoLayer(dispLayer, dispDev);
-    MI_DISP_Disable(dispDev);
-}
-
-MI_S32 sstar_open_display(void)
-{
-    MI_DISP_ShowInputPort(DISP_LAYER, DISP_INPUTPORT);
 	return 0;
 }
 
-void sstar_close_display(void)
+void sstar_disable_display(void)
 {
-    MI_DISP_HideInputPort(DISP_LAYER, DISP_INPUTPORT);
+	MI_DISP_DEV dispDev = DISP_DEV;
+	
+    MI_GFX_Close();
+    MI_PANEL_DeInit();	
+    MI_DISP_Disable(dispDev);
+
+	sstar_sys_deinit();
 }
 
 

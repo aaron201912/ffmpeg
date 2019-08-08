@@ -48,7 +48,7 @@
 #define MAX_AUDIO_FRAME_SIZE 192000
 
 #define MAX_QUEUE_SIZE (15 * 1024 * 1024)
-#define MIN_FRAMES 18
+#define MIN_FRAMES 15
 
 /* Minimum SDL audio buffer size, in samples. */
 #define SDL_AUDIO_MIN_BUFFER_SIZE 512
