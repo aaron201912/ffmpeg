@@ -55,6 +55,10 @@
 #define COL_NUM         TABLESIZE(g_lv_caption)
 #define FILE_FILTER_NUM         7
 
+#define BN_NONE          0
+#define BN_LEFT_CLICKED  1
+#define BN_RIGHT_CLICKED 2
+
 typedef struct _FileTree_t
 {
     char name[256];
@@ -97,6 +101,7 @@ typedef struct
     MI_S16 s16PicW;
     MI_S16 s16PicH;
 } Rect_t;
+;
 
 static PLOGFONT g_font_fft_arial = NULL;
 static PLOGFONT g_font_fft_fzcircle = NULL;
@@ -117,6 +122,9 @@ static MI_BOOL g_bShowPlayToolBar = FALSE;          // select file list page or 
 static MI_BOOL g_bPlaying = FALSE;
 static MI_BOOL g_bPause = FALSE;
 static MI_BOOL g_bMute = FALSE;
+static MI_BOOL g_jumpflag = FALSE;
+static MI_U8 g_button_status = BN_NONE;
+static MI_U8 g_timer_task[2];
 static MI_S32 g_s32VolValue = 0;
 static MI_BOOL g_ePlayDirection = E_PLAY_FORWARD;
 static PlayMode_e g_ePlayMode = E_PLAY_NORMAL_MODE;
@@ -250,7 +258,8 @@ static NCS_EVENT_HANDLER mute_btn_handlers [] = {
 };
 
 static NCS_EVENT_HANDLER play_trk_handlers [] = {
-    NCS_MAP_NOTIFY(NCSN_TRKBAR_CHANGED, play_trk_notify),
+	NCS_MAP_NOTIFY(NCSN_TRKBAR_CHANGED, play_trk_notify),
+//	{NCSN_TRKBAR_CHANGED, play_trk_notify},
     {0, NULL}
 };
 
@@ -381,7 +390,7 @@ static NCS_WND_TEMPLATE _playFileWnd_ctrl_tmpl[] = {
         play_trk_handlers,
         NULL,
         0,
-        0,
+        0
     },
 
     // play/pause btn
@@ -835,7 +844,7 @@ static int DestroyFileTree(FileTree_t *root)
 
     if (list_empty(&root->headNodeList))
     {
-    //    printf("FileTree is empty\n");
+    	//printf("FileTree is empty\n");
         free(root);
         root = NULL;
         return 0;
@@ -947,10 +956,9 @@ MI_S32 PlayError()
     // stop play video & audio
     g_bPlaying = FALSE;
     g_bPause = FALSE;
-
+	printf("error in playing!\n");
     // sendmessage to stop playing
     player_deinit(g_pstPlayStat);
-    sstar_disp_deinit();
 	sstar_ao_deinit();
 
     SetBtnImg(pPlayObj, &g_play_btn);
@@ -1069,7 +1077,7 @@ static void add_fileinfo_item(mListView *self, NCS_LISTV_ITEMINFO *info, FileTre
     FONTMETRICS fm;
 
     if (!pFileNode)
-        return;
+		return;
 
     clientDc = GetClientDC(self->hwnd);
     logfont  = GetWindowFont(self->hwnd);
@@ -1155,7 +1163,7 @@ static void lv_notify(mWidget *self, int id, int nc, DWORD add_data)
     mListView *lstvObj = (mListView*)self;
 
     if (!lstvObj)
-        return;
+		return;
 
     // event occur order: selchanged clicked itemdbcliked
     if (nc == NCSN_LISTV_SELCHANGED)
@@ -1179,8 +1187,7 @@ static void lv_notify(mWidget *self, int id, int nc, DWORD add_data)
 		NCS_LISTV_ITEMINFO info;
         FileTree_t *curFileNode = NULL;
 
-        if (!pathObj)
-            return;
+        if (!pathObj) return;
 
         // confirm btn is disable utill selected file
         if (!strcmp(type, FILE_TYPE))
@@ -1217,7 +1224,8 @@ static void lv_notify(mWidget *self, int id, int nc, DWORD add_data)
 				return ;
             }
 			if (g_pstPlayStat->video_idx >= 0) {
-				sstar_disp_init(g_pstPlayStat->out_width, g_pstPlayStat->out_height);
+				//sstar_disp_init(g_pstPlayStat->out_width, g_pstPlayStat->out_height);
+				MI_DISP_ShowInputPort(DISP_LAYER, DISP_INPUTPORT);
             	open_video(g_pstPlayStat);
 			}
 			if (g_pstPlayStat->audio_idx >= 0) {
@@ -1262,8 +1270,8 @@ static void lv_notify(mWidget *self, int id, int nc, DWORD add_data)
 			_c(pTimeObj)->setProperty(pTimeObj, NCSP_WIDGET_TEXT, (DWORD)time_info);
 			InvalidateRect(pTimeObj->hwnd, NULL, TRUE);
 			// 初始化1秒定时器
-			SetTimer((mWidget *)pTimeObj->hwnd, IDC_PLAYFILE_STATIC_PLAY_TIME, 100);
-			
+			//SetTimer((mWidget *)pTimeObj->hwnd, IDC_PLAYFILE_STATIC_PLAY_TIME, 100);
+			SetTimer((mWidget *)pTimeObj->hwnd, IDC_PLAYFILE_STATIC_PLAY_TIME, 10);
 		}
         else
         {
@@ -1307,7 +1315,7 @@ static void updir_btn_notify(mWidget *button, int id, int nc, DWORD add_data)
     printf("Clicked updir btn\n");
     // do recollection stuff
     if (!button)
-        return;
+		return;
 
     if(nc == NCSN_WIDGET_CLICKED)
     {
@@ -1372,7 +1380,7 @@ static void play_btn_notify(mWidget *button, int id, int nc, DWORD add_data)
     printf("Clicked play/pause btn\n");
 
     if (!button)
-        return;
+		return;
 
     if(nc == NCSN_WIDGET_CLICKED)
     {
@@ -1430,7 +1438,7 @@ static void stop_btn_notify(mWidget *button, int id, int nc, DWORD add_data)
 	printf("Clicked stop btn\n");
 
     if (!button)
-        return;
+		return;
 
     if(nc == NCSN_WIDGET_CLICKED)
     {
@@ -1454,7 +1462,7 @@ static void stop_btn_notify(mWidget *button, int id, int nc, DWORD add_data)
 
 			show_playfile_page(FALSE);
 	        show_lv_page(TRUE);
-			SetBtnImg(pPlayObj, &g_play_btn);  
+			SetBtnImg(pPlayObj, &g_play_btn);
 			InvalidateRect(hMainPlayFileWnd, NULL, TRUE);
     	}
     }
@@ -1464,103 +1472,104 @@ static void playslow_btn_notify(mWidget *button, int id, int nc, DWORD add_data)
 {
     mStatic *pSpeedModeObj = (mStatic*)ncsGetChildObj(GetParent(button->hwnd), IDC_PLAYFILE_STATIC_SPEED_MODE);
 //	char speedMode[16] = {0};
-	double incr = -5.0, pos;
-
-    printf("Clicked slow btn\n");
+//	double incr = -5.0, pos;
 
     if (!button || !pSpeedModeObj)
-        return;
+		return;
 
     if (!g_bPlaying)
-        return;
+		return;
 
-	switch (nc)
+	if (nc = NCSN_WIDGET_CLICKED)
 	{
-    	case NCSN_WIDGET_CLICKED :
-//			if (g_ePlayDirection == E_PLAY_FORWARD)
-//			{
-//			    // slow down
-//			    if (g_ePlayMode ==  E_PLAY_FAST_MODE)
-//			    {
-//			        g_eSpeedMode = (PlaySpeedMode_e)((int)g_eSpeedMode - 1);
-//			        g_u32SpeedNumerator = 1 << (int)g_eSpeedMode;
-//			        g_u32SpeedDenomonator = 1;
+//		if (g_ePlayDirection == E_PLAY_FORWARD)
+//		{
+//		    // slow down
+//		    if (g_ePlayMode ==  E_PLAY_FAST_MODE)
+//		    {
+//		        g_eSpeedMode = (PlaySpeedMode_e)((int)g_eSpeedMode - 1);
+//		        g_u32SpeedNumerator = 1 << (int)g_eSpeedMode;
+//		        g_u32SpeedDenomonator = 1;
 
-//			        if (g_eSpeedMode == E_NORMAL_SPEED)
-//			            g_ePlayMode = E_PLAY_NORMAL_MODE;
-//			    }
-//			    else
-//			    {
-//			        if (g_eSpeedMode < E_32X_SPEED)
-//			        {
-//			            g_ePlayMode = E_PLAY_SLOW_MODE;
-//			            g_eSpeedMode = (PlaySpeedMode_e)((int)g_eSpeedMode + 1);
-//			        }
-//			        else    // turn to play backward
-//			        {
-//			            g_ePlayDirection = E_PLAY_BACKWARD;
-//			            g_ePlayMode = E_PLAY_NORMAL_MODE;
-//			            g_eSpeedMode = E_NORMAL_SPEED;
-//			        }
+//		        if (g_eSpeedMode == E_NORMAL_SPEED)
+//		            g_ePlayMode = E_PLAY_NORMAL_MODE;
+//		    }
+//		    else
+//		    {
+//		        if (g_eSpeedMode < E_32X_SPEED)
+//		        {
+//		            g_ePlayMode = E_PLAY_SLOW_MODE;
+//		            g_eSpeedMode = (PlaySpeedMode_e)((int)g_eSpeedMode + 1);
+//		        }
+//		        else    // turn to play backward
+//		        {
+//		            g_ePlayDirection = E_PLAY_BACKWARD;
+//		            g_ePlayMode = E_PLAY_NORMAL_MODE;
+//		            g_eSpeedMode = E_NORMAL_SPEED;
+//		        }
 
-//			        g_u32SpeedNumerator = 1;
-//			        g_u32SpeedDenomonator = 1 << (int)g_eSpeedMode;
-//			    }
-//			}
-//			else
-//			{
-//			    // speed up
-//			    if (g_ePlayMode == E_PLAY_SLOW_MODE)
-//			    {
-//			        g_eSpeedMode = (PlaySpeedMode_e)((int)g_eSpeedMode - 1);
-//			        g_u32SpeedNumerator = 1;
-//			        g_u32SpeedDenomonator = 1 << (int)g_eSpeedMode;
+//		        g_u32SpeedNumerator = 1;
+//		        g_u32SpeedDenomonator = 1 << (int)g_eSpeedMode;
+//		    }
+//		}
+//		else
+//		{
+//		    // speed up
+//		    if (g_ePlayMode == E_PLAY_SLOW_MODE)
+//		    {
+//		        g_eSpeedMode = (PlaySpeedMode_e)((int)g_eSpeedMode - 1);
+//		        g_u32SpeedNumerator = 1;
+//		        g_u32SpeedDenomonator = 1 << (int)g_eSpeedMode;
 
-//			        if (g_eSpeedMode == E_NORMAL_SPEED)
-//			        {
-//			            g_ePlayMode = E_PLAY_NORMAL_MODE;
-//			        }
-//			    }
-//			    else
-//			    {
-//			        if (g_eSpeedMode < E_32X_SPEED)
-//			        {
-//			            g_ePlayMode = E_PLAY_FAST_MODE;
-//			            g_eSpeedMode = (PlaySpeedMode_e)((int)g_eSpeedMode + 1);
-//			            g_u32SpeedNumerator = 1 << (int)g_eSpeedMode;
-//			            g_u32SpeedDenomonator = 1;
-//			        }
-//			    }
-//			}
+//		        if (g_eSpeedMode == E_NORMAL_SPEED)
+//		        {
+//		            g_ePlayMode = E_PLAY_NORMAL_MODE;
+//		        }
+//		    }
+//		    else
+//		    {
+//		        if (g_eSpeedMode < E_32X_SPEED)
+//		        {
+//		            g_ePlayMode = E_PLAY_FAST_MODE;
+//		            g_eSpeedMode = (PlaySpeedMode_e)((int)g_eSpeedMode + 1);
+//		            g_u32SpeedNumerator = 1 << (int)g_eSpeedMode;
+//		            g_u32SpeedDenomonator = 1;
+//		        }
+//		    }
+//		}
 
-//			memset(speedMode, 0, sizeof(speedMode));
-//			if (g_u32SpeedNumerator == g_u32SpeedDenomonator)
-//			    sprintf(speedMode, "", g_u32SpeedNumerator);
-//			else if (g_u32SpeedNumerator > g_u32SpeedDenomonator)
-//			    sprintf(speedMode, "%dX %s", g_u32SpeedNumerator, ((g_ePlayDirection == E_PLAY_FORWARD) ? ">>" : "<<"));
-//			else
-//			    sprintf(speedMode, "1/%dX %s", g_u32SpeedDenomonator, ((g_ePlayDirection == E_PLAY_FORWARD) ? ">>" : "<<"));
-//			_c(pSpeedModeObj)->setProperty(pSpeedModeObj, NCSP_WIDGET_TEXT, (DWORD)speedMode);
+//		memset(speedMode, 0, sizeof(speedMode));
+//		if (g_u32SpeedNumerator == g_u32SpeedDenomonator)
+//		    sprintf(speedMode, "", g_u32SpeedNumerator);
+//		else if (g_u32SpeedNumerator > g_u32SpeedDenomonator)
+//		    sprintf(speedMode, "%dX %s", g_u32SpeedNumerator, ((g_ePlayDirection == E_PLAY_FORWARD) ? ">>" : "<<"));
+//		else
+//		    sprintf(speedMode, "1/%dX %s", g_u32SpeedDenomonator, ((g_ePlayDirection == E_PLAY_FORWARD) ? ">>" : "<<"));
+//		_c(pSpeedModeObj)->setProperty(pSpeedModeObj, NCSP_WIDGET_TEXT, (DWORD)speedMode);
 
-			if (g_bShowPlayToolBar)
-			{
-				pos = get_master_clock(g_pstPlayStat);
-		        if (isnan(pos))
-		            pos = (double)g_pstPlayStat->seek_pos / AV_TIME_BASE;
-		        pos += incr;
-		        if (g_pstPlayStat->p_fmt_ctx->start_time != AV_NOPTS_VALUE && pos < g_pstPlayStat->p_fmt_ctx->start_time / (double)AV_TIME_BASE)
-		            pos = g_pstPlayStat->p_fmt_ctx->start_time / (double)AV_TIME_BASE;
-				g_pstPlayStat->seek_flags = AVSEEK_FLAG_FRAME;
-				stream_seek(g_pstPlayStat, (int64_t)(pos * AV_TIME_BASE), (int64_t)(incr * AV_TIME_BASE), 0);
-			}
-		break ;
+//		if (g_bShowPlayToolBar)
+//		{
+//			pos = get_master_clock(g_pstPlayStat);
+//	        if (isnan(pos))
+//	            pos = (double)g_pstPlayStat->seek_pos / AV_TIME_BASE;
+//	        pos += incr;
+//	        if (g_pstPlayStat->p_fmt_ctx->start_time != AV_NOPTS_VALUE && pos < g_pstPlayStat->p_fmt_ctx->start_time / (double)AV_TIME_BASE)
+//	            pos = g_pstPlayStat->p_fmt_ctx->start_time / (double)AV_TIME_BASE;
+//			g_pstPlayStat->seek_flags = AVSEEK_FLAG_FRAME;
+//			stream_seek(g_pstPlayStat, (int64_t)(pos * AV_TIME_BASE), (int64_t)(incr * AV_TIME_BASE), 0);
+//		}
 
-		case NCSN_WIDGET_DBCLICKED :
+		if (g_button_status == BN_NONE)
+		{
+			g_button_status = BN_LEFT_CLICKED;
+			g_timer_task[0] = 0;
+		}
+		else if (g_button_status == BN_LEFT_CLICKED)
+		{
+			g_button_status = BN_NONE;
 			printf("double click playslow button!\n");
-		break;
-			
-		
-		default : break;
+		}
+		else ;
 	}
 }
 
@@ -1568,114 +1577,114 @@ static void playfast_btn_notify(mWidget *button, int id, int nc, DWORD add_data)
 {
 	mStatic *pSpeedModeObj = (mStatic*)ncsGetChildObj(GetParent(button->hwnd), IDC_PLAYFILE_STATIC_SPEED_MODE);
 //	char speedMode[16] = {0};
-	double incr = 5.0, pos;
-
-    printf("Clicked fast btn\n");
+//	double incr = 5.0, pos;
 
     // do recollection stuff
     if (!button || !pSpeedModeObj)
-        return;
+		return;
 
     if (!g_bPlaying)
-        return;
+		return;
 	
-//	printf("play fast button id : %d, type : %d.\n", id, nc);
-	
-	switch (nc)
+	if (nc == NCSN_WIDGET_CLICKED)
 	{
-    	case NCSN_WIDGET_CLICKED :
-//			if (g_ePlayDirection == E_PLAY_FORWARD)
-//			{
-//			    // speed up
-//			    if (g_ePlayMode == E_PLAY_SLOW_MODE)
-//			    {
-//			        g_eSpeedMode = (PlaySpeedMode_e)((int)g_eSpeedMode - 1);
-//			        g_u32SpeedNumerator = 1;
-//			        g_u32SpeedDenomonator = 1 << (int)g_eSpeedMode;
+//		if (g_ePlayDirection == E_PLAY_FORWARD)
+//		{
+//		    // speed up
+//		    if (g_ePlayMode == E_PLAY_SLOW_MODE)
+//		    {
+//		        g_eSpeedMode = (PlaySpeedMode_e)((int)g_eSpeedMode - 1);
+//		        g_u32SpeedNumerator = 1;
+//		        g_u32SpeedDenomonator = 1 << (int)g_eSpeedMode;
 
-//			        if (g_eSpeedMode == E_NORMAL_SPEED)
-//			            g_ePlayMode = E_PLAY_NORMAL_MODE;
-//			    }
-//			    else
-//			    {
-//			        if (g_eSpeedMode < E_32X_SPEED)
-//			        {
-//			            g_ePlayMode = E_PLAY_FAST_MODE;
-//			            g_eSpeedMode = (PlaySpeedMode_e)((int)g_eSpeedMode + 1);
-//			            g_u32SpeedNumerator = 1 << (int)g_eSpeedMode;
-//			            g_u32SpeedDenomonator = 1;
-//			        }
-//			    }
-//			}
-//			else
-//			{
-//			    // slow down
-//			    if (g_ePlayMode == E_PLAY_FAST_MODE)
-//			    {
-//			        g_eSpeedMode = (PlaySpeedMode_e)((int)g_eSpeedMode - 1);
-//			        g_u32SpeedNumerator = 1 << (int)g_eSpeedMode;
-//			        g_u32SpeedDenomonator = 1;
+//		        if (g_eSpeedMode == E_NORMAL_SPEED)
+//		            g_ePlayMode = E_PLAY_NORMAL_MODE;
+//		    }
+//		    else
+//		    {
+//		        if (g_eSpeedMode < E_32X_SPEED)
+//		        {
+//		            g_ePlayMode = E_PLAY_FAST_MODE;
+//		            g_eSpeedMode = (PlaySpeedMode_e)((int)g_eSpeedMode + 1);
+//		            g_u32SpeedNumerator = 1 << (int)g_eSpeedMode;
+//		            g_u32SpeedDenomonator = 1;
+//		        }
+//		    }
+//		}
+//		else
+//		{
+//		    // slow down
+//		    if (g_ePlayMode == E_PLAY_FAST_MODE)
+//		    {
+//		        g_eSpeedMode = (PlaySpeedMode_e)((int)g_eSpeedMode - 1);
+//		        g_u32SpeedNumerator = 1 << (int)g_eSpeedMode;
+//		        g_u32SpeedDenomonator = 1;
 
-//			        if (g_eSpeedMode == E_NORMAL_SPEED)
-//			            g_ePlayMode = E_PLAY_NORMAL_MODE;
-//			    }
-//			    else
-//			    {
-//			        // 1/32X speed backward to normal speed forward
-//			        if (g_eSpeedMode == E_32X_SPEED)
-//			        {
-//			            g_eSpeedMode = E_NORMAL_SPEED;
-//			            g_ePlayMode = E_PLAY_NORMAL_MODE;
-//			            g_ePlayDirection = E_PLAY_FORWARD;
-//			        }
-//			        else
-//			        {
-//			            g_ePlayMode = E_PLAY_SLOW_MODE;
-//			            g_eSpeedMode = (PlaySpeedMode_e)((int)g_eSpeedMode + 1);
-//			        }
+//		        if (g_eSpeedMode == E_NORMAL_SPEED)
+//		            g_ePlayMode = E_PLAY_NORMAL_MODE;
+//		    }
+//		    else
+//		    {
+//		        // 1/32X speed backward to normal speed forward
+//		        if (g_eSpeedMode == E_32X_SPEED)
+//		        {
+//		            g_eSpeedMode = E_NORMAL_SPEED;
+//		            g_ePlayMode = E_PLAY_NORMAL_MODE;
+//		            g_ePlayDirection = E_PLAY_FORWARD;
+//		        }
+//		        else
+//		        {
+//		            g_ePlayMode = E_PLAY_SLOW_MODE;
+//		            g_eSpeedMode = (PlaySpeedMode_e)((int)g_eSpeedMode + 1);
+//		        }
 
-//			        g_u32SpeedNumerator = 1;
-//			        g_u32SpeedDenomonator = 1 << (int)g_eSpeedMode;
-//			    }
-//			}
+//		        g_u32SpeedNumerator = 1;
+//		        g_u32SpeedDenomonator = 1 << (int)g_eSpeedMode;
+//		    }
+//		}
 
-//			memset(speedMode, 0, sizeof(speedMode));
-//			if (g_u32SpeedNumerator == g_u32SpeedDenomonator)
-//			    memset(speedMode, 0, sizeof(speedMode));
-//			else if (g_u32SpeedNumerator > g_u32SpeedDenomonator)
-//			    sprintf(speedMode, "%dX %s", g_u32SpeedNumerator, ((g_ePlayDirection == E_PLAY_FORWARD) ? ">>" : "<<"));
-//			else
-//			    sprintf(speedMode, "1/%dX %s", g_u32SpeedDenomonator, ((g_ePlayDirection == E_PLAY_FORWARD) ? ">>" : "<<"));
-//			_c(pSpeedModeObj)->setProperty(pSpeedModeObj, NCSP_WIDGET_TEXT, (DWORD)speedMode);
+//		memset(speedMode, 0, sizeof(speedMode));
+//		if (g_u32SpeedNumerator == g_u32SpeedDenomonator)
+//		    memset(speedMode, 0, sizeof(speedMode));
+//		else if (g_u32SpeedNumerator > g_u32SpeedDenomonator)
+//		    sprintf(speedMode, "%dX %s", g_u32SpeedNumerator, ((g_ePlayDirection == E_PLAY_FORWARD) ? ">>" : "<<"));
+//		else
+//		    sprintf(speedMode, "1/%dX %s", g_u32SpeedDenomonator, ((g_ePlayDirection == E_PLAY_FORWARD) ? ">>" : "<<"));
+//		_c(pSpeedModeObj)->setProperty(pSpeedModeObj, NCSP_WIDGET_TEXT, (DWORD)speedMode);
 			
-//			PLOGFONT curFont = GetCurFont(HDC_SCREEN);
-//			printf("curFont: %s-%s-%s-size%d\n", curFont->type, curFont->family, curFont->charset, curFont->size);
-//			SelectFont(HDC_SCREEN, g_font_fft);
-//			SetBkMode (HDC_SCREEN, BM_TRANSPARENT);
-//			TextOut (HDC_SCREEN, 600, 520, "hahaha,哈哈哈");
-//			curFont = GetCurFont(HDC_SCREEN);
-//			printf("select Font: %s-%s-%s-size%d-regular\n", g_font_fft->type, g_font_fft->family, g_font_fft->charset, g_font_fft->size);
-//			printf("curFont: %s-%s-%s-size%d\n", curFont->type, curFont->family, curFont->charset, curFont->size);
+//		PLOGFONT curFont = GetCurFont(HDC_SCREEN);
+//		printf("curFont: %s-%s-%s-size%d\n", curFont->type, curFont->family, curFont->charset, curFont->size);
+//		SelectFont(HDC_SCREEN, g_font_fft);
+//		SetBkMode (HDC_SCREEN, BM_TRANSPARENT);
+//		TextOut (HDC_SCREEN, 600, 520, "hahaha,哈哈哈");
+//		curFont = GetCurFont(HDC_SCREEN);
+//		printf("select Font: %s-%s-%s-size%d-regular\n", g_font_fft->type, g_font_fft->family, g_font_fft->charset, g_font_fft->size);
+//		printf("curFont: %s-%s-%s-size%d\n", curFont->type, curFont->family, curFont->charset, curFont->size);
 
-			if (g_bShowPlayToolBar)
-			{
-				pos = get_master_clock(g_pstPlayStat);
+//		if (g_bShowPlayToolBar)
+//		{
+//			pos = get_master_clock(g_pstPlayStat);
 
-				if (isnan(pos))
-					pos = (double)g_pstPlayStat->seek_pos / AV_TIME_BASE;
-				pos += incr;   // 每次快进5秒
-				if (g_pstPlayStat->p_fmt_ctx->start_time != AV_NOPTS_VALUE && pos > g_pstPlayStat->p_fmt_ctx->duration / (double)AV_TIME_BASE)
-					pos = g_pstPlayStat->p_fmt_ctx->duration / (double)AV_TIME_BASE;
-				g_pstPlayStat->seek_flags = AVSEEK_FLAG_FRAME;
-				stream_seek(g_pstPlayStat, (int64_t)(pos * AV_TIME_BASE), (int64_t)(incr * AV_TIME_BASE), 0);
-			}
-			break;
-
-		case NCSN_WIDGET_DBCLICKED :
+//			if (isnan(pos))
+//				pos = (double)g_pstPlayStat->seek_pos / AV_TIME_BASE;
+//			pos += incr;   // 每次快进5秒
+//			if (g_pstPlayStat->p_fmt_ctx->start_time != AV_NOPTS_VALUE && pos > g_pstPlayStat->p_fmt_ctx->duration / (double)AV_TIME_BASE)
+//				pos = g_pstPlayStat->p_fmt_ctx->duration / (double)AV_TIME_BASE;
+//			g_pstPlayStat->seek_flags = AVSEEK_FLAG_FRAME;
+//			stream_seek(g_pstPlayStat, (int64_t)(pos * AV_TIME_BASE), (int64_t)(incr * AV_TIME_BASE), 0);
+//		}
+		if (g_button_status == BN_NONE)
+		{
+			g_button_status = BN_RIGHT_CLICKED;
+			g_timer_task[0] = 0;
+			//printf("sigle click playfast button!\n")
+		}
+		else if (g_button_status == BN_RIGHT_CLICKED) 
+		{
+			g_button_status = BN_NONE;
 			printf("double click playfast button!\n");
-		break;
-
-		default : break;
+		}
+		else ;
 	}
 }
 
@@ -1722,10 +1731,9 @@ static void play_trk_notify(mTrackBar* self, int id, int code, DWORD add_data)
 	int64_t position, offset;
 	double s_time;
 
-	//printf("play trackbar notify\n");
+	if (!pVideoObj)
+		return;
 
-	if (!pVideoObj) return;
-	
 	switch (code)
 	{
 		case NCSN_TRKBAR_CHANGED:
@@ -1743,6 +1751,7 @@ static void play_trk_notify(mTrackBar* self, int id, int code, DWORD add_data)
 					// 当跳转进度大于3秒时才执行跳转,防止破坏正常进度进行
 					if (offset > 3000000 || offset < -3000000)
 					{
+						g_jumpflag = TRUE;
 						g_pstPlayStat->seek_flags = AVSEEK_FLAG_FRAME;
 						stream_seek(g_pstPlayStat, position, offset, 0);
 					}
@@ -1764,7 +1773,7 @@ static void voice_trk_notify(mTrackBar* self, int id, int code, DWORD add_data)
 	//printf("voice trackbar notify\n");
 
     if (!pVoiceObj)
-        return;
+		return;
 
 	switch (code)
 	{
@@ -1799,44 +1808,99 @@ static void voice_trk_notify(mTrackBar* self, int id, int code, DWORD add_data)
 
 static BOOL onTimer(mWidget *widget, int message, int id, DWORD tick)
 {
-	double time;
-	char tmpstr[] = "--:--:--";
-	char fpsstr[] = "00.0";
-	uint32_t second, minute, hours;
-	mStatic *pTimeObj = (mStatic *)ncsGetChildObj(hMainPlayFileWnd, IDC_PLAYFILE_STATIC_PLAY_TIME);
-	mTrackBar *pProgressObj = (mTrackBar*)ncsGetChildObj(hMainPlayFileWnd, IDC_PLAYFILE_TRACKBAR_PLAY_PROGRESS);
-	mStatic *pFpsObj = (mStatic*)ncsGetChildObj(hMainPlayFileWnd, IDC_PLAYFILE_STATIC_FPS);
+	g_timer_task[0] ++;
+	g_timer_task[1] ++;
 
-	if (g_pstPlayStat->video_idx >= 0)
-		time = g_pstPlayStat->video_clk.pts;
-	else if (g_pstPlayStat->audio_idx >= 0)
-		time = g_pstPlayStat->audio_clk.pts;
-	second = (uint32_t)time;
-//	printf("sync clock pts : %.2f. second : %ld.\n", time, second);
-	minute = second / 60;
-	hours  = minute / 60;
-	sprintf(tmpstr, "%02d:%02d:%02d", (hours % 24), (minute % 60), (second % 60));
-	memcpy(time_info, tmpstr, 8);
-
-	_c(pTimeObj)->setProperty(pTimeObj, NCSP_STATIC_ALIGN, NCS_ALIGN_RIGHT);
-	_c(pTimeObj)->setProperty(pTimeObj, NCSP_WIDGET_TEXT, (DWORD)time_info);
-//	InvalidateRect(pTimeObj->hwnd, NULL, TRUE);
-
-	uint32_t total_time = g_pstPlayStat->p_fmt_ctx->duration / AV_TIME_BASE;
-	WPARAM t_value = (WPARAM)second * play_trk_props[1].value / total_time;
-//	printf("video trackbar value : %ld\n", t_value);
-	_c(pProgressObj)->setProperty(pProgressObj, NCSP_TRKBAR_CURPOS, t_value);
-//	InvalidateRect(pProgressObj->hwnd, NULL, TRUE);
-
-	if (g_pstPlayStat->paused) 
-		sprintf(fpsstr, "%.1f", 0.0);
-	else
-		sprintf(fpsstr, "%.1f", g_pstPlayStat->fps);
+	if (g_timer_task[0] >= 4)             // 双击间隔时间设置为400ms
+	{
+		double incr, pos;
 		
-	_c(pFpsObj)->setProperty(pFpsObj, NCSP_STATIC_ALIGN, NCS_ALIGN_CENTER);
-	_c(pFpsObj)->setProperty(pFpsObj, NCSP_WIDGET_TEXT, (DWORD)fpsstr);
-//	InvalidateRect(pFpsObj->hwnd, NULL, TRUE);
-	InvalidateRect(hMainPlayFileWnd, NULL, FALSE);
+		g_timer_task[0] = 0;
+		switch (g_button_status)
+		{
+			case BN_NONE : break;
+			
+			case BN_LEFT_CLICKED :
+				if (g_bShowPlayToolBar && !g_pstPlayStat->paused)
+				{
+					incr = -5.0;
+					pos = get_master_clock(g_pstPlayStat);
+					if (isnan(pos))
+						pos = (double)g_pstPlayStat->seek_pos / AV_TIME_BASE;
+					pos += incr;
+					if (g_pstPlayStat->p_fmt_ctx->start_time != AV_NOPTS_VALUE && pos < g_pstPlayStat->p_fmt_ctx->start_time / (double)AV_TIME_BASE)
+						pos = g_pstPlayStat->p_fmt_ctx->start_time / (double)AV_TIME_BASE;
+					g_pstPlayStat->seek_flags = AVSEEK_FLAG_FRAME;
+					stream_seek(g_pstPlayStat, (int64_t)(pos * AV_TIME_BASE), (int64_t)(incr * AV_TIME_BASE), 0);
+				}
+			break;
+
+			case BN_RIGHT_CLICKED :			
+				if (g_bShowPlayToolBar && !g_pstPlayStat->paused)
+				{
+					incr = 5.0;
+					pos = get_master_clock(g_pstPlayStat);
+
+					if (isnan(pos))
+						pos = (double)g_pstPlayStat->seek_pos / AV_TIME_BASE;
+					pos += incr;   // 每次快进5秒
+					if (g_pstPlayStat->p_fmt_ctx->start_time != AV_NOPTS_VALUE && pos > g_pstPlayStat->p_fmt_ctx->duration / (double)AV_TIME_BASE)
+						pos = g_pstPlayStat->p_fmt_ctx->duration / (double)AV_TIME_BASE;
+					g_pstPlayStat->seek_flags = AVSEEK_FLAG_FRAME;
+					stream_seek(g_pstPlayStat, (int64_t)(pos * AV_TIME_BASE), (int64_t)(incr * AV_TIME_BASE), 0);
+				}
+			break;
+
+			default : break;
+		}
+		g_button_status = BN_NONE;
+	}
+
+	if (g_timer_task[1] >= 10)             // 1s定时任务
+	{
+		double time;
+		char tmpstr[] = "--:--:--";
+		char fpsstr[] = "00.0";
+		uint32_t second, minute, hours;
+		mStatic *pTimeObj = (mStatic *)ncsGetChildObj(hMainPlayFileWnd, IDC_PLAYFILE_STATIC_PLAY_TIME);
+		mTrackBar *pProgressObj = (mTrackBar*)ncsGetChildObj(hMainPlayFileWnd, IDC_PLAYFILE_TRACKBAR_PLAY_PROGRESS);
+		mStatic *pFpsObj = (mStatic*)ncsGetChildObj(hMainPlayFileWnd, IDC_PLAYFILE_STATIC_FPS);
+	
+		g_timer_task[1] = 0;
+		if (g_pstPlayStat->video_idx >= 0)
+			time = g_pstPlayStat->video_clk.pts;
+		else if (g_pstPlayStat->audio_idx >= 0)
+			time = g_pstPlayStat->audio_clk.pts;
+		second = (uint32_t)time;
+		minute = second / 60;
+		hours  = minute / 60;
+		sprintf(tmpstr, "%02d:%02d:%02d", (hours % 24), (minute % 60), (second % 60));
+		memcpy(time_info, tmpstr, 8);
+
+		// 重绘GUI
+		_c(pTimeObj)->setProperty(pTimeObj, NCSP_STATIC_ALIGN, NCS_ALIGN_RIGHT);
+		_c(pTimeObj)->setProperty(pTimeObj, NCSP_WIDGET_TEXT, (DWORD)time_info);
+
+		uint32_t total_time = g_pstPlayStat->p_fmt_ctx->duration / AV_TIME_BASE;
+		uint32_t t_value = (WPARAM)second * play_trk_props[1].value / total_time;
+		uint32_t tmp_value = _c(pProgressObj)->getProperty(pProgressObj, NCSP_TRKBAR_CURPOS);
+
+		if (g_jumpflag == TRUE) {
+			g_jumpflag = FALSE;
+			_c(pProgressObj)->setProperty(pProgressObj, NCSP_TRKBAR_CURPOS, tmp_value);
+		}
+		else
+			_c(pProgressObj)->setProperty(pProgressObj, NCSP_TRKBAR_CURPOS, t_value);
+
+		if (g_pstPlayStat->paused) 
+			sprintf(fpsstr, "%.1f", 0.0);
+		else
+			sprintf(fpsstr, "%.1f", g_pstPlayStat->fps);
+			
+		_c(pFpsObj)->setProperty(pFpsObj, NCSP_STATIC_ALIGN, NCS_ALIGN_CENTER);
+		_c(pFpsObj)->setProperty(pFpsObj, NCSP_WIDGET_TEXT, (DWORD)fpsstr);
+		InvalidateRect(hMainPlayFileWnd, NULL, FALSE);
+	}
 
 	return TRUE;
 }
@@ -1845,7 +1909,8 @@ static void display_notify(mWidget *button, int id, int nc, DWORD add_data)
 {
 	mWidget *pDiaplayObj = (mWidget*)button;
 
-	if (!pDiaplayObj) return;
+	if (!pDiaplayObj)
+		return;
 	
 	switch (nc)
 	{
@@ -1862,14 +1927,14 @@ static void playFileWnd_notify(mWidget *self, int message, int code, DWORD usrDa
     if (message == MSG_CLOSE)
     {
         printf("playFileWnd close...\n");
-//        DestroyLogFont(g_pPlayFileFont);
+//		DestroyLogFont(g_pPlayFileFont);
         ncsDestroyWindow(self, 0);
         hMainPlayFileWnd = HWND_INVALID;
     }
 
     if (message == MSG_ERASEBKGND)
     {
-
+		
     }
 }
 
@@ -2060,6 +2125,7 @@ int MiniGUIMain(int argc, const char* argv[])
         return 1;
     }
 
+	printf("get in MiniGUI Main!\n");
     ncsInitialize();
     ncs4TouchInitialize();
     mGEffInit();
@@ -2150,7 +2216,7 @@ deinit:
 int main(int argc, const char *argv[])
 {
 	printf("Welcome To MiniGUI!\n");
-    sstar_enable_display(&stPanelParam);
+    sstar_enable_display(&stPanelParam, MAINWND_W, MAINWND_H - g_stPlayToolBarItem[4].s16PicH);
     main_entry(argc, argv);
     sstar_disable_display();
 	printf("Exit MiniGUI!\n");

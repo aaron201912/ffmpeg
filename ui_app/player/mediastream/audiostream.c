@@ -49,8 +49,8 @@ static int audio_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
 
         while (1)
         {
-            //if (d->queue->abort_request)
-            //    return -1;
+            if (p_pkt_queue->abort_request)
+                return -1;
 
             // 3.2 一个音频packet含一至多个音频frame，每次avcodec_receive_frame()返回一个frame，此函数返回。
             // 下次进来此函数，继续获取一个frame，直到avcodec_receive_frame()返回AVERROR(EAGAIN)，
@@ -160,7 +160,7 @@ static int audio_decode_thread(void *arg)
             //-af->serial = is->auddec.pkt_serial;
             // 当前帧包含的(单个声道)采样数/采样率就是当前帧的播放时长
             af->duration = av_q2d((AVRational) { p_frame->nb_samples, p_frame->sample_rate });
-//			printf("audio frame pts : %d, time pts : %f, audio duration : %f.\n", p_frame->pts, af->pts, af->duration);
+			//printf("audio frame pts : %d, time pts : %f, audio duration : %f.\n", p_frame->pts, af->pts, af->duration);
             // 将frame数据拷入af->frame，af->frame指向音频frame队列尾部
             av_frame_move_ref(af->frame, p_frame);
             // 更新音频frame队列大小及写指针
@@ -243,7 +243,7 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
 //	    return -1;
 	
     while (f->size - f->rindex_shown <= 0) {
-		if (is->audio_idx >= 0 && is->video_idx < 0 && is->eof && is->audio_pkt_queue.nb_packets == 0)
+		if (is->video_idx < 0 && is->eof && is->audio_pkt_queue.nb_packets == 0)
 		{	
 			is->audio_clock = NAN;
 			is->playerController.fpPlayComplete();
@@ -253,6 +253,9 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
         	pthread_cond_wait(&f->cond, &f->mutex);
 			pthread_mutex_unlock(&f->mutex);
 		}
+
+		if (f->pktq->abort_request)
+			return -1;
     }
 	af = &f->queue[(f->rindex + f->rindex_shown) % f->max_size];
 

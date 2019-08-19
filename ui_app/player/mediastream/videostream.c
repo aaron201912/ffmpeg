@@ -65,9 +65,7 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
         AVPacket pkt;
 	
         while (1)
-        {
-//        	printf("get in video_decode_frame!\n");
-			
+        {			
             if(p_pkt_queue->abort_request)
             {
                 return -1;
@@ -575,59 +573,61 @@ static int open_video_stream(player_stat_t *is)
     return 0;
 }
 
-MI_S32 sstar_disp_init(MI_U16 width, MI_U16 height)
-{		
-    MI_DISP_VideoLayerAttr_t stLayerAttr;
-    MI_DISP_DEV dispDev = DISP_DEV;
-    MI_DISP_LAYER dispLayer = DISP_LAYER;
-    MI_U32 u32InputPort = DISP_INPUTPORT;
-    MI_DISP_InputPortAttr_t stInputPortAttr;
-	
-    stLayerAttr.stVidLayerSize.u16Width     = width;
-    stLayerAttr.stVidLayerSize.u16Height    = height;
-    stLayerAttr.ePixFormat = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
-    stLayerAttr.stVidLayerDispWin.u16X      = 0;
-    stLayerAttr.stVidLayerDispWin.u16Y      = 0;
-    stLayerAttr.stVidLayerDispWin.u16Width  = width;
-    stLayerAttr.stVidLayerDispWin.u16Height = height;
-    MI_DISP_SetVideoLayerAttr(dispLayer, &stLayerAttr);
-    MI_DISP_BindVideoLayer(dispLayer, dispDev);
-    MI_DISP_EnableVideoLayer(dispLayer);
+//MI_S32 sstar_disp_init(MI_U16 width, MI_U16 height)
+//{		
+//	MI_DISP_VideoLayerAttr_t stLayerAttr;
+//    MI_DISP_DEV dispDev = DISP_DEV;
+//	MI_DISP_LAYER dispLayer = DISP_LAYER;
+//    MI_U32 u32InputPort = DISP_INPUTPORT;
+//    MI_DISP_InputPortAttr_t stInputPortAttr;
+//	
+//	stLayerAttr.stVidLayerSize.u16Width     = width;
+//	stLayerAttr.stVidLayerSize.u16Height    = height;
+//	stLayerAttr.ePixFormat = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
+//	stLayerAttr.stVidLayerDispWin.u16X      = 0;
+//	stLayerAttr.stVidLayerDispWin.u16Y      = 0;
+//	stLayerAttr.stVidLayerDispWin.u16Width  = width;
+//	stLayerAttr.stVidLayerDispWin.u16Height = height;
+//	MI_DISP_SetVideoLayerAttr(dispLayer, &stLayerAttr);
+//	MI_DISP_BindVideoLayer(dispLayer, dispDev);
+//	MI_DISP_EnableVideoLayer(dispLayer);
 
-	memset(&stInputPortAttr, 0, sizeof(MI_DISP_InputPortAttr_t));
-    MI_DISP_GetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
-    stInputPortAttr.stDispWin.u16X      = 0;
-    stInputPortAttr.stDispWin.u16Y      = 0;
-    stInputPortAttr.stDispWin.u16Width  = width;
-    stInputPortAttr.stDispWin.u16Height = height;
-	stInputPortAttr.u16SrcWidth         = width;
-    stInputPortAttr.u16SrcHeight        = height;
+//	memset(&stInputPortAttr, 0, sizeof(MI_DISP_InputPortAttr_t));
+//	MI_DISP_GetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
+//    stInputPortAttr.stDispWin.u16X      = 0;
+//    stInputPortAttr.stDispWin.u16Y      = 0;
+//    stInputPortAttr.stDispWin.u16Width  = width;
+//    stInputPortAttr.stDispWin.u16Height = height;
+//	stInputPortAttr.u16SrcWidth         = width;
+//    stInputPortAttr.u16SrcHeight        = height;
 
-    MI_DISP_SetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
-    MI_DISP_GetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
-    MI_DISP_EnableInputPort(dispLayer, u32InputPort);
-    MI_DISP_SetInputPortSyncMode(dispLayer, u32InputPort, E_MI_DISP_SYNC_MODE_FREE_RUN);
-	MI_DISP_ShowInputPort(dispLayer, u32InputPort);
+//    MI_DISP_SetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
+//    MI_DISP_EnableInputPort(dispLayer, u32InputPort);
+//    MI_DISP_SetInputPortSyncMode(dispLayer, u32InputPort, E_MI_DISP_SYNC_MODE_FREE_RUN);
 
-    return MI_SUCCESS;
-}
+//    return MI_SUCCESS;
+//}
 
-void sstar_disp_deinit(void)
-{
-    MI_DISP_DEV dispDev = DISP_DEV;
-    MI_DISP_LAYER dispLayer = DISP_LAYER;
-    MI_U32 u32InputPort = DISP_INPUTPORT;	
-	
-	MI_DISP_HideInputPort(dispLayer, u32InputPort);
-    MI_DISP_DisableInputPort(dispLayer, u32InputPort);
-    MI_DISP_DisableVideoLayer(dispLayer);
-    MI_DISP_UnBindVideoLayer(dispLayer, dispDev);
-}
+//void sstar_disp_deinit(void)
+//{
+//    MI_DISP_DEV dispDev = DISP_DEV;
+//    MI_DISP_LAYER dispLayer = DISP_LAYER;
+//    MI_U32 u32InputPort = DISP_INPUTPORT;	
+//	
+//	MI_DISP_HideInputPort(dispLayer, u32InputPort);
+//	MI_DISP_DisableInputPort(dispLayer, u32InputPort);
+//	MI_DISP_DisableVideoLayer(dispLayer);
+//	MI_DISP_UnBindVideoLayer(dispLayer, dispDev);
+//}
 
-MI_S32 sstar_enable_display(MI_PANEL_ParamConfig_t *stPanelParam)
-{
-    MI_DISP_PubAttr_t stPubAttr;	
+MI_S32 sstar_enable_display(MI_PANEL_ParamConfig_t *stPanelParam, MI_U16 width, MI_U16 height)
+{	
     MI_DISP_DEV dispDev = DISP_DEV;	
+	MI_DISP_LAYER dispLayer = DISP_LAYER;
+    MI_U32 u32InputPort = DISP_INPUTPORT;
+	MI_DISP_PubAttr_t stPubAttr;
+	MI_DISP_VideoLayerAttr_t stLayerAttr;
+    MI_DISP_InputPortAttr_t stInputPortAttr;
 
 	sstar_sys_init();
 	
@@ -650,9 +650,33 @@ MI_S32 sstar_enable_display(MI_PANEL_ParamConfig_t *stPanelParam)
     MI_DISP_SetPubAttr(dispDev, &stPubAttr);
     MI_DISP_Enable(dispDev);
 
+	stLayerAttr.stVidLayerSize.u16Width     = width;
+	stLayerAttr.stVidLayerSize.u16Height    = height;
+	stLayerAttr.ePixFormat = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
+	stLayerAttr.stVidLayerDispWin.u16X      = 0;
+	stLayerAttr.stVidLayerDispWin.u16Y      = 0;
+	stLayerAttr.stVidLayerDispWin.u16Width  = width;
+	stLayerAttr.stVidLayerDispWin.u16Height = height;
+	MI_DISP_SetVideoLayerAttr(dispLayer, &stLayerAttr);
+	MI_DISP_BindVideoLayer(dispLayer, dispDev);
+	MI_DISP_EnableVideoLayer(dispLayer);
+
+	memset(&stInputPortAttr, 0, sizeof(MI_DISP_InputPortAttr_t));
+	MI_DISP_GetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
+    stInputPortAttr.stDispWin.u16X      = 0;
+    stInputPortAttr.stDispWin.u16Y      = 0;
+    stInputPortAttr.stDispWin.u16Width  = width;
+    stInputPortAttr.stDispWin.u16Height = height;
+	stInputPortAttr.u16SrcWidth         = width;
+    stInputPortAttr.u16SrcHeight        = height;
+
+    MI_DISP_SetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
+    MI_DISP_EnableInputPort(dispLayer, u32InputPort);
+    MI_DISP_SetInputPortSyncMode(dispLayer, u32InputPort, E_MI_DISP_SYNC_MODE_FREE_RUN);
+
 	MI_PANEL_Init(stPanelParam->eLinkType);
     MI_PANEL_SetPanelParam(stPanelParam);
-    MI_GFX_Open();
+	MI_GFX_Open();
 
 	return 0;
 }
@@ -660,10 +684,16 @@ MI_S32 sstar_enable_display(MI_PANEL_ParamConfig_t *stPanelParam)
 void sstar_disable_display(void)
 {
 	MI_DISP_DEV dispDev = DISP_DEV;
+    MI_DISP_LAYER dispLayer = DISP_LAYER;
+    MI_U32 u32InputPort = DISP_INPUTPORT;
 	
-    MI_GFX_Close();
+	MI_GFX_Close();
     MI_PANEL_DeInit();	
-    MI_DISP_Disable(dispDev);
+	
+	MI_DISP_UnBindVideoLayer(dispLayer, dispDev);
+	MI_DISP_DisableVideoLayer(dispLayer);
+	MI_DISP_DisableInputPort(dispLayer, u32InputPort);
+	MI_DISP_Disable(dispDev);
 
 	sstar_sys_deinit();
 }
