@@ -7,10 +7,12 @@
 #include "mi_hdmi_datatype.h"
 #include "mi_disp.h"
 #include "mi_disp_datatype.h"
-#include "mi_gfx.h"
-#include "mi_gfx_datatype.h"
+#include "mi_divp.h"
+#include "mi_divp_datatype.h"
 #include "mi_panel.h"
 #include "mi_panel_datatype.h"
+#include "mi_gfx.h"
+#include "mi_gfx_datatype.h"
 
 
 #define MAKE_YUYV_VALUE(y,u,v)  ((y) << 24) | ((u) << 16) | ((y) << 8) | (v)
@@ -21,9 +23,14 @@
 #define YUYV_BLUE               MAKE_YUYV_VALUE(29,225,107)
 
 #define DIVP_CHN        0
+#define DIVP_DEV        0
+#define DISP_CHN        0
 #define DISP_DEV        0
 #define DISP_LAYER      0
 #define DISP_INPUTPORT  0
+
+#define SOFT_DECODING   0
+#define HARD_DECODING   1
 
 int open_video(player_stat_t *is);
 
@@ -32,7 +39,7 @@ int open_video(player_stat_t *is);
 
 MI_S32 sstar_enable_display(MI_PANEL_ParamConfig_t *stPanelParam, MI_U16 width, MI_U16 height);
 void sstar_disable_display(void);
-
+MI_S32 sstar_reset_divp_attr(MI_U16 width, MI_U16 height);
 
 
 #endif

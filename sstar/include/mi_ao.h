@@ -18,7 +18,7 @@
 #include "mi_ao_datatype.h"
 
 #define AO_MAJOR_VERSION 2
-#define AO_SUB_VERSION 8
+#define AO_SUB_VERSION 9
 #define MACRO_TO_STR(macro) #macro
 #define AO_VERSION_STR(major_version,sub_version) ({char *tmp = sub_version/100 ? \
                                     "mi_ao_version_" MACRO_TO_STR(major_version)"." MACRO_TO_STR(sub_version) : sub_version/10 ? \

@@ -142,7 +142,7 @@ void packet_queue_flush(packet_queue_t *q)
 
 void packet_queue_destroy(packet_queue_t *q)
 {
-    //packet_queue_flush(q);
+    packet_queue_flush(q);
     pthread_mutex_destroy(&q->mutex);
     pthread_cond_destroy(&q->cond);
 }

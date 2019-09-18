@@ -202,6 +202,9 @@ typedef enum
     E_MI_SYS_PIXEL_FRAME_RGB_BAYER_BASE,
     E_MI_SYS_PIXEL_FRAME_RGB_BAYER_NUM = E_MI_SYS_PIXEL_FRAME_RGB_BAYER_BASE + E_MI_SYS_DATA_PRECISION_MAX*E_MI_SYS_PIXEL_BAYERID_MAX-1,
 
+    E_MI_SYS_PIXEL_FRAME_RGB888,
+    E_MI_SYS_PIXEL_FRAME_BGR888,
+
     E_MI_SYS_PIXEL_FRAME_FORMAT_MAX,
 } MI_SYS_PixelFormat_e;
 
@@ -389,11 +392,13 @@ typedef  struct  MI_SYS_BufInfo_s
 
 typedef struct MI_SYS_FrameBufExtraConfig_s
 {
-  //Buf alighment requirement in horizontal
+  //Buf alignment requirement in horizontal
   MI_U16 u16BufHAlignment;
-  //Buf alighment requirement in vertical
+  //Buf alignment requirement in vertical
   MI_U16 u16BufVAlignment;
-  //Clear Padding flag
+  //Buf alignment requirement in chroma
+  MI_U16 u16BufChromaAlignment;
+  //Clear padding flag
   MI_BOOL bClearPadding;
 }MI_SYS_FrameBufExtraConfig_t;
 

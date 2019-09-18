@@ -3,6 +3,8 @@
 #include "frame.h"
 #include "player.h"
 
+#include "SAT070CP50_1024x600.h"
+
 
 #include <stdio.h>
 #include <unistd.h>
@@ -15,9 +17,18 @@
 #include <stdlib.h>
 #include <signal.h>
 #include <sys/resource.h>
-#include<sys/mman.h>
-#include<sys/types.h>
-#include<sys/stat.h>
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+
+#define ENABLE_HDMI		1
+
+#define DISP_DEV        0
+#define DISP_LAYER      0
+#define DISP_INPUTPORT  0
+
+#define MAINWND_W       1024
+#define MAINWND_H       600
 
 
 static int fdv;
@@ -47,6 +58,7 @@ static int queue_picture(player_stat_t *is, AVFrame *src_frame, double pts, doub
     
     // 将AVFrame拷入队列相应位置
     av_frame_move_ref(vp->frame, src_frame);
+	
     //printf("queue frame fomat: %d\n",vp->frame->format);
     // 更新队列计数及写索引
     //printf("before queue ridx: %d,widx: %d,size: %d,maxsize: %d\n ",is->video_frm_queue.rindex,is->video_frm_queue.windex,is->video_frm_queue.size,is->video_frm_queue.max_size);
@@ -55,6 +67,9 @@ static int queue_picture(player_stat_t *is, AVFrame *src_frame, double pts, doub
     return 0;
 }
 
+static int64_t pktpos, pktpts;
+static struct timeval tvStart;
+static bool decoded;
 
 // 从packet_queue中取一个packet，解码生成frame
 static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt_queue, AVFrame *frame)
@@ -67,7 +82,7 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
 	
         while (1)
         {
-//        	printf("get in video_decode_frame!\n");
+        	//printf("get in video_decode_frame!\n");
 			
             if(p_pkt_queue->abort_request)
             {
@@ -91,7 +106,7 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
                 {
                     //av_log(NULL, AV_LOG_INFO, "video avcodec_receive_frame(): output is not available in this state - "
                     //"user must try to send new input\n");
-//					av_log(NULL, AV_LOG_ERROR, "cann't fetch a frame, try again!\n");
+					//av_log(NULL, AV_LOG_ERROR, "cann't fetch a frame, try again!\n");
                     break;
                 }
                 else
@@ -103,7 +118,31 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             else
             {
                 frame->pts = frame->best_effort_timestamp;
-//				printf("best_effort_timestamp : %lld.\n", frame->pts);
+				//printf("best_effort_timestamp : %lld.\n", frame->pts);
+				#if 0
+                //printf("frame pos: %lld\n",frame->pkt_pos);
+                if(frame->pkt_pos == pktpos || frame->pts == pktpts)
+                {
+                    struct timeval tv;
+                    int64_t time;
+                    
+                    gettimeofday(&tv, NULL);
+                    time = ((int64_t)tv.tv_sec * 1000000 + tv.tv_usec) - ((int64_t)tvStart.tv_sec * 1000000 + tvStart.tv_usec);
+                    
+                    printf("fps: %lld\n",time);
+                    decoded = 0;
+                }
+				#endif
+
+				//test yuv data is normal
+				//int ysize = frame->width * frame->height;
+				//if (frame->pts >= 600 && frame->pts <= 700) {
+				//    FILE *fpread = fopen("pframe_1080.yuv", "a+");
+            	//    fwrite(frame->data[0], ysize    , 1, fpread);
+            	//    fwrite(frame->data[1], ysize / 2, 1, fpread);
+            	//    fclose(fpread);
+				//}
+				
                 return 1;   // 成功解码得到一个视频帧或一个音频帧，则返回
             }
         }
@@ -125,14 +164,27 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             // 2. 将packet发送给解码器
             //    发送packet的顺序是按dts递增的顺序，如IPBBPBB
             //    pkt.pos变量可以标识当前packet在视频文件中的地址偏移
-//			printf("send packet to decoder!\n");
+			//printf("send packet to decoder!\n");
+			#if 0
+            //printf("pkt pos: %lld\n",pkt.pos);
+            if(!decoded)
+            {
+                pktpos = pkt.pos;
+				pktpts = pkt.pts;
+                gettimeofday(&tvStart, NULL);
+                decoded = 1;
+				//printf("packet info : dts--%d,pts--%d\n", pkt.dts, pkt.pts);
+            }
+            //calctime = av_gettime_relative();
+            #endif
+			
             if (avcodec_send_packet(p_codec_ctx, &pkt) == AVERROR(EAGAIN))
             {
                 av_log(NULL, AV_LOG_ERROR, "receive_frame and send_packet both returned EAGAIN, which is an API violation.\n");
             }
             av_packet_unref(&pkt);
         }
-//		printf("exit out video_decode_frame!\n");
+		//printf("exit out video_decode_frame!\n");
     }
 }
 
@@ -176,7 +228,7 @@ static int video_decode_thread(void *arg)
         duration = (frame_rate.num && frame_rate.den ? av_q2d((AVRational){frame_rate.den, frame_rate.num}) : 0);   // 当前帧播放时长
 		pts = (p_frame->pts == AV_NOPTS_VALUE) ? NAN : p_frame->pts * av_q2d(tb);   // 当前帧显示时间戳
 	
-//		printf("frame duration : %f. video frame clock : %f.\n", duration, pts);
+		//printf("frame duration : %f. video frame clock : %f.\n", duration, pts);
         ret = queue_picture(is, p_frame, pts, duration, p_frame->pkt_pos);   // 将当前帧压入frame_queue
         av_frame_unref(p_frame);
 
@@ -261,7 +313,7 @@ static void video_display(player_stat_t *is)
 	frame_t *vp;
 
 	vp = frame_queue_peek_last(&is->video_frm_queue);
-//	vp->frame->linesize[AV_NUM_DATA_POINTERS] = {vp->frame->width, vp->frame->width, 0, 0, 0, 0, 0, 0};
+	//vp->frame->linesize[AV_NUM_DATA_POINTERS] = {vp->frame->width, vp->frame->width, 0, 0, 0, 0, 0, 0};
 	//printf("get vp disp ridx: %d,format: %d\n",is->video_frm_queue.rindex,vp->frame->format);
 
 	// 图像转换：p_frm_raw->data ==> p_frm_yuv->data
@@ -270,27 +322,28 @@ static void video_display(player_stat_t *is)
 	// slice: 图像中一片连续的行，必须是连续的，顺序由顶部到底部或由底部到顶部
 	// stride/pitch: 一行图像所占的字节数，Stride=BytesPerPixel*Width+Padding，注意对齐
 	// AVFrame.*data[]: 每个数组元素指向对应plane
-	// AVFrame.linesize[]: 每个数组元素表示对应plane中一行图像所占的字节数
-	sws_scale(is->img_convert_ctx,                    // sws context
-	          (const uint8_t *const *)vp->frame->data,// src slice
-	          vp->frame->linesize,                    // src stride
-	          0,                                      // src slice y
-	          is->p_vcodec_ctx->height,               // src slice height
-	          is->p_frm_yuv->data,                    // dst planes
-	          is->p_frm_yuv->linesize                 // dst strides
-	         );
-
-	int ysize;
+	// AVFrame.linesize[]: 每个数组元素表示对应plane中一行图像所占的字节数	
+    if (is->decoder_type == SOFT_DECODING)
+	    sws_scale(is->img_convert_ctx,                    // sws context
+	              (const uint8_t *const *)vp->frame->data,// src slice
+	              vp->frame->linesize,                    // src stride
+	              0,                                      // src slice y
+	              is->p_vcodec_ctx->height,               // src slice height
+	              is->p_frm_yuv->data,                    // dst planes
+	              is->p_frm_yuv->linesize                 // dst strides
+	              );
+	
+	int ysize, index;
 	ysize = vp->frame->width * vp->frame->height;
-
 	//printf("save yuv width: %d,height: %d\n",vp->frame->width,vp->frame->height);
+
 	//put stream to ss disp start
 	MI_SYS_BUF_HANDLE hHandle;
 	MI_SYS_ChnPort_t  pstSysChnPort;
 	MI_SYS_BufConf_t  stBufConf;
 	MI_SYS_BufInfo_t  stBufInfo;
 
-	pstSysChnPort.eModId    = E_MI_MODULE_ID_DISP;
+	pstSysChnPort.eModId    = E_MI_MODULE_ID_DIVP;//E_MI_MODULE_ID_DISP;
 	pstSysChnPort.u32ChnId  = 0;
 	pstSysChnPort.u32DevId  = 0;
 	pstSysChnPort.u32PortId = 0;
@@ -298,11 +351,11 @@ static void video_display(player_stat_t *is)
 	memset(&stBufInfo , 0 , sizeof(MI_SYS_BufInfo_t));
 	memset(&stBufConf , 0 , sizeof(MI_SYS_BufConf_t));
 
-	stBufConf.eBufType = E_MI_SYS_BUFDATA_FRAME;
-	stBufConf.u64TargetPts = 0;
-	stBufConf.stFrameCfg.u16Width = is->p_vcodec_ctx->width;
-	stBufConf.stFrameCfg.u16Height = is->p_vcodec_ctx->height;
-	stBufConf.stFrameCfg.eFormat = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
+	stBufConf.eBufType             = E_MI_SYS_BUFDATA_FRAME;
+	stBufConf.u64TargetPts         = 0;
+	stBufConf.stFrameCfg.u16Width  = vp->frame->width;
+	stBufConf.stFrameCfg.u16Height = vp->frame->height;
+	stBufConf.stFrameCfg.eFormat   = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
 	stBufConf.stFrameCfg.eFrameScanMode = E_MI_SYS_FRAME_SCAN_MODE_PROGRESSIVE;
 
 	if(MI_SUCCESS == MI_SYS_ChnInputPortGetBuf(&pstSysChnPort,&stBufConf,&stBufInfo,&hHandle, -1))
@@ -310,32 +363,59 @@ static void video_display(player_stat_t *is)
 	    stBufInfo.stFrameData.eCompressMode = E_MI_SYS_COMPRESS_MODE_NONE;
 	    stBufInfo.stFrameData.eFieldType    = E_MI_SYS_FIELDTYPE_NONE;
 	    stBufInfo.stFrameData.eTileMode     = E_MI_SYS_FRAME_TILE_MODE_NONE;
-	    stBufInfo.bEndOfStream = FALSE;
+	    stBufInfo.bEndOfStream              = FALSE;
+        //printf("divp width : %d, height : %d\n", stBufInfo.stFrameData.u16Width, stBufInfo.stFrameData.u16Height);
+        if (is->decoder_type == SOFT_DECODING) {
+			//向DIVP中填数据时必须按照stride大小填充
+			if (stBufInfo.stFrameData.u32Stride[0] == stBufInfo.stFrameData.u16Width) {
+		        memcpy(stBufInfo.stFrameData.pVirAddr[0], is->p_frm_yuv->data[0], ysize);
+		        memcpy(stBufInfo.stFrameData.pVirAddr[1], is->p_frm_yuv->data[1], ysize / 2);
+			} else {
+                for (index = 0; index < stBufInfo.stFrameData.u16Height; index ++)
+                {
+                    memcpy(stBufInfo.stFrameData.pVirAddr[0] + index * stBufInfo.stFrameData.u32Stride[0], 
+						   is->p_frm_yuv->data[0] + index * stBufInfo.stFrameData.u16Width, 
+						   stBufInfo.stFrameData.u16Width);
+                }
 
-	    memcpy(stBufInfo.stFrameData.pVirAddr[0],is->p_frm_yuv->data[0],ysize);
-	    memcpy(stBufInfo.stFrameData.pVirAddr[1],is->p_frm_yuv->data[1],ysize/2);
+				for (index = 0; index < stBufInfo.stFrameData.u16Height / 2; index ++)
+				{
+                    memcpy(stBufInfo.stFrameData.pVirAddr[1] + index * stBufInfo.stFrameData.u32Stride[1], 
+						   is->p_frm_yuv->data[1] + index * stBufInfo.stFrameData.u16Width, 
+						   stBufInfo.stFrameData.u16Width);				    
+				}
+			}
+		} else if (is->decoder_type == HARD_DECODING) {
+		    memcpy(stBufInfo.stFrameData.pVirAddr[0], vp->frame->data[0], ysize);
+		    memcpy(stBufInfo.stFrameData.pVirAddr[1], vp->frame->data[1], ysize / 2);
+        }
+        //printf("data0: %p,data1: %p,data2: %p\n",vp->frame->data[0],vp->frame->data[1],vp->frame->data[2]);
+        #if 0
+	    memcpy(stBufInfo.stFrameData.pVirAddr[0],vp->frame->data[0],ysize);
+	    memcpy(stBufInfo.stFrameData.pVirAddr[1],vp->frame->data[1],ysize/4);
+	    memcpy(stBufInfo.stFrameData.pVirAddr[1]+ysize/4,vp->frame->data[2],ysize/4);
+        #endif
 
+		//if (vp->frame->pts >= 600 && vp->frame->pts <= 700) {
+		//    FILE *fpread0 = fopen("pic_later.yuv", "a+");
+		//    fwrite(vp->frame->data[0], 1, ysize, fpread0);
+		//    fwrite(vp->frame->data[1], 1, ysize / 2, fpread0);
+		//    fclose(fpread0);
+		//}
+		
+		//FILE *fpread1 = fopen("pic_later.yuv", "a+");
+		//fwrite(is->p_frm_yuv->data[0], 1, ysize, fpread1);
+		//fwrite(is->p_frm_yuv->data[1], 1, ysize / 2, fpread1);
+		//fclose(fpread1);
+		
 	    MI_SYS_ChnInputPortPutBuf(hHandle ,&stBufInfo , FALSE);
 	}
 	//put stream to ss disp end
-
-//	FILE *fpread0 = fopen("pic_before.yuv", "a+");
-//	fwrite(vp->frame->data[0], 1, ysize, fpread0);
-//	fwrite(vp->frame->data[1], 1, ysize / 2, fpread0);
-//	fwrite(vp->frame->data[2], 1, ysize / 4, fpread0);
-//	fclose(fpread0);
-
-//	FILE *fpread1 = fopen("pic_later.yuv", "a+");
-//	fwrite(is->p_frm_yuv->data[0], 1, ysize, fpread1);
-//	fwrite(is->p_frm_yuv->data[1], 1, ysize / 2, fpread1);
-//	fwrite(is->p_frm_yuv->data[2], 1, ysize / 4, fpread1);
-//	fclose(fpread1);
 }
 
 /* called to display each frame */
 static void video_refresh(void *opaque, double *remaining_time)
 {
-
     player_stat_t *is = (player_stat_t *)opaque;
     double time;
     static bool first_frame = true;
@@ -349,12 +429,15 @@ retry:
     {    
         // nothing to do, no picture to display in the queue
         //printf("already last frame: %d\n",is->video_frm_queue.size);
+        //if (is->eof && is->video_pkt_queue.nb_packets == 0)
+			//printf("video is palyed done!\n");
         return;
     }
-
+	
+    #if 1
 	double last_duration, duration, delay;
 	frame_t *vp, *lastvp;
-
+	
 	/* dequeue the picture */
 	lastvp = frame_queue_peek_last(&is->video_frm_queue);     // 上一帧：上次已显示的帧
 	vp = frame_queue_peek(&is->video_frm_queue);              // 当前帧：当前待显示的帧
@@ -366,10 +449,6 @@ retry:
 	    is->frame_timer = av_gettime_relative() / 1000000.0;
 	    first_frame = false;
 	}
-
-//	// 暂停处理：不停播放上一帧图像
-//	//if (is->paused)
-//	    //goto display;
 
 	/* compute nominal last_duration */
 	last_duration = vp_duration(is, lastvp, vp);        // 上一帧播放时长：vp->pts - lastvp->pts
@@ -384,13 +463,14 @@ retry:
 	    //printf("not ready play\n");
 	    return;
 	}
-//	printf("remaining time : %f. duration : %f.\n", *remaining_time, last_duration);
+	//printf("remaining time : %f. duration : %f.\n", *remaining_time, last_duration);
 	// 更新frame_timer值
 	is->frame_timer += delay;
 	// 校正frame_timer值：若frame_timer落后于当前系统时间太久(超过最大同步域值)，则更新为当前系统时间
 	if (delay > 0 && time - is->frame_timer > AV_SYNC_THRESHOLD_MAX)
 	{
 	    is->frame_timer = time;
+		printf("###\n");
 	}
 
 	pthread_mutex_lock(&is->video_frm_queue.mutex);
@@ -409,11 +489,18 @@ retry:
 	    if (time > is->frame_timer + duration)
 	    {
 	        frame_queue_next(&is->video_frm_queue);   // 删除上一帧已显示帧，即删除lastvp，读指针加1(从lastvp更新到vp)
-	        goto retry;
+            printf("!!!\n");
+			goto retry;
 	    }
 	}
+	#else
+	AVRational frame_rate = av_guess_frame_rate(is->p_fmt_ctx, is->p_video_stream, NULL);
+	*remaining_time = av_q2d((AVRational){frame_rate.den, frame_rate.num});    //no sync
+	//printf("remaining time : %f.\n", (*remaining_time) * AV_TIME_BASE);
+	#endif
 	// 删除当前读指针元素，读指针+1。若未丢帧，读指针从lastvp更新到vp；若有丢帧，读指针从vp更新到nextvp
-    frame_queue_next(&is->video_frm_queue);
+    // 若提前删除当前帧会造成图像撕裂
+	//frame_queue_next(&is->video_frm_queue);
     
 	if (is->step && !is->paused)
 	{
@@ -422,7 +509,8 @@ retry:
 
 display:
     video_display(is);                      // 取出当前帧vp(若有丢帧是nextvp)进行播放
-    //frame_queue_next(&is->video_frm_queue);
+    if (!is->paused)
+	    frame_queue_next(&is->video_frm_queue);
 
     return 0;
 }
@@ -527,12 +615,29 @@ static MI_S32 ST_Hdmi_Start(MI_HDMI_DeviceId_e eHdmi, MI_HDMI_TimingType_e eTimi
 
 int ss_disp_Deinit(AVCodecContext *pVideoCodeCtx)
 {
-    CheckFuncResult(ST_Hdmi_DeInit(0));
-    CheckFuncResult(MI_DISP_DisableInputPort(0 ,0));
-    
-    CheckFuncResult(MI_DISP_DisableVideoLayer(0));
-    CheckFuncResult(MI_DISP_UnBindVideoLayer(0, 0));
+	ST_Sys_BindInfo_t stBindInfo;
+	
+	memset(&stBindInfo, 0, sizeof(ST_Sys_BindInfo_t));
+    stBindInfo.stSrcChnPort.eModId = E_MI_MODULE_ID_DIVP;
+    stBindInfo.stSrcChnPort.u32DevId = 0;
+    stBindInfo.stSrcChnPort.u32ChnId = 0;
+    stBindInfo.stSrcChnPort.u32PortId = 0;
 
+    stBindInfo.stDstChnPort.eModId = E_MI_MODULE_ID_DISP;
+    stBindInfo.stDstChnPort.u32DevId = 0;
+    stBindInfo.stDstChnPort.u32ChnId = 0;
+    stBindInfo.stDstChnPort.u32PortId = 0;
+    stBindInfo.u32SrcFrmrate = 0;
+    stBindInfo.u32DstFrmrate = 0;
+    ST_Sys_UnBind(&stBindInfo);
+
+	MI_DIVP_StopChn(0);
+	MI_DIVP_DestroyChn(0);
+
+    CheckFuncResult(ST_Hdmi_DeInit(0));
+	CheckFuncResult(MI_DISP_UnBindVideoLayer(0, 0));
+    CheckFuncResult(MI_DISP_DisableInputPort(0 ,0));  
+    CheckFuncResult(MI_DISP_DisableVideoLayer(0));
     CheckFuncResult(MI_DISP_Disable(0));
     
     return SUCCESS;
@@ -546,18 +651,45 @@ int ss_disp_Init(AVCodecContext *pVideoCodeCtx)
     MI_DISP_InputPortAttr_t stInputPortAttr;
     MI_DISP_RotateConfig_t stRotateConfig;
 
+	//init divp
+    MI_DIVP_ChnAttr_t stDivpChnAttr;
+    MI_DIVP_OutputPortAttr_t stDivpOutAttr;
+    ST_Sys_BindInfo_t stBindInfo;
+
+    //init divp
+    memset(&stDivpChnAttr, 0, sizeof(MI_DIVP_ChnAttr_t));
+    stDivpChnAttr.bHorMirror            = FALSE;
+    stDivpChnAttr.bVerMirror            = FALSE;
+    stDivpChnAttr.eDiType               = E_MI_DIVP_DI_TYPE_OFF;
+    stDivpChnAttr.eRotateType           = E_MI_SYS_ROTATE_NONE;
+    stDivpChnAttr.eTnrLevel             = E_MI_DIVP_TNR_LEVEL_OFF;
+    stDivpChnAttr.stCropRect.u16X       = 0;
+    stDivpChnAttr.stCropRect.u16Y       = 0;
+    stDivpChnAttr.stCropRect.u16Width   = pVideoCodeCtx->width;
+    stDivpChnAttr.stCropRect.u16Height  = pVideoCodeCtx->height;
+    stDivpChnAttr.u32MaxWidth           = pVideoCodeCtx->width;
+    stDivpChnAttr.u32MaxHeight          = pVideoCodeCtx->height;
+
+    MI_DIVP_CreateChn(0, &stDivpChnAttr);
+    MI_DIVP_StartChn(0);
+    
+    memset(&stDivpOutAttr, 0, sizeof(stDivpOutAttr));
+    stDivpOutAttr.eCompMode          = E_MI_SYS_COMPRESS_MODE_NONE;
+    stDivpOutAttr.ePixelFormat       = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
+    stDivpOutAttr.u32Width           = pVideoCodeCtx->width;
+    stDivpOutAttr.u32Height          = pVideoCodeCtx->height;
+
+    MI_DIVP_SetOutputPortAttr(0, &stDivpOutAttr);    
+
     //init disp
     memset(&stPubAttr, 0, sizeof(MI_DISP_PubAttr_t));
     stPubAttr.u32BgColor = YUYV_BLACK;
-    stPubAttr.eIntfSync = E_MI_DISP_OUTPUT_1080P60;
-    stPubAttr.eIntfType = E_MI_DISP_INTF_HDMI;
+    stPubAttr.eIntfSync  = E_MI_DISP_OUTPUT_1080P60;
+    stPubAttr.eIntfType  = E_MI_DISP_INTF_HDMI;
     CheckFuncResult(MI_DISP_SetPubAttr(0, &stPubAttr));
     CheckFuncResult(MI_DISP_Enable(0));
     
-    CheckFuncResult(MI_DISP_BindVideoLayer(0, 0));
-    //STCHECKRESULT(MI_DISP_SetVideoLayerAttr(0, &stLayerAttr));
-    //STCHECKRESULT(MI_DISP_GetVideoLayerAttr(0, &stLayerAttr));
-    
+    CheckFuncResult(MI_DISP_BindVideoLayer(0, 0)); 
     CheckFuncResult(MI_DISP_EnableVideoLayer(0));
     
     //init disp ch
@@ -569,7 +701,7 @@ int ss_disp_Init(AVCodecContext *pVideoCodeCtx)
     stInputPortAttr.stDispWin.u16Width  = pVideoCodeCtx->width;
     stInputPortAttr.stDispWin.u16Height = pVideoCodeCtx->height;
 
-    stInputPortAttr.u16SrcWidth = pVideoCodeCtx->width;
+    stInputPortAttr.u16SrcWidth  = pVideoCodeCtx->width;
 
     stInputPortAttr.u16SrcHeight = pVideoCodeCtx->height;
     CheckFuncResult(MI_DISP_SetInputPortAttr(0, 0, &stInputPortAttr));
@@ -578,14 +710,181 @@ int ss_disp_Init(AVCodecContext *pVideoCodeCtx)
     CheckFuncResult(MI_DISP_SetVideoLayerRotateMode(0, &stRotateConfig));
     CheckFuncResult(MI_DISP_EnableInputPort(0, 0));
     CheckFuncResult(MI_DISP_SetInputPortSyncMode(0, 0, E_MI_DISP_SYNC_MODE_FREE_RUN));
-    
+
     //init HDMI
     CheckFuncResult(ST_Hdmi_Init());
     CheckFuncResult(ST_Hdmi_Start(E_MI_HDMI_ID_0, E_MI_HDMI_TIMING_1080_60P));
 
+    // bind module
+    memset(&stBindInfo, 0, sizeof(ST_Sys_BindInfo_t));
+    stBindInfo.stSrcChnPort.eModId    = E_MI_MODULE_ID_DIVP;
+    stBindInfo.stSrcChnPort.u32DevId  = 0;
+    stBindInfo.stSrcChnPort.u32ChnId  = 0;
+    stBindInfo.stSrcChnPort.u32PortId = 0;
+
+    stBindInfo.stDstChnPort.eModId    = E_MI_MODULE_ID_DISP;
+    stBindInfo.stDstChnPort.u32DevId  = 0;
+    stBindInfo.stDstChnPort.u32ChnId  = 0;
+    stBindInfo.stDstChnPort.u32PortId = 0;
+    stBindInfo.u32SrcFrmrate = 0;
+    stBindInfo.u32DstFrmrate = 0;
+
+    ST_Sys_Bind(&stBindInfo);
+
     return SUCCESS;
 }
 
+MI_S32 ST_Sys_Bind(ST_Sys_BindInfo_t *pstBindInfo)
+{
+    MI_SYS_BindChnPort(&pstBindInfo->stSrcChnPort, &pstBindInfo->stDstChnPort, \
+        pstBindInfo->u32SrcFrmrate, pstBindInfo->u32DstFrmrate);
+
+    return MI_SUCCESS;
+}
+
+MI_S32 ST_Sys_UnBind(ST_Sys_BindInfo_t *pstBindInfo)
+{
+    MI_SYS_UnBindChnPort(&pstBindInfo->stSrcChnPort, &pstBindInfo->stDstChnPort);
+
+    return MI_SUCCESS;
+}
+
+
+MI_S32 sstar_enable_display(MI_PANEL_ParamConfig_t *stPanelParam, MI_U16 srcWidth, MI_U16 srcHeight,MI_U16 dstWidth, MI_U16 dstHeight)
+{	
+    MI_DISP_DEV dispDev = DISP_DEV;
+	MI_DISP_LAYER dispLayer = DISP_LAYER;
+    MI_U32 u32InputPort = DISP_INPUTPORT;
+	MI_DISP_PubAttr_t stPubAttr;
+	MI_DISP_VideoLayerAttr_t stLayerAttr;
+    MI_DISP_InputPortAttr_t stInputPortAttr;
+
+    //init divp
+    MI_DIVP_ChnAttr_t stDivpChnAttr;
+    MI_DIVP_OutputPortAttr_t stDivpOutAttr;
+    ST_Sys_BindInfo_t stBindInfo;
+
+    memset(&stDivpChnAttr, 0, sizeof(MI_DIVP_ChnAttr_t));
+    stDivpChnAttr.bHorMirror            = FALSE;
+    stDivpChnAttr.bVerMirror            = FALSE;
+    stDivpChnAttr.eDiType               = E_MI_DIVP_DI_TYPE_OFF;
+    stDivpChnAttr.eRotateType           = E_MI_SYS_ROTATE_NONE;
+    stDivpChnAttr.eTnrLevel             = E_MI_DIVP_TNR_LEVEL_OFF;
+    stDivpChnAttr.stCropRect.u16X       = 0;
+    stDivpChnAttr.stCropRect.u16Y       = 0;
+    stDivpChnAttr.stCropRect.u16Width   = srcWidth;
+    stDivpChnAttr.stCropRect.u16Height  = srcHeight;
+    stDivpChnAttr.u32MaxWidth           = srcWidth;
+    stDivpChnAttr.u32MaxHeight          = srcHeight;
+
+    MI_DIVP_CreateChn(0, &stDivpChnAttr);
+    MI_DIVP_StartChn(0);
+    
+    memset(&stDivpOutAttr, 0, sizeof(stDivpOutAttr));
+    stDivpOutAttr.eCompMode          = E_MI_SYS_COMPRESS_MODE_NONE;
+    stDivpOutAttr.ePixelFormat       = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
+    stDivpOutAttr.u32Width           = dstWidth;
+    stDivpOutAttr.u32Height          = dstHeight;
+
+    MI_DIVP_SetOutputPortAttr(0, &stDivpOutAttr);
+    
+	
+	memset(&stPubAttr, 0, sizeof(MI_DISP_PubAttr_t));
+    stPubAttr.stSyncInfo.u16Vact = stPanelParam->u16Height;
+    stPubAttr.stSyncInfo.u16Vbb  = stPanelParam->u16VSyncBackPorch;
+    stPubAttr.stSyncInfo.u16Vfb  = stPanelParam->u16VTotal - (stPanelParam->u16VSyncWidth + stPanelParam->u16Height + stPanelParam->u16VSyncBackPorch);
+    stPubAttr.stSyncInfo.u16Hact = stPanelParam->u16Width;
+    stPubAttr.stSyncInfo.u16Hbb  = stPanelParam->u16HSyncBackPorch;
+    stPubAttr.stSyncInfo.u16Hfb  = stPanelParam->u16HTotal - (stPanelParam->u16HSyncWidth + stPanelParam->u16Width + stPanelParam->u16HSyncBackPorch);
+    stPubAttr.stSyncInfo.u16Bvact= 0;
+    stPubAttr.stSyncInfo.u16Bvbb = 0;
+    stPubAttr.stSyncInfo.u16Bvfb = 0;
+    stPubAttr.stSyncInfo.u16Hpw  = stPanelParam->u16HSyncWidth;
+    stPubAttr.stSyncInfo.u16Vpw  = stPanelParam->u16VSyncWidth;
+    stPubAttr.stSyncInfo.u32FrameRate = stPanelParam->u16DCLK*1000000/(stPanelParam->u16HTotal*stPanelParam->u16VTotal);
+    stPubAttr.eIntfSync  = E_MI_DISP_OUTPUT_USER;
+    stPubAttr.eIntfType  = E_MI_DISP_INTF_LCD;
+    stPubAttr.u32BgColor = YUYV_BLACK;
+    MI_DISP_SetPubAttr(dispDev, &stPubAttr);
+    MI_DISP_Enable(dispDev);
+
+	stLayerAttr.stVidLayerSize.u16Width     = dstWidth;
+	stLayerAttr.stVidLayerSize.u16Height    = dstHeight;
+	stLayerAttr.ePixFormat = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
+	stLayerAttr.stVidLayerDispWin.u16X      = 0;
+	stLayerAttr.stVidLayerDispWin.u16Y      = 0;
+	stLayerAttr.stVidLayerDispWin.u16Width  = dstWidth;
+	stLayerAttr.stVidLayerDispWin.u16Height = dstHeight;
+	MI_DISP_SetVideoLayerAttr(dispLayer, &stLayerAttr);
+	MI_DISP_BindVideoLayer(dispLayer, dispDev);
+	MI_DISP_EnableVideoLayer(dispLayer);
+
+	memset(&stInputPortAttr, 0, sizeof(MI_DISP_InputPortAttr_t));
+	MI_DISP_GetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
+    stInputPortAttr.stDispWin.u16X      = 0;
+    stInputPortAttr.stDispWin.u16Y      = 0;
+    stInputPortAttr.stDispWin.u16Width  = dstWidth;
+    stInputPortAttr.stDispWin.u16Height = dstHeight;
+	stInputPortAttr.u16SrcWidth         = dstWidth;
+    stInputPortAttr.u16SrcHeight        = dstHeight;
+
+    MI_DISP_SetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
+    MI_DISP_EnableInputPort(dispLayer, u32InputPort);
+    MI_DISP_SetInputPortSyncMode(dispLayer, u32InputPort, E_MI_DISP_SYNC_MODE_FREE_RUN);
+
+	MI_PANEL_Init(stPanelParam->eLinkType);
+    MI_PANEL_SetPanelParam(stPanelParam);
+
+    memset(&stBindInfo, 0, sizeof(ST_Sys_BindInfo_t));
+    stBindInfo.stSrcChnPort.eModId = E_MI_MODULE_ID_DIVP;
+    stBindInfo.stSrcChnPort.u32DevId = 0;
+    stBindInfo.stSrcChnPort.u32ChnId = 0;
+    stBindInfo.stSrcChnPort.u32PortId = 0;
+
+    stBindInfo.stDstChnPort.eModId = E_MI_MODULE_ID_DISP;
+    stBindInfo.stDstChnPort.u32DevId = 0;
+    stBindInfo.stDstChnPort.u32ChnId = 0;
+    stBindInfo.stDstChnPort.u32PortId = 0;
+    stBindInfo.u32SrcFrmrate = 0;
+    stBindInfo.u32DstFrmrate = 0;
+
+    ST_Sys_Bind(&stBindInfo);
+
+	return 0;
+}
+
+void sstar_disable_display(void)
+{
+	MI_DISP_DEV dispDev = DISP_DEV;
+    MI_DISP_LAYER dispLayer = DISP_LAYER;
+    MI_U32 u32InputPort = DISP_INPUTPORT;
+	
+	ST_Sys_BindInfo_t stBindInfo;
+	
+    MI_PANEL_DeInit();	
+
+	memset(&stBindInfo, 0, sizeof(ST_Sys_BindInfo_t));
+    stBindInfo.stSrcChnPort.eModId = E_MI_MODULE_ID_DIVP;
+    stBindInfo.stSrcChnPort.u32DevId = 0;
+    stBindInfo.stSrcChnPort.u32ChnId = 0;
+    stBindInfo.stSrcChnPort.u32PortId = 0;
+
+    stBindInfo.stDstChnPort.eModId = E_MI_MODULE_ID_DISP;
+    stBindInfo.stDstChnPort.u32DevId = 0;
+    stBindInfo.stDstChnPort.u32ChnId = 0;
+    stBindInfo.stDstChnPort.u32PortId = 0;
+    stBindInfo.u32SrcFrmrate = 0;
+    stBindInfo.u32DstFrmrate = 0;
+    ST_Sys_UnBind(&stBindInfo);
+
+	MI_DIVP_StopChn(0);
+	MI_DIVP_DestroyChn(0);
+	
+	MI_DISP_UnBindVideoLayer(dispLayer, dispDev);
+	MI_DISP_DisableVideoLayer(dispLayer);
+	MI_DISP_DisableInputPort(dispLayer, u32InputPort);
+	MI_DISP_Disable(dispDev);
+}
 
 static int open_video_playing(void *arg)
 {
@@ -595,11 +894,11 @@ static int open_video_playing(void *arg)
     int buf_size;
     uint8_t* buffer = NULL;
 	AVPixFmtDescriptor *desc;
-    
+   
     // 为AVFrame.*data[]手工分配缓冲区，用于存储sws_scale()中目的帧视频数据
     buf_size = av_image_get_buffer_size(AV_PIX_FMT_NV12, 
                                         is->p_vcodec_ctx->width, 
-                                        is->p_vcodec_ctx->height, 
+                                        is->p_vcodec_ctx->height,
                                         1
                                         );
     //printf("alloc size: %d,width: %d,height: %d\n",buf_size,is->p_vcodec_ctx->width,is->p_vcodec_ctx->height);
@@ -633,14 +932,14 @@ static int open_video_playing(void *arg)
     //     这里为了编码简便，统一转换为SDL支持的格式AV_PIX_FMT_YUV420P==>SDL_PIXELFORMAT_IYUV
 	desc = av_pix_fmt_desc_get(is->p_vcodec_ctx->pix_fmt);
 	printf("video prefix format : %s.\n", desc->name);
-	
+
     is->img_convert_ctx = sws_getContext(is->p_vcodec_ctx->width,   // src width
                                          is->p_vcodec_ctx->height,  // src height
                                          is->p_vcodec_ctx->pix_fmt, // src format
                                          is->p_vcodec_ctx->width,   // dst width
                                          is->p_vcodec_ctx->height,  // dst height
                                          AV_PIX_FMT_NV12,           // dst format
-                                         SWS_FAST_BILINEAR,               // flags
+                                         SWS_POINT,                 // flags
                                          NULL,                      // src filter
                                          NULL,                      // dst filter
                                          NULL                       // param
@@ -669,7 +968,36 @@ static int open_video_stream(player_stat_t *is)
     p_codec_par = p_stream->codecpar;
 
     // 1.2 获取解码器
-    p_codec = avcodec_find_decoder(p_codec_par->codec_id);
+    if (is->decoder_type == HARD_DECODING) {
+		switch(p_codec_par->codec_id) 
+		{
+			case AV_CODEC_ID_H264 : 
+				p_codec = avcodec_find_decoder_by_name("ssh264"); break;
+			
+			
+			case AV_CODEC_ID_HEVC : 
+				p_codec = avcodec_find_decoder_by_name("sshevc"); break;
+
+			default : 
+				p_codec = avcodec_find_decoder(p_codec_par->codec_id); 
+                is->decoder_type = SOFT_DECODING;
+				break;
+		}
+    } else if (is->decoder_type == SOFT_DECODING) {
+        switch(p_codec_par->codec_id) 
+		{
+			case AV_CODEC_ID_H264 : 
+				p_codec = avcodec_find_decoder_by_name("h264"); break;
+			
+			
+			case AV_CODEC_ID_HEVC : 
+				p_codec = avcodec_find_decoder_by_name("hevc"); break;
+
+			default : 
+				p_codec = avcodec_find_decoder(p_codec_par->codec_id); break;
+		}
+    }
+			
     if (p_codec == NULL)
     {
         printf("Cann't find codec!\n");
@@ -703,10 +1031,12 @@ static int open_video_stream(player_stat_t *is)
     is->p_vcodec_ctx = p_codec_ctx;
 	is->p_vcodec_ctx->debug = true;
     printf("codec width: %d,height: %d\n",is->p_vcodec_ctx->width,is->p_vcodec_ctx->height);
-
+#if ENABLE_HDMI
 	// 1.4.1 初始化DISP
 	CheckFuncResult(ss_disp_Init(is->p_vcodec_ctx));
-	
+#else
+	CheckFuncResult(sstar_enable_display(&stPanelParam, is->p_vcodec_ctx->width,is->p_vcodec_ctx->height,MAINWND_W, MAINWND_H));
+#endif	
     // 2. 创建视频解码线程
     CheckFuncResult(pthread_create(&is->videoDecode_tid, NULL, video_decode_thread, is));
 

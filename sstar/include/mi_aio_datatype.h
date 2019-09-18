@@ -28,9 +28,7 @@
 //=============================================================================
 // Macro definition
 //=============================================================================
-#define MI_AUDIO_MAX_CHN_NUM            (2)
-#define MI_AUDIO_MAX_SAMPLES_PER_FRAME  (2048)
-#define MI_AUDIO_MAX_FRAME_NUM          (6)
+#define MI_AUDIO_MAX_CHN_NUM            (16)
 
 
 
@@ -47,47 +45,47 @@ typedef enum
 
 typedef enum
 {
-    E_MI_AUDIO_SAMPLE_RATE_8000 = 8000, /* 8kHz sampling rate */
-    E_MI_AUDIO_SAMPLE_RATE_11052 = 11052, /* 11.052kHz sampling rate */
-    E_MI_AUDIO_SAMPLE_RATE_12000 = 12000, /* 12kHz sampling rate */
-    E_MI_AUDIO_SAMPLE_RATE_16000 = 16000, /* 16kHz sampling rate */
-    E_MI_AUDIO_SAMPLE_RATE_22050 = 22050, /* 22.05kHz sampling rate */
-    E_MI_AUDIO_SAMPLE_RATE_24000 = 24000, /* 24kHz sampling rate */
-    E_MI_AUDIO_SAMPLE_RATE_32000 = 32000, /* 32kHz sampling rate */
-    E_MI_AUDIO_SAMPLE_RATE_44100 = 44100, /* 44.1kHz sampling rate */
-    E_MI_AUDIO_SAMPLE_RATE_48000 = 48000, /* 48kHz sampling rate */
-    E_MI_AUDIO_SAMPLE_RATE_96000 = 96000, /* 96kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_8000 = 8000,         /* 8kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_11025 = 11025,       /* 11.025kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_12000 = 12000,       /* 12kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_16000 = 16000,       /* 16kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_22050 = 22050,       /* 22.05kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_24000 = 24000,       /* 24kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_32000 = 32000,       /* 32kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_44100 = 44100,       /* 44.1kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_48000 = 48000,       /* 48kHz sampling rate */
+    E_MI_AUDIO_SAMPLE_RATE_96000 = 96000,       /* 96kHz sampling rate */
     E_MI_AUDIO_SAMPLE_RATE_INVALID,
 }MI_AUDIO_SampleRate_e;
 
 typedef enum
 {
-    E_MI_AUDIO_BIT_WIDTH_16 =0, /* 16bit width */
-    E_MI_AUDIO_BIT_WIDTH_24 =1, /* 24bit width */
+    E_MI_AUDIO_BIT_WIDTH_16 =0,                 /* 16bit width */
+    E_MI_AUDIO_BIT_WIDTH_24 =1,                 /* 24bit width */
     E_MI_AUDIO_BIT_WIDTH_MAX,
 }MI_AUDIO_BitWidth_e;
 
 typedef enum
 {
-    E_MI_AUDIO_MODE_I2S_MASTER, /* I2S master mode */
-    E_MI_AUDIO_MODE_I2S_SLAVE, /* I2S slave mode */
-    E_MI_AUDIO_MODE_TDM_MASTER, /* TDM master mode */
+    E_MI_AUDIO_MODE_I2S_MASTER,                /* I2S master mode */
+    E_MI_AUDIO_MODE_I2S_SLAVE,                 /* I2S slave mode */
+    E_MI_AUDIO_MODE_TDM_MASTER,                /* TDM master mode */
     E_MI_AUDIO_MODE_MAX,
 }MI_AUDIO_Mode_e;
 
 typedef enum
 {
-    E_MI_AUDIO_SOUND_MODE_MONO =0, /* mono */
-    E_MI_AUDIO_SOUND_MODE_STEREO =1, /* stereo */
-    E_MI_AUDIO_SOUND_MODE_QUEUE =2, /*all data in One chn */
+    E_MI_AUDIO_SOUND_MODE_MONO = 0,           /* mono */
+    E_MI_AUDIO_SOUND_MODE_STEREO = 1,         /* stereo */
+    E_MI_AUDIO_SOUND_MODE_QUEUE = 2,          /* all data in One chn */
     E_MI_AUDIO_SOUND_MODE_MAX,
 }MI_AUDIO_SoundMode_e;
 
 typedef enum
 {
-    E_MI_AUDIO_HPF_FREQ_80 = 80, /* 80Hz */
-    E_MI_AUDIO_HPF_FREQ_120 = 120, /* 120Hz */
-    E_MI_AUDIO_HPF_FREQ_150 = 150, /* 150Hz */
+    E_MI_AUDIO_HPF_FREQ_80 = 80,             /* 80Hz */
+    E_MI_AUDIO_HPF_FREQ_120 = 120,           /* 120Hz */
+    E_MI_AUDIO_HPF_FREQ_150 = 150,           /* 150Hz */
     E_MI_AUDIO_HPF_FREQ_INVALID,
 }MI_AUDIO_HpfFreq_e;
 
@@ -104,29 +102,29 @@ typedef enum
 }MI_AUDIO_I2sFmt_e;
 
 typedef enum{
-    E_MI_AUDIO_I2S_MCLK_0,         //not enable
-    E_MI_AUDIO_I2S_MCLK_12_288M,   //12.288M
-    E_MI_AUDIO_I2S_MCLK_16_384M,   //16.384M
-    E_MI_AUDIO_I2S_MCLK_18_432M,   //18.432M
-    E_MI_AUDIO_I2S_MCLK_24_576M,   //24.576M
+    E_MI_AUDIO_I2S_MCLK_0,                              //not enable
+    E_MI_AUDIO_I2S_MCLK_12_288M,                        //12.288M
+    E_MI_AUDIO_I2S_MCLK_16_384M,                        //16.384M
+    E_MI_AUDIO_I2S_MCLK_18_432M,                        //18.432M
+    E_MI_AUDIO_I2S_MCLK_24_576M,                        //24.576M
 }MI_AUDIO_I2sMclk_e;
 
 typedef struct MI_AUDIO_I2sConfig_s
 {
     MI_AUDIO_I2sFmt_e eFmt;
     MI_AUDIO_I2sMclk_e eMclk;
-    MI_BOOL bSyncClock; //I2s Tx BCLK, Rx BCLK use the same clock source
+    MI_BOOL bSyncClock;                                 //I2s Tx BCLK, Rx BCLK use the same clock source
 }MI_AUDIO_I2sConfig_t;
 
 typedef struct MI_AUDIO_Attr_s
 {
-    MI_AUDIO_SampleRate_e eSamplerate; /*sample rate*/
-    MI_AUDIO_BitWidth_e eBitwidth; /*bitwidth*/
-    MI_AUDIO_Mode_e eWorkmode; /*master or slave mode*/
-    MI_AUDIO_SoundMode_e eSoundmode; /*mono or stereo*/
-    MI_U32 u32FrmNum; /*frame num in buffer*/
-    MI_U32 u32PtNumPerFrm; /*number of samples*/
-    MI_U32 u32CodecChnCnt; /*channel number on Codec */
+    MI_AUDIO_SampleRate_e eSamplerate;                  /* sample rate */
+    MI_AUDIO_BitWidth_e eBitwidth;                      /* bitwidth */
+    MI_AUDIO_Mode_e eWorkmode;                          /* I2s master or slave mode */
+    MI_AUDIO_SoundMode_e eSoundmode;                    /* mono or stereo */
+    MI_U32 u32FrmNum;                                   /* frame num in buffer */
+    MI_U32 u32PtNumPerFrm;                              /* number of samples */
+    MI_U32 u32CodecChnCnt;                              /* channel number on Codec */
     MI_U32 u32ChnCnt;
     union{
         MI_AUDIO_I2sConfig_t stI2sConfig;
@@ -136,19 +134,23 @@ typedef struct MI_AUDIO_Attr_s
 
 typedef struct MI_AUDIO_Frame_s
 {
-    MI_AUDIO_BitWidth_e eBitwidth; /*audio frame bitwidth*/
-    MI_AUDIO_SoundMode_e eSoundmode; /*audio frame momo or stereo mode*/
+    MI_AUDIO_BitWidth_e eBitwidth;                     /* audio frame bitwidth */
+    MI_AUDIO_SoundMode_e eSoundmode;                   /* audio frame momo or stereo mode */
     void *apVirAddr[MI_AUDIO_MAX_CHN_NUM];
-    MI_U64 u64TimeStamp;/*audio frame timestamp*/
-    MI_U32 u32Seq; /*audio frame seq*/
-    MI_U32 u32Len; /*data lenth per channel in frame*/
+    MI_U64 u64TimeStamp;                               /* audio frame timestamp */
+    MI_U32 u32Seq;                                     /* audio frame seq */
+    MI_U32 u32Len;                                     /* data lenth per channel in frame */
     MI_U32 au32PoolId[2];
+                                                       /* Only use for Ai */
+    void *apSrcPcmVirAddr[MI_AUDIO_MAX_CHN_NUM];       /* Ai original pcm data from ai channel */
+    MI_U32 u32SrcPcmLen;                               /* length of Ai original pcm data */
+
 }MI_AUDIO_Frame_t;
 
 typedef struct MI_AUDIO_AecFrame_s
 {
-    MI_AUDIO_Frame_t stRefFrame; /* aec reference audio frame */
-    MI_BOOL bValid; /* whether frame is valid */
+    MI_AUDIO_Frame_t stRefFrame;                      /* aec reference audio frame */
+    MI_BOOL bValid;                                   /* whether frame is valid */
 }MI_AUDIO_AecFrame_t;
 
 typedef struct MI_AUDIO_SaveFileInfo_s
@@ -161,7 +163,7 @@ typedef struct MI_AUDIO_SaveFileInfo_s
 typedef struct MI_AUDIO_HpfConfig_s
 {
     MI_AUDIO_AlgorithmMode_e eMode;
-    MI_AUDIO_HpfFreq_e eHpfFreq; /*freq to be processed*/
+    MI_AUDIO_HpfFreq_e eHpfFreq;                     /*freq to be processed*/
 }MI_AUDIO_HpfConfig_t;
 
 typedef struct MI_AUDIO_AnrConfig_s

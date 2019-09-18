@@ -432,6 +432,7 @@ static int audio_playing_thread(void *arg)
         {
             long long duration = (is->p_fmt_ctx->duration + (is->p_fmt_ctx->duration <= INT64_MAX - 5000 ? 5000 : 0)) / AV_TIME_BASE;
 
+			#if 1
             MI_AUDIO_Frame_t stAoSendFrame;
             MI_S32 s32RetSendStatus = 0;
             MI_AUDIO_DEV AoDevId = AUDIO_DEV;
@@ -450,6 +451,9 @@ static int audio_playing_thread(void *arg)
             {
                 printf("[Warning]: MI_AO_SendFrame fail, error is 0x%x: \n",s32RetSendStatus);
             }
+			#else
+                is->playerController.fpPlayAudio(is->p_audio_frm, is->audio_frm_size);
+			#endif
             // 需要判断音频和视频都已播放结束，再停止播放。
             //frame_queue_next(&is->audio_frm_queue);
         }

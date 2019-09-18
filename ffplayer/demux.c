@@ -84,12 +84,19 @@ static int demux_init(player_stat_t *is)
         }
         return ret;
     }
-
-    is->audio_idx = a_idx;
-    is->video_idx = v_idx;
+	
     printf("audio idx: %d,video idx: %d\n",a_idx,v_idx);
-    is->p_audio_stream = p_fmt_ctx->streams[a_idx];
-    is->p_video_stream = p_fmt_ctx->streams[v_idx];
+
+	is->audio_idx = a_idx;
+    is->video_idx = v_idx; 
+	
+	if (a_idx >= 0) {
+		is->p_audio_stream = p_fmt_ctx->streams[a_idx];
+	}
+
+	if (v_idx >= 0) {		
+        is->p_video_stream = p_fmt_ctx->streams[v_idx];
+	}
 
     return 0;
 }
@@ -248,6 +255,7 @@ static int demux_thread(void *arg)
                     packet_queue_put_nullpacket(&is->audio_pkt_queue, is->audio_idx);
                 }
                 is->eof = 1;
+				av_log(is->p_fmt_ctx, AV_LOG_INFO, "read packet over!\n")
             }
 
             pthread_mutex_lock(&wait_mutex);

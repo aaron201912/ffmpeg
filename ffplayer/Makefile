@@ -7,7 +7,10 @@ COM_FLAGS = -Wall -O2 -fPIC -mcpu=cortex-a9 -mfpu=neon-fp16 -mfloat-abi=hard -mt
 C_FLAGS	   = $(COM_FLAGS) -std=c11
 CPP_FLAGS  = $(COM_FLAGS) -std=c++11
 
-INCLUDES  += -I. -I../sstar/include/ -I../ffmpeg-4.1.3/host/include/
+# user path
+USR_PATH = ../ffmpeg-4.1.3/host
+
+INCLUDES  += -I. -I../sstar/include/ -I$(USR_PATH)/include
 
 TARGET_NAME  = SsPlayer
 
@@ -18,8 +21,8 @@ C_SRCS    =  $(wildcard *.c */*.c)
 CPP_OBJS = $(patsubst %.cpp, %.cpp.o, $(CPP_SRCS))
 C_OBJS = $(patsubst %.c, %.c.o, $(C_SRCS))
 
-LIB_PATH  = -L. -L../sstar/lib -L../ffmpeg-4.1.3/host/lib
-LIB_NAME += -lavformat -lavcodec -lavutil -lswscale -lswresample -pthread -lm -lmi_vdec -lmi_sys -lmi_divp -lmi_disp -lmi_hdmi -lmi_ao -ldl -lmi_common
+LIB_PATH  = -L. -L../sstar/lib -L$(USR_PATH)/lib/static
+LIB_NAME += -lavformat -lavcodec -lavutil -lswscale -lswresample -pthread -lm -lmi_vdec -lmi_sys -lmi_divp -lmi_disp -lmi_hdmi -lmi_ao -lmi_panel -ldl -lmi_common
 
 
 .PHONY: all prepare clean

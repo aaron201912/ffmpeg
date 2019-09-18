@@ -86,7 +86,7 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
                 }
                 else if (ret == AVERROR(EAGAIN))
                 {
-//					av_log(NULL, AV_LOG_ERROR, "cann't fetch a frame, try again!\n");
+					//av_log(NULL, AV_LOG_ERROR, "cann't fetch a frame, try again!\n");
                     break;
                 }
                 else
@@ -98,7 +98,12 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             else
             {
                 frame->pts = frame->best_effort_timestamp;
-//				printf("best_effort_timestamp : %lld.\n", frame->pts);
+				//printf("best_effort_timestamp : %lld.\n", frame->pts);
+                //int bufsize = frame->width * frame->height;
+            	//FILE *fpread = fopen("video_1080.yuv", "a+");
+            	//fwrite(frame->data[0], 1, bufsize, fpread);
+            	//fwrite(frame->data[1], 1, bufsize / 2, fpread);
+            	//fclose(fpread);
                 return 1;   // 成功解码得到一个视频帧或一个音频帧，则返回
             }
         }
@@ -120,14 +125,14 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             // 2. 将packet发送给解码器
             //    发送packet的顺序是按dts递增的顺序，如IPBBPBB
             //    pkt.pos变量可以标识当前packet在视频文件中的地址偏移
-//			printf("send packet to decoder!\n");
+			//printf("send packet to decoder!\n");
             if (avcodec_send_packet(p_codec_ctx, &pkt) == AVERROR(EAGAIN))
             {
                 av_log(NULL, AV_LOG_ERROR, "receive_frame and send_packet both returned EAGAIN, which is an API violation.\n");
             }
             av_packet_unref(&pkt);
         }
-//		printf("exit out video_decode_frame!\n");
+		//printf("exit out video_decode_frame!\n");
     }
 }
 
@@ -171,7 +176,7 @@ static int video_decode_thread(void *arg)
         duration = (frame_rate.num && frame_rate.den ? av_q2d((AVRational){frame_rate.den, frame_rate.num}) : 0);   // 当前帧播放时长
 		pts = (p_frame->pts == AV_NOPTS_VALUE) ? NAN : p_frame->pts * av_q2d(tb);   // 当前帧显示时间戳
 	
-//		printf("frame duration : %f. video frame clock : %f.\n", duration, pts);
+		//printf("frame duration : %f. video frame clock : %f.\n", duration, pts);
         ret = queue_picture(is, p_frame, pts, duration, p_frame->pkt_pos);   // 将当前帧压入frame_queue
         av_frame_unref(p_frame);
 
@@ -266,23 +271,41 @@ static void video_display(player_stat_t *is)
     // stride/pitch: 一行图像所占的字节数，Stride=BytesPerPixel*Width+Padding，注意对齐
     // AVFrame.*data[]: 每个数组元素指向对应plane
     // AVFrame.linesize[]: 每个数组元素表示对应plane中一行图像所占的字节数
-    sws_scale(is->img_convert_ctx,                    // sws context
-              (const uint8_t *const *)vp->frame->data,// src slice
-              vp->frame->linesize,                    // src stride
-              0,                                      // src slice y
-              is->p_vcodec_ctx->height,               // src slice height
-              is->p_frm_yuv->data,                    // dst planes
-              is->p_frm_yuv->linesize                 // dst strides
-             );
-	
-	long int bufsize = is->out_width * is->out_height;
+    // ffmpeg解码后的图像格式为YUV420P,需要转码后送入DIVP,如果使用硬解则无需转码
+    if (is->decode_type == SOFT_DECODING) {
+	    sws_scale(is->img_convert_ctx,                    // sws context
+                  (const uint8_t *const *)vp->frame->data,// src slice
+                  vp->frame->linesize,                    // src stride
+                  0,                                      // src slice y
+                  is->p_vcodec_ctx->height,               // src slice height
+                  is->p_frm_yuv->data,                    // dst planes
+                  is->p_frm_yuv->linesize                 // dst strides
+                 );
+    }
+
+	#if 0
+    if (is->decode_type == SOFT_DECODING) {
+        is->playerController.fpDisplayVideo(is->p_vcodec_ctx->width,   // input width of divp
+			                                is->p_vcodec_ctx->height,  // input height of divp
+			                                is->p_frm_yuv->data[0],    // data of Y
+			                                is->p_frm_yuv->data[1]);   // data of UV
+    } else if (is->decode_type == HARD_DECODING) {
+		is->playerController.fpDisplayVideo(is->p_vcodec_ctx->width,   // input width of divp
+			                                is->p_vcodec_ctx->height,  // input height of divp
+			                                vp->frame->data[0],        // data of Y
+			                                vp->frame->data[1]);       // data of UV
+    }
+    #else
+
+	int bufsize, index;
+	bufsize = vp->frame->width * vp->frame->height;
 	
 	MI_SYS_BUF_HANDLE hHandle;
 	MI_SYS_ChnPort_t  pstSysChnPort;
 	MI_SYS_BufConf_t  stBufConf;
 	MI_SYS_BufInfo_t  stBufInfo;
 
-	pstSysChnPort.eModId	= E_MI_MODULE_ID_DISP;
+	pstSysChnPort.eModId	= E_MI_MODULE_ID_DIVP;
 	pstSysChnPort.u32ChnId  = 0;
 	pstSysChnPort.u32DevId  = 0;
 	pstSysChnPort.u32PortId = 0;
@@ -290,11 +313,11 @@ static void video_display(player_stat_t *is)
 	memset(&stBufInfo , 0 , sizeof(MI_SYS_BufInfo_t));
 	memset(&stBufConf , 0 , sizeof(MI_SYS_BufConf_t));
 
-	stBufConf.eBufType = E_MI_SYS_BUFDATA_FRAME;
-	stBufConf.u64TargetPts = 0;
-	stBufConf.stFrameCfg.u16Width  = is->out_width;
-	stBufConf.stFrameCfg.u16Height = is->out_height;
-	stBufConf.stFrameCfg.eFormat = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
+	stBufConf.eBufType                  = E_MI_SYS_BUFDATA_FRAME;
+	stBufConf.u64TargetPts              = 0;
+	stBufConf.stFrameCfg.u16Width       = vp->frame->width;
+	stBufConf.stFrameCfg.u16Height      = vp->frame->height;	
+	stBufConf.stFrameCfg.eFormat        = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
 	stBufConf.stFrameCfg.eFrameScanMode = E_MI_SYS_FRAME_SCAN_MODE_PROGRESSIVE;
 
 	if(MI_SUCCESS == MI_SYS_ChnInputPortGetBuf(&pstSysChnPort,&stBufConf,&stBufInfo,&hHandle, -1))
@@ -304,26 +327,51 @@ static void video_display(player_stat_t *is)
 		stBufInfo.stFrameData.eTileMode	    = E_MI_SYS_FRAME_TILE_MODE_NONE;
 		stBufInfo.bEndOfStream = FALSE;
 
-		memcpy(stBufInfo.stFrameData.pVirAddr[0], is->p_frm_yuv->data[0], bufsize);
-		memcpy(stBufInfo.stFrameData.pVirAddr[1], is->p_frm_yuv->data[1], bufsize / 2);
+		if (is->decode_type == SOFT_DECODING) {
+			//向DIVP中填数据时必须按照stride大小填充
+			if (stBufInfo.stFrameData.u32Stride[0] == stBufInfo.stFrameData.u16Width) {
+		        memcpy(stBufInfo.stFrameData.pVirAddr[0], is->p_frm_yuv->data[0], bufsize);
+		        memcpy(stBufInfo.stFrameData.pVirAddr[1], is->p_frm_yuv->data[1], bufsize / 2);
+			} else {
+                for (index = 0; index < stBufInfo.stFrameData.u16Height; index ++)
+                {
+                    memcpy(stBufInfo.stFrameData.pVirAddr[0] + index * stBufInfo.stFrameData.u32Stride[0], 
+						   is->p_frm_yuv->data[0] + index * stBufInfo.stFrameData.u16Width, 
+						   stBufInfo.stFrameData.u16Width);
+                }
 
-//		FILE *fpread1 = fopen("pic_later.yuv", "a+");
-//		fwrite(stBufInfo.stFrameData.pVirAddr[0], 1, bufsize, fpread1);
-//		fwrite(stBufInfo.stFrameData.pVirAddr[1], 1, bufsize / 2, fpread1);
-//		fclose(fpread1);
-
+				for (index = 0; index < stBufInfo.stFrameData.u16Height / 2; index ++)
+				{
+                    memcpy(stBufInfo.stFrameData.pVirAddr[1] + index * stBufInfo.stFrameData.u32Stride[1], 
+						   is->p_frm_yuv->data[1] + index * stBufInfo.stFrameData.u16Width, 
+						   stBufInfo.stFrameData.u16Width);				    
+				}
+			}
+        } else if (is->decode_type == HARD_DECODING) {
+			memcpy(stBufInfo.stFrameData.pVirAddr[0], vp->frame->data[0], bufsize);
+		    memcpy(stBufInfo.stFrameData.pVirAddr[1], vp->frame->data[1], bufsize / 2);
+        }
+		
 		MI_SYS_ChnInputPortPutBuf(hHandle ,&stBufInfo , FALSE);
 	}
 	else {
 		printf("get MI_SYS_ChnInputPortGetBuf failed!\n");
 	}
+    #endif
+	
+	//int bufsize = vp->frame->width * vp->frame->height;
+	//FILE *fpread = fopen("pic_later.yuv", "a+");
+	//fwrite(vp->frame->data[0], 1, bufsize, fpread);
+	//fwrite(vp->frame->data[1], 1, bufsize / 2, fpread);
+	//fclose(fpread);
 
+    //calculate the display fps
 	tmp_time = av_gettime_relative();
 	f_time = tmp_time - last_time;
 	if (0 != f_time)
 		is->fps = 1000000 / f_time;
 	last_time = tmp_time;
-//	printf("actual fps of video is : %.2f.\n", v_fps);
+	//printf("actual fps of video is : %.2f.\n", v_fps);
 }
 
 /* called to display each frame */
@@ -394,7 +442,7 @@ retry:
     }
     pthread_mutex_unlock(&is->video_frm_queue.mutex);
 
-//	printf("frame pts : %.2f. clock pts : %.2f\n", vp->pts, is->video_clk.pts);
+	//printf("frame pts : %.2f. clock pts : %.2f\n", vp->pts, is->video_clk.pts);
 
     // 是否要丢弃未能及时播放的视频帧
     if (frame_queue_nb_remaining(&is->video_frm_queue) > 1)  // 队列中未显示帧数>1(只有一帧则不考虑丢帧)
@@ -409,15 +457,17 @@ retry:
         }
     }
     // 删除当前读指针元素，读指针+1。若未丢帧，读指针从lastvp更新到vp；若有丢帧，读指针从vp更新到nextvp
-    frame_queue_next(&is->video_frm_queue);
+    //frame_queue_next(&is->video_frm_queue);
     
     if (is->step && !is->paused)
     {
         stream_toggle_pause(is);
     }
-
+  
 display:
     video_display(is);                      // 取出当前帧vp(若有丢帧是nextvp)进行播放
+    if (!is->paused)
+	    frame_queue_next(&is->video_frm_queue);
 
     return 0;
 }
@@ -436,7 +486,7 @@ static int video_playing_thread(void *arg)
         }
         if (remaining_time > 0.0)
         {
-//			printf("delay time: %lf\n",remaining_time);
+			//printf("delay time: %lf\n",remaining_time);
             av_usleep((unsigned)(remaining_time * 1000000.0));
         }
         remaining_time = REFRESH_RATE;
@@ -459,8 +509,10 @@ static int open_video_playing(void *arg)
     
     // 为AVFrame.*data[]手工分配缓冲区，用于存储sws_scale()中目的帧视频数据
     buf_size = av_image_get_buffer_size(AV_PIX_FMT_NV12,
-                                        is->out_width,
-                                        is->out_height,
+	                                    is->p_vcodec_ctx->width,
+                                        is->p_vcodec_ctx->height,
+                                        //is->out_width,
+                                        //is->out_height,
                                         1
                                         );
     //printf("alloc size: %d,width: %d,height: %d\n",buf_size,is->p_vcodec_ctx->width,is->p_vcodec_ctx->height);
@@ -476,8 +528,10 @@ static int open_video_playing(void *arg)
                                is->p_frm_yuv->linesize, // dst linesize[]
                                buffer,                  // src buffer
                                AV_PIX_FMT_NV12,         // pixel format
-                               is->out_width,           // src width
-                               is->out_height,          // src height
+                               is->p_vcodec_ctx->width, // src width
+                               is->p_vcodec_ctx->height,// src height
+                               //is->out_width,
+                               //is->out_height,
                                1                        // align
                                );
     if (ret < 0)
@@ -498,12 +552,12 @@ static int open_video_playing(void *arg)
     is->img_convert_ctx = sws_getContext(is->p_vcodec_ctx->width,   // src width
                                          is->p_vcodec_ctx->height,  // src height
                                          is->p_vcodec_ctx->pix_fmt, // src format
-                                         // is->p_vcodec_ctx->width,   // dst width
-                                         // is->p_vcodec_ctx->height,  // dst height
-                                         is->out_width,
-                                         is->out_height,
-                                         AV_PIX_FMT_NV12,        // dst format
-                                         SWS_FAST_BILINEAR,               // flags
+                                         is->p_vcodec_ctx->width,   // dst width
+                                         is->p_vcodec_ctx->height,  // dst height
+		                                 //is->out_width,
+										 //is->out_height,
+	                                     AV_PIX_FMT_NV12,           // dst format
+                                         SWS_POINT,                 // flags
                                          NULL,                      // src filter
                                          NULL,                      // dst filter
                                          NULL                       // param
@@ -532,7 +586,33 @@ static int open_video_stream(player_stat_t *is)
     p_codec_par = p_stream->codecpar;
 
     // 1.2 获取解码器
-    p_codec = avcodec_find_decoder(p_codec_par->codec_id);
+    if (is->decode_type == HARD_DECODING) {
+		switch(p_codec_par->codec_id) 
+		{
+			case AV_CODEC_ID_H264 : 
+				p_codec = avcodec_find_decoder_by_name("ssh264"); break;
+			
+			case AV_CODEC_ID_HEVC : 
+				p_codec = avcodec_find_decoder_by_name("sshevc"); break;
+
+			default : 
+				p_codec = avcodec_find_decoder(p_codec_par->codec_id);
+				is->decode_type = SOFT_DECODING;
+				break;
+		}
+    } else if (is->decode_type == SOFT_DECODING) {
+        switch(p_codec_par->codec_id) 
+		{
+			case AV_CODEC_ID_H264 : 
+				p_codec = avcodec_find_decoder_by_name("h264"); break;
+			
+			case AV_CODEC_ID_HEVC : 
+				p_codec = avcodec_find_decoder_by_name("hevc"); break;
+
+			default : 
+				p_codec = avcodec_find_decoder(p_codec_par->codec_id); break;
+		}
+    }
     if (p_codec == NULL)
     {
         printf("Cann't find codec!\n");
@@ -573,63 +653,59 @@ static int open_video_stream(player_stat_t *is)
     return 0;
 }
 
-//MI_S32 sstar_disp_init(MI_U16 width, MI_U16 height)
-//{		
-//	MI_DISP_VideoLayerAttr_t stLayerAttr;
-//    MI_DISP_DEV dispDev = DISP_DEV;
-//	MI_DISP_LAYER dispLayer = DISP_LAYER;
-//    MI_U32 u32InputPort = DISP_INPUTPORT;
-//    MI_DISP_InputPortAttr_t stInputPortAttr;
-//	
-//	stLayerAttr.stVidLayerSize.u16Width     = width;
-//	stLayerAttr.stVidLayerSize.u16Height    = height;
-//	stLayerAttr.ePixFormat = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
-//	stLayerAttr.stVidLayerDispWin.u16X      = 0;
-//	stLayerAttr.stVidLayerDispWin.u16Y      = 0;
-//	stLayerAttr.stVidLayerDispWin.u16Width  = width;
-//	stLayerAttr.stVidLayerDispWin.u16Height = height;
-//	MI_DISP_SetVideoLayerAttr(dispLayer, &stLayerAttr);
-//	MI_DISP_BindVideoLayer(dispLayer, dispDev);
-//	MI_DISP_EnableVideoLayer(dispLayer);
-
-//	memset(&stInputPortAttr, 0, sizeof(MI_DISP_InputPortAttr_t));
-//	MI_DISP_GetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
-//    stInputPortAttr.stDispWin.u16X      = 0;
-//    stInputPortAttr.stDispWin.u16Y      = 0;
-//    stInputPortAttr.stDispWin.u16Width  = width;
-//    stInputPortAttr.stDispWin.u16Height = height;
-//	stInputPortAttr.u16SrcWidth         = width;
-//    stInputPortAttr.u16SrcHeight        = height;
-
-//    MI_DISP_SetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
-//    MI_DISP_EnableInputPort(dispLayer, u32InputPort);
-//    MI_DISP_SetInputPortSyncMode(dispLayer, u32InputPort, E_MI_DISP_SYNC_MODE_FREE_RUN);
-
-//    return MI_SUCCESS;
-//}
-
-//void sstar_disp_deinit(void)
-//{
-//    MI_DISP_DEV dispDev = DISP_DEV;
-//    MI_DISP_LAYER dispLayer = DISP_LAYER;
-//    MI_U32 u32InputPort = DISP_INPUTPORT;	
-//	
-//	MI_DISP_HideInputPort(dispLayer, u32InputPort);
-//	MI_DISP_DisableInputPort(dispLayer, u32InputPort);
-//	MI_DISP_DisableVideoLayer(dispLayer);
-//	MI_DISP_UnBindVideoLayer(dispLayer, dispDev);
-//}
 
 MI_S32 sstar_enable_display(MI_PANEL_ParamConfig_t *stPanelParam, MI_U16 width, MI_U16 height)
-{	
-    MI_DISP_DEV dispDev = DISP_DEV;	
-	MI_DISP_LAYER dispLayer = DISP_LAYER;
-    MI_U32 u32InputPort = DISP_INPUTPORT;
+{		
+	MI_SYS_ChnPort_t stDivpChnPort, stDispChnPort;
+	
 	MI_DISP_PubAttr_t stPubAttr;
 	MI_DISP_VideoLayerAttr_t stLayerAttr;
     MI_DISP_InputPortAttr_t stInputPortAttr;
+	
+    MI_DIVP_ChnAttr_t stDivpChnAttr;
+    MI_DIVP_OutputPortAttr_t stOutputPortAttr;
 
+    //initilize sys module 
 	sstar_sys_init();
+
+    //initilize divp module
+	memset(&stDivpChnPort, 0, sizeof(MI_SYS_ChnPort_t));
+	stDivpChnPort.eModId                = E_MI_MODULE_ID_DIVP;
+    stDivpChnPort.u32DevId              = DIVP_DEV;
+    stDivpChnPort.u32ChnId              = DIVP_CHN;
+    stDivpChnPort.u32PortId             = 0;
+	MI_SYS_SetChnOutputPortDepth(&stDivpChnPort, 0, 3);
+	
+	memset(&stDivpChnAttr, 0, sizeof(MI_DIVP_ChnAttr_t));
+    stDivpChnAttr.bHorMirror            = FALSE;
+    stDivpChnAttr.bVerMirror            = FALSE;
+    stDivpChnAttr.eDiType               = E_MI_DIVP_DI_TYPE_OFF;
+    stDivpChnAttr.eRotateType           = E_MI_SYS_ROTATE_NONE;
+    stDivpChnAttr.eTnrLevel             = E_MI_DIVP_TNR_LEVEL_OFF;
+    stDivpChnAttr.stCropRect.u16X       = 0;
+    stDivpChnAttr.stCropRect.u16Y       = 0;
+    stDivpChnAttr.stCropRect.u16Width   = 0;  //the width and height of input is not certain
+    stDivpChnAttr.stCropRect.u16Height  = 0;
+    stDivpChnAttr.u32MaxWidth           = 1920;
+    stDivpChnAttr.u32MaxHeight          = 1080;
+
+    MI_DIVP_CreateChn(DIVP_CHN, &stDivpChnAttr);
+    MI_DIVP_StartChn(DIVP_CHN);
+
+	memset(&stOutputPortAttr, 0, sizeof(stOutputPortAttr));
+    stOutputPortAttr.eCompMode          = E_MI_SYS_COMPRESS_MODE_NONE;
+    stOutputPortAttr.ePixelFormat       = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
+    stOutputPortAttr.u32Width           = width;
+    stOutputPortAttr.u32Height          = height;
+
+    MI_DIVP_SetOutputPortAttr(DIVP_CHN, &stOutputPortAttr);
+    
+	//initilize disp mudule
+	memset(&stDispChnPort, 0, sizeof(MI_SYS_ChnPort_t));
+	stDispChnPort.eModId                = E_MI_MODULE_ID_DISP;
+    stDispChnPort.u32DevId              = DISP_DEV;
+    stDispChnPort.u32ChnId              = DISP_CHN;
+    stDispChnPort.u32PortId             = 0;
 	
 	memset(&stPubAttr, 0, sizeof(MI_DISP_PubAttr_t));
     stPubAttr.stSyncInfo.u16Vact = stPanelParam->u16Height;
@@ -647,9 +723,10 @@ MI_S32 sstar_enable_display(MI_PANEL_ParamConfig_t *stPanelParam, MI_U16 width, 
     stPubAttr.eIntfSync  = E_MI_DISP_OUTPUT_USER;
     stPubAttr.eIntfType  = E_MI_DISP_INTF_LCD;
     stPubAttr.u32BgColor = YUYV_BLACK;
-    MI_DISP_SetPubAttr(dispDev, &stPubAttr);
-    MI_DISP_Enable(dispDev);
+    MI_DISP_SetPubAttr(DISP_DEV, &stPubAttr);
+    MI_DISP_Enable(DISP_DEV);
 
+    memset(&stLayerAttr, 0, sizeof(stLayerAttr));
 	stLayerAttr.stVidLayerSize.u16Width     = width;
 	stLayerAttr.stVidLayerSize.u16Height    = height;
 	stLayerAttr.ePixFormat = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
@@ -657,12 +734,12 @@ MI_S32 sstar_enable_display(MI_PANEL_ParamConfig_t *stPanelParam, MI_U16 width, 
 	stLayerAttr.stVidLayerDispWin.u16Y      = 0;
 	stLayerAttr.stVidLayerDispWin.u16Width  = width;
 	stLayerAttr.stVidLayerDispWin.u16Height = height;
-	MI_DISP_SetVideoLayerAttr(dispLayer, &stLayerAttr);
-	MI_DISP_BindVideoLayer(dispLayer, dispDev);
-	MI_DISP_EnableVideoLayer(dispLayer);
+	MI_DISP_SetVideoLayerAttr(DISP_LAYER, &stLayerAttr);
+	MI_DISP_BindVideoLayer(DISP_LAYER, DISP_DEV);
+	MI_DISP_EnableVideoLayer(DISP_LAYER);
 
 	memset(&stInputPortAttr, 0, sizeof(MI_DISP_InputPortAttr_t));
-	MI_DISP_GetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
+	MI_DISP_GetInputPortAttr(DISP_LAYER, DISP_INPUTPORT, &stInputPortAttr);
     stInputPortAttr.stDispWin.u16X      = 0;
     stInputPortAttr.stDispWin.u16Y      = 0;
     stInputPortAttr.stDispWin.u16Width  = width;
@@ -670,32 +747,67 @@ MI_S32 sstar_enable_display(MI_PANEL_ParamConfig_t *stPanelParam, MI_U16 width, 
 	stInputPortAttr.u16SrcWidth         = width;
     stInputPortAttr.u16SrcHeight        = height;
 
-    MI_DISP_SetInputPortAttr(dispLayer, u32InputPort, &stInputPortAttr);
-    MI_DISP_EnableInputPort(dispLayer, u32InputPort);
-    MI_DISP_SetInputPortSyncMode(dispLayer, u32InputPort, E_MI_DISP_SYNC_MODE_FREE_RUN);
+    MI_DISP_SetInputPortAttr(DISP_LAYER, DISP_INPUTPORT, &stInputPortAttr);
+    MI_DISP_EnableInputPort(DISP_LAYER, DISP_INPUTPORT);
+    MI_DISP_SetInputPortSyncMode(DISP_LAYER, DISP_INPUTPORT, E_MI_DISP_SYNC_MODE_FREE_RUN);
 
+    //initilize panel module
 	MI_PANEL_Init(stPanelParam->eLinkType);
     MI_PANEL_SetPanelParam(stPanelParam);
+
 	MI_GFX_Open();
 
-	return 0;
+    //bind divp to disp
+	MI_SYS_BindChnPort(&stDivpChnPort, &stDispChnPort, 30, 30);
+
+	return MI_SUCCESS;
 }
 
 void sstar_disable_display(void)
 {
-	MI_DISP_DEV dispDev = DISP_DEV;
-    MI_DISP_LAYER dispLayer = DISP_LAYER;
-    MI_U32 u32InputPort = DISP_INPUTPORT;
+	MI_SYS_ChnPort_t stDivpChnPort, stDispChnPort;
+    
+	memset(&stDivpChnPort, 0, sizeof(MI_SYS_ChnPort_t));
+	stDivpChnPort.eModId                = E_MI_MODULE_ID_DIVP;
+    stDivpChnPort.u32DevId              = DIVP_DEV;
+    stDivpChnPort.u32ChnId              = DIVP_CHN;
+    stDivpChnPort.u32PortId             = 0;
+
+    memset(&stDispChnPort, 0, sizeof(MI_SYS_ChnPort_t));
+	stDispChnPort.eModId                = E_MI_MODULE_ID_DISP;
+    stDispChnPort.u32DevId              = DISP_DEV;
+    stDispChnPort.u32ChnId              = DISP_CHN;
+    stDispChnPort.u32PortId             = 0;
+
+	MI_SYS_UnBindChnPort(&stDivpChnPort, &stDispChnPort);
 	
 	MI_GFX_Close();
     MI_PANEL_DeInit();	
 	
-	MI_DISP_UnBindVideoLayer(dispLayer, dispDev);
-	MI_DISP_DisableVideoLayer(dispLayer);
-	MI_DISP_DisableInputPort(dispLayer, u32InputPort);
-	MI_DISP_Disable(dispDev);
+	MI_DISP_UnBindVideoLayer(DISP_LAYER, DISP_DEV);
+	MI_DISP_DisableVideoLayer(DISP_LAYER);
+	MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
+	MI_DISP_Disable(DISP_DEV);
+
+	MI_DIVP_StopChn(DIVP_CHN);
+    MI_DIVP_DestroyChn(DIVP_CHN);
 
 	sstar_sys_deinit();
+}
+
+MI_S32 sstar_reset_divp_attr(MI_U16 width, MI_U16 height)
+{
+    MI_DIVP_ChnAttr_t stDivpChnAttr;
+
+	//get parameter of divp
+	MI_DIVP_GetChnAttr(DIVP_CHN, &stDivpChnAttr);
+    stDivpChnAttr.stCropRect.u16Width  = width;
+	stDivpChnAttr.stCropRect.u16Height = height;
+	stDivpChnAttr.u32MaxWidth          = width;
+	stDivpChnAttr.u32MaxHeight         = height;
+	MI_DIVP_SetChnAttr(DIVP_CHN, &stDivpChnAttr);
+
+	return MI_SUCCESS;
 }
 
 

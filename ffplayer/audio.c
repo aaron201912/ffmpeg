@@ -518,7 +518,7 @@ int ss_ao_Init(void)
 
 
     /* if test AO Volume */
-    s32SetVolumeDb = -20;
+    s32SetVolumeDb = -10;
     CheckFuncResult(MI_AO_SetVolume(AoDevId, s32SetVolumeDb));
     CheckFuncResult(MI_AO_SetVolume(AoDevId, s32SetVolumeDb));
     /* get AO volume */

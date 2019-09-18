@@ -26,6 +26,11 @@
 #include "avcodec.h"
 #include "get_bits.h"
 
+
+#define  DEFAULT_DECODING  0
+#define  HARD_DECODING     1
+extern unsigned char decoder_type;
+
 #define MAX_MBPAIR_SIZE (256*1024) // a tighter bound could be calculated if someone cares about a few bytes
 
 typedef struct H2645NAL {

@@ -18,7 +18,7 @@
 #include "mi_sys_datatype.h"
 
 #define SYS_MAJOR_VERSION 2
-#define SYS_SUB_VERSION 12
+#define SYS_SUB_VERSION 14
 #define MACRO_TO_STR(macro) #macro
 #define SYS_VERSION_STR(major_version,sub_version) ({char *tmp = sub_version/100 ? \
                                     "mi_sys_version_" MACRO_TO_STR(major_version)"." MACRO_TO_STR(sub_version) : sub_version/10 ? \

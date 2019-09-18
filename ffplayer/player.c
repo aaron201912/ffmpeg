@@ -143,8 +143,8 @@ static void do_exit(player_stat_t *is)
     //avformat_network_deinit();
 
     //SDL_Quit();
-
-    exit(0);
+    printf("do_exit player!\n");
+    //exit(0);
 }
 
 static MI_S32 ss_sys_Init(void)
@@ -232,7 +232,11 @@ static void audio_decoder_abort(player_stat_t *is)
 {
     packet_queue_abort(&is->audio_pkt_queue);
     frame_queue_signal(&is->audio_frm_queue);
-    //SDL_WaitThread(d->decoder_tid, NULL);
+
+	pthread_join(is->audioDecode_tid, NULL); 
+    pthread_join(is->audioPlay_tid, NULL);
+    printf("audio pthread_join exit!\n");
+	
     packet_queue_flush(&is->audio_pkt_queue);
 
     avcodec_free_context(&is->p_acodec_ctx);
@@ -242,7 +246,11 @@ static void video_decoder_abort(player_stat_t *is)
 {
     packet_queue_abort(&is->video_pkt_queue);
     frame_queue_signal(&is->video_frm_queue);
-    //SDL_WaitThread(d->decoder_tid, NULL);
+
+	pthread_join(is->videoDecode_tid, NULL);
+	pthread_join(is->videoPlay_tid, NULL);
+    printf("video pthread_join exit!\n");
+	
     packet_queue_flush(&is->video_pkt_queue);
 
     avcodec_free_context(&is->p_vcodec_ctx);
@@ -293,7 +301,11 @@ static void stream_component_close(player_stat_t *is, int stream_index)
 }
 static int ss_module_Deinit(player_stat_t *is)
 {
+#if ENABLE_HDMI
     ss_disp_Deinit(is->p_vcodec_ctx);
+#else
+	sstar_disable_display();
+#endif
     ss_ao_Deinit();
 
     //deinit ss sys
@@ -309,8 +321,7 @@ static int player_deinit(player_stat_t *is)
     /* XXX: use a special url_shutdown call to abort parse cleanly */
     is->abort_request = 1;
     pthread_join(is->read_tid, NULL);
-
-    
+   
     CheckFuncResult(ss_module_Deinit(is));
     
     /* close each stream */
@@ -324,14 +335,10 @@ static int player_deinit(player_stat_t *is)
         stream_component_close(is, is->video_idx);
         printf("video stream_component_close finish\n");
     }
-    pthread_join(is->audioDecode_tid, NULL);
-    pthread_join(is->videoDecode_tid, NULL);
-    pthread_join(is->audioPlay_tid, NULL);
-    pthread_join(is->videoPlay_tid, NULL);
-    printf("pthread_join finish 11\n");
+ 
     av_frame_free(&is->p_frm_yuv);
+	printf("av_frame_free finish\n");
     
-    printf("pthread_join finish\n");
     avformat_close_input(&is->p_fmt_ctx);
     printf("avformat_close_input finish\n");
 
@@ -344,16 +351,21 @@ static int player_deinit(player_stat_t *is)
     /* free all pictures */
     frame_queue_destory(&is->video_frm_queue);
     printf("video frame_queue_destory finish\n");
+	
     frame_queue_destory(&is->audio_frm_queue);
     printf("audio frame_queue_destory finish\n");
 
     pthread_cond_destroy(&is->continue_read_thread);
-
+    printf("pthread_cond_destroy finish\n");
+	
     sws_freeContext(is->img_convert_ctx);
-
+    printf("sws_freeContext finish\n");
+	
     av_free(is->filename);
+	printf("av_free file name finish\n");
     
     av_freep(&is);
+	printf("av_free player_stat_t finish\n");
 
     return 0;
 }
@@ -393,7 +405,7 @@ static void stream_seek(player_stat_t *is, int64_t pos, int64_t rel, int seek_by
 
 
 
-int player_running(const char *p_input_file)
+int player_running(const char *p_input_file, char *type)
 {
     player_stat_t *is = NULL;
     char cmd = 0;
@@ -405,7 +417,9 @@ int player_running(const char *p_input_file)
         printf("player init failed\n");
         do_exit(is);
     }
-
+    //set the decoding type
+	is->decoder_type = atoi(type);
+	
     open_demux(is);
     open_video(is);
     open_audio(is);

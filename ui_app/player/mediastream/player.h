@@ -131,6 +131,8 @@ typedef struct {
 typedef struct {
     MI_S32 (*fpGetMediaInfo)();
     MI_S32 (*fpGetCurrentPlayPos)(MI_S32 s32Duration, MI_S32 s32CurrentPos);
+    MI_S32 (*fpDisplayVideo)(MI_S32 s32Width, MI_S32 s32Height, void *pYData, void *pUVData);
+    MI_S32 (*fpPlayAudio)(MI_U8 *pu8AudioData, MI_U32 u32DataLen);
     MI_S32 (*fpPlayComplete)();
     MI_S32 (*fpPlayError)();
 }   player_control_t;
@@ -198,7 +200,8 @@ typedef struct {
     pthread_t videoDecode_tid;  //video解码线程
     pthread_t videoPlay_tid;    //video播放线程
 
-	double fps;
+	double fps;                 //实际显示帧率
+	int    decode_type;        //解码方式选择软/硬
     player_control_t playerController;
 }   player_stat_t;
 

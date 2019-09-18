@@ -260,17 +260,12 @@ int player_deinit(player_stat_t *is)
     if (is->audio_idx >= 0)
     {
         stream_component_close(is, is->audio_idx);
-		//pthread_join(is->audioDecode_tid, NULL);
-		//pthread_join(is->audioPlay_tid, NULL);
 		sstar_ao_deinit();  
 		printf("close audio task finish!\n");
     }
     if (is->video_idx >= 0)
     {
         stream_component_close(is, is->video_idx);
-		//pthread_join(is->videoDecode_tid, NULL);
-    	//pthread_join(is->videoPlay_tid, NULL);
-		//sstar_disp_deinit();
 		MI_DISP_ClearInputPortBuffer(DISP_LAYER, DISP_INPUTPORT);
 		MI_DISP_HideInputPort(DISP_LAYER, DISP_INPUTPORT);
 		printf("close video task finish!\n");

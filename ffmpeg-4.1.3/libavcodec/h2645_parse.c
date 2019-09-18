@@ -31,6 +31,8 @@
 #include "h264.h"
 #include "h2645_parse.h"
 
+unsigned char decoder_type = DEFAULT_DECODING;
+
 int ff_h2645_extract_rbsp(const uint8_t *src, int length,
                           H2645RBSP *rbsp, H2645NAL *nal, int small_padding)
 {
@@ -107,7 +109,8 @@ int ff_h2645_extract_rbsp(const uint8_t *src, int length,
                 dst[di++] = 0;
                 dst[di++] = 0;
               
-				if (CONFIG_SSH264_DECODER || CONFIG_SSHEVC_DECODER) {
+				//if (CONFIG_SSH264_DECODER || CONFIG_SSHEVC_DECODER) {
+				if (decoder_type == HARD_DECODING) {
 					dst[di++] = 3;
 					si		 += 3;
 				} else {
@@ -482,3 +485,5 @@ void ff_h2645_packet_uninit(H2645Packet *pkt)
     av_freep(&pkt->rbsp.rbsp_buffer);
     pkt->rbsp.rbsp_buffer_alloc_size = pkt->rbsp.rbsp_buffer_size = 0;
 }
+
+
