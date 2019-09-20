@@ -311,6 +311,7 @@ static void update_video_pts(player_stat_t *is, double pts, int64_t pos, int ser
 static void video_display(player_stat_t *is)
 {
 	frame_t *vp;
+	uint8_t *frame_ydata, *frame_uvdata;
 
 	vp = frame_queue_peek_last(&is->video_frm_queue);
 	//vp->frame->linesize[AV_NUM_DATA_POINTERS] = {vp->frame->width, vp->frame->width, 0, 0, 0, 0, 0, 0};
@@ -323,7 +324,7 @@ static void video_display(player_stat_t *is)
 	// stride/pitch: 一行图像所占的字节数，Stride=BytesPerPixel*Width+Padding，注意对齐
 	// AVFrame.*data[]: 每个数组元素指向对应plane
 	// AVFrame.linesize[]: 每个数组元素表示对应plane中一行图像所占的字节数	
-    if (is->decoder_type == SOFT_DECODING)
+    if (is->decoder_type == SOFT_DECODING) {
 	    sws_scale(is->img_convert_ctx,                    // sws context
 	              (const uint8_t *const *)vp->frame->data,// src slice
 	              vp->frame->linesize,                    // src stride
@@ -332,6 +333,13 @@ static void video_display(player_stat_t *is)
 	              is->p_frm_yuv->data,                    // dst planes
 	              is->p_frm_yuv->linesize                 // dst strides
 	              );
+
+		frame_ydata  = is->p_frm_yuv->data[0];
+		frame_uvdata = is->p_frm_yuv->data[1];
+    } else if (is->decoder_type == HARD_DECODING) {
+		frame_ydata  = vp->frame->data[0];
+		frame_uvdata = vp->frame->data[1];
+    }
 	
 	int ysize, index;
 	ysize = vp->frame->width * vp->frame->height;
@@ -365,30 +373,26 @@ static void video_display(player_stat_t *is)
 	    stBufInfo.stFrameData.eTileMode     = E_MI_SYS_FRAME_TILE_MODE_NONE;
 	    stBufInfo.bEndOfStream              = FALSE;
         //printf("divp width : %d, height : %d\n", stBufInfo.stFrameData.u16Width, stBufInfo.stFrameData.u16Height);
-        if (is->decoder_type == SOFT_DECODING) {
-			//向DIVP中填数据时必须按照stride大小填充
-			if (stBufInfo.stFrameData.u32Stride[0] == stBufInfo.stFrameData.u16Width) {
-		        memcpy(stBufInfo.stFrameData.pVirAddr[0], is->p_frm_yuv->data[0], ysize);
-		        memcpy(stBufInfo.stFrameData.pVirAddr[1], is->p_frm_yuv->data[1], ysize / 2);
-			} else {
-                for (index = 0; index < stBufInfo.stFrameData.u16Height; index ++)
-                {
-                    memcpy(stBufInfo.stFrameData.pVirAddr[0] + index * stBufInfo.stFrameData.u32Stride[0], 
-						   is->p_frm_yuv->data[0] + index * stBufInfo.stFrameData.u16Width, 
-						   stBufInfo.stFrameData.u16Width);
-                }
+       
+		//向DIVP中填数据时必须按照stride大小填充
+		if (stBufInfo.stFrameData.u32Stride[0] == stBufInfo.stFrameData.u16Width) {
+	        memcpy(stBufInfo.stFrameData.pVirAddr[0], frame_ydata , ysize);
+	        memcpy(stBufInfo.stFrameData.pVirAddr[1], frame_uvdata, ysize / 2);
+		} else {
+            for (index = 0; index < stBufInfo.stFrameData.u16Height; index ++)
+            {
+                memcpy(stBufInfo.stFrameData.pVirAddr[0] + index * stBufInfo.stFrameData.u32Stride[0], 
+					   frame_ydata + index * stBufInfo.stFrameData.u16Width, 
+					   stBufInfo.stFrameData.u16Width);
+            }
 
-				for (index = 0; index < stBufInfo.stFrameData.u16Height / 2; index ++)
-				{
-                    memcpy(stBufInfo.stFrameData.pVirAddr[1] + index * stBufInfo.stFrameData.u32Stride[1], 
-						   is->p_frm_yuv->data[1] + index * stBufInfo.stFrameData.u16Width, 
-						   stBufInfo.stFrameData.u16Width);				    
-				}
+			for (index = 0; index < stBufInfo.stFrameData.u16Height / 2; index ++)
+			{
+                memcpy(stBufInfo.stFrameData.pVirAddr[1] + index * stBufInfo.stFrameData.u32Stride[1], 
+					   frame_uvdata + index * stBufInfo.stFrameData.u16Width, 
+					   stBufInfo.stFrameData.u16Width);				    
 			}
-		} else if (is->decoder_type == HARD_DECODING) {
-		    memcpy(stBufInfo.stFrameData.pVirAddr[0], vp->frame->data[0], ysize);
-		    memcpy(stBufInfo.stFrameData.pVirAddr[1], vp->frame->data[1], ysize / 2);
-        }
+		}
         //printf("data0: %p,data1: %p,data2: %p\n",vp->frame->data[0],vp->frame->data[1],vp->frame->data[2]);
         #if 0
 	    memcpy(stBufInfo.stFrameData.pVirAddr[0],vp->frame->data[0],ysize);

@@ -260,6 +260,7 @@ static void video_display(player_stat_t *is)
 {
 	static double tmp_time, f_time, last_time;
     frame_t *vp;
+	uint8_t *frame_ydata, *frame_uvdata;
 
     vp = frame_queue_peek_last(&is->video_frm_queue);
     //printf("get vp disp ridx: %d,format: %d\n",is->video_frm_queue.rindex,vp->frame->format);
@@ -281,20 +282,19 @@ static void video_display(player_stat_t *is)
                   is->p_frm_yuv->data,                    // dst planes
                   is->p_frm_yuv->linesize                 // dst strides
                  );
+
+		frame_ydata  = is->p_frm_yuv->data[0];
+		frame_uvdata = is->p_frm_yuv->data[1];
+    } else if (is->decode_type == HARD_DECODING) {
+		frame_ydata  = vp->frame->data[0];
+		frame_uvdata = vp->frame->data[1];
     }
 
 	#if 0
-    if (is->decode_type == SOFT_DECODING) {
-        is->playerController.fpDisplayVideo(is->p_vcodec_ctx->width,   // input width of divp
-			                                is->p_vcodec_ctx->height,  // input height of divp
-			                                is->p_frm_yuv->data[0],    // data of Y
-			                                is->p_frm_yuv->data[1]);   // data of UV
-    } else if (is->decode_type == HARD_DECODING) {
-		is->playerController.fpDisplayVideo(is->p_vcodec_ctx->width,   // input width of divp
-			                                is->p_vcodec_ctx->height,  // input height of divp
-			                                vp->frame->data[0],        // data of Y
-			                                vp->frame->data[1]);       // data of UV
-    }
+    is->playerController.fpDisplayVideo(vp->frame->width,       // input width of divp
+			                            vp->frame->height,      // input height of divp
+			                            frame_ydata,            // data of Y
+			                            frame_uvdata);          // data of UV
     #else
 
 	int bufsize, index;
@@ -327,31 +327,26 @@ static void video_display(player_stat_t *is)
 		stBufInfo.stFrameData.eTileMode	    = E_MI_SYS_FRAME_TILE_MODE_NONE;
 		stBufInfo.bEndOfStream = FALSE;
 
-		if (is->decode_type == SOFT_DECODING) {
-			//向DIVP中填数据时必须按照stride大小填充
-			if (stBufInfo.stFrameData.u32Stride[0] == stBufInfo.stFrameData.u16Width) {
-		        memcpy(stBufInfo.stFrameData.pVirAddr[0], is->p_frm_yuv->data[0], bufsize);
-		        memcpy(stBufInfo.stFrameData.pVirAddr[1], is->p_frm_yuv->data[1], bufsize / 2);
-			} else {
-                for (index = 0; index < stBufInfo.stFrameData.u16Height; index ++)
-                {
-                    memcpy(stBufInfo.stFrameData.pVirAddr[0] + index * stBufInfo.stFrameData.u32Stride[0], 
-						   is->p_frm_yuv->data[0] + index * stBufInfo.stFrameData.u16Width, 
-						   stBufInfo.stFrameData.u16Width);
-                }
+		//向DIVP中填数据时必须按照stride大小填充
+		if (stBufInfo.stFrameData.u32Stride[0] == stBufInfo.stFrameData.u16Width) {
+	        memcpy(stBufInfo.stFrameData.pVirAddr[0], frame_ydata , bufsize);
+	        memcpy(stBufInfo.stFrameData.pVirAddr[1], frame_uvdata, bufsize / 2);
+		} else {
+            for (index = 0; index < stBufInfo.stFrameData.u16Height; index ++)
+            {
+                memcpy(stBufInfo.stFrameData.pVirAddr[0] + index * stBufInfo.stFrameData.u32Stride[0], 
+					   frame_ydata + index * stBufInfo.stFrameData.u16Width, 
+					   stBufInfo.stFrameData.u16Width);
+            }
 
-				for (index = 0; index < stBufInfo.stFrameData.u16Height / 2; index ++)
-				{
-                    memcpy(stBufInfo.stFrameData.pVirAddr[1] + index * stBufInfo.stFrameData.u32Stride[1], 
-						   is->p_frm_yuv->data[1] + index * stBufInfo.stFrameData.u16Width, 
-						   stBufInfo.stFrameData.u16Width);				    
-				}
+			for (index = 0; index < stBufInfo.stFrameData.u16Height / 2; index ++)
+			{
+                memcpy(stBufInfo.stFrameData.pVirAddr[1] + index * stBufInfo.stFrameData.u32Stride[1], 
+					   frame_uvdata + index * stBufInfo.stFrameData.u16Width, 
+					   stBufInfo.stFrameData.u16Width);				    
 			}
-        } else if (is->decode_type == HARD_DECODING) {
-			memcpy(stBufInfo.stFrameData.pVirAddr[0], vp->frame->data[0], bufsize);
-		    memcpy(stBufInfo.stFrameData.pVirAddr[1], vp->frame->data[1], bufsize / 2);
-        }
-		
+		}
+  
 		MI_SYS_ChnInputPortPutBuf(hHandle ,&stBufInfo , FALSE);
 	}
 	else {
@@ -586,33 +581,23 @@ static int open_video_stream(player_stat_t *is)
     p_codec_par = p_stream->codecpar;
 
     // 1.2 获取解码器
-    if (is->decode_type == HARD_DECODING) {
-		switch(p_codec_par->codec_id) 
-		{
-			case AV_CODEC_ID_H264 : 
-				p_codec = avcodec_find_decoder_by_name("ssh264"); break;
-			
-			case AV_CODEC_ID_HEVC : 
-				p_codec = avcodec_find_decoder_by_name("sshevc"); break;
+	switch(p_codec_par->codec_id) 
+	{
+		case AV_CODEC_ID_H264 : 
+			p_codec = avcodec_find_decoder_by_name("ssh264");
+			is->decode_type = HARD_DECODING;
+			break;
+		
+		case AV_CODEC_ID_HEVC : 
+			p_codec = avcodec_find_decoder_by_name("sshevc");
+			is->decode_type = HARD_DECODING;
+			break;
 
-			default : 
-				p_codec = avcodec_find_decoder(p_codec_par->codec_id);
-				is->decode_type = SOFT_DECODING;
-				break;
-		}
-    } else if (is->decode_type == SOFT_DECODING) {
-        switch(p_codec_par->codec_id) 
-		{
-			case AV_CODEC_ID_H264 : 
-				p_codec = avcodec_find_decoder_by_name("h264"); break;
-			
-			case AV_CODEC_ID_HEVC : 
-				p_codec = avcodec_find_decoder_by_name("hevc"); break;
-
-			default : 
-				p_codec = avcodec_find_decoder(p_codec_par->codec_id); break;
-		}
-    }
+		default : 
+			p_codec = avcodec_find_decoder(p_codec_par->codec_id);
+			is->decode_type = SOFT_DECODING;
+			break;
+	}
     if (p_codec == NULL)
     {
         printf("Cann't find codec!\n");

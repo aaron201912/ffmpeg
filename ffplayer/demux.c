@@ -255,7 +255,7 @@ static int demux_thread(void *arg)
                     packet_queue_put_nullpacket(&is->audio_pkt_queue, is->audio_idx);
                 }
                 is->eof = 1;
-				av_log(is->p_fmt_ctx, AV_LOG_INFO, "read packet over!\n")
+				av_log(is->p_fmt_ctx, AV_LOG_INFO, "read packet over!\n");
             }
 
             pthread_mutex_lock(&wait_mutex);

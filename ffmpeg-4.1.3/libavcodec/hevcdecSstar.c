@@ -74,9 +74,9 @@ typedef struct pts_queue{
 }pts_queue_t;
 
 
-pts_queue_t v_pts;
+pts_queue_t hevc_pts;
 MI_SYS_ChnPort_t  stChnPort;
-pthread_cond_t continue_thread;
+pthread_cond_t hevc_thread;
 
 /**************************************************************************/
 static void pts_queue_init(pts_queue_t *ptr)
@@ -151,7 +151,7 @@ static int pts_queue_destroy(pts_queue_t *q)
 
 static int ss_hevc_get_frame(SsHevcContext *ssctx, AVFrame *frame)
 {
-	MI_U32 s32Ret, ysize, uvsize;
+	MI_U32 s32Ret, ysize, index;
 	MI_SYS_BUF_HANDLE stHandle;
 	MI_SYS_BufInfo_t  stBufInfo;
 	//void * pvirFramAddr = NULL;
@@ -166,20 +166,12 @@ static int ss_hevc_get_frame(SsHevcContext *ssctx, AVFrame *frame)
 	if (MI_SUCCESS == (s32Ret = MI_SYS_ChnOutputPortGetBuf(&stChnPort, &stBufInfo, &stHandle)))
 	{
 		//ssctx->frame->pts	   = stBufInfo.u64Pts;
-		pts_queue_get(&v_pts, &ssctx->frame->pts);
-		
-		ssctx->frame->width  = stBufInfo.stFrameData.u32Stride[0];
-		ssctx->frame->height = stBufInfo.stFrameData.u16Height;
-		//ssctx->frame->height = ALIGN_UP(stBufInfo.stFrameData.u16Height, 32);
-        
+		pts_queue_get(&hevc_pts, &ssctx->frame->pts);
+      
 		// get image data form vdec module 
-		ysize  = ssctx->frame->width * ssctx->frame->height;
-		//uvsize = stBufInfo.stFrameData.u32BufSize - ysize;
-		//printf("width : %d, height : %d, ysize : %d, uvsize : %d\n", ssctx->frame->width, ssctx->frame->height, ysize, uvsize);
+		ysize  = stBufInfo.stFrameData.u16Width * stBufInfo.stFrameData.u16Height;
 
-		//if(MI_SUCCESS != MI_SYS_Mmap(stBufInfo.stFrameData.phyAddr[0], bufsize * 2, &pvirFramAddr, TRUE))
-		//	av_log(ssctx->avctx, AV_LOG_ERROR, "MI_SYS_Mmap failed!\n");
-		//stBufInfo.stFrameData.pVirAddr[0] = pvirFramAddr;
+		//printf("width : %d, height : %d, ysize : %d, uvsize : %d\n", ssctx->frame->width, ssctx->frame->height, ysize, uvsize);
 
         #if 0
 		in_data[0] = (uint8_t *)av_mallocz(ysize);
@@ -200,8 +192,21 @@ static int ss_hevc_get_frame(SsHevcContext *ssctx, AVFrame *frame)
 		av_freep(&in_data[0]);
 		av_freep(&in_data[1]);
         #else
-		memcpy(ssctx->frame->data[0],stBufInfo.stFrameData.pVirAddr[0], ysize);
-		memcpy(ssctx->frame->data[1],stBufInfo.stFrameData.pVirAddr[1], ysize / 2);
+		if (stBufInfo.stFrameData.u16Width == stBufInfo.stFrameData.u32Stride[0]){
+		    memcpy(ssctx->frame->data[0], stBufInfo.stFrameData.pVirAddr[0], ysize);
+		    memcpy(ssctx->frame->data[1], stBufInfo.stFrameData.pVirAddr[1], ysize / 2);
+		} else {
+			for (index = 0; index < stBufInfo.stFrameData.u16Height; index ++) {
+				memcpy(ssctx->frame->data[0] + index * stBufInfo.stFrameData.u16Width, 
+					   stBufInfo.stFrameData.pVirAddr[0] + index * stBufInfo.stFrameData.u32Stride[0], 
+					   stBufInfo.stFrameData.u16Width);
+			}
+			for (index = 0; index < stBufInfo.stFrameData.u16Height / 2; index ++) {
+				memcpy(ssctx->frame->data[1] + index * stBufInfo.stFrameData.u16Width, 
+					   stBufInfo.stFrameData.pVirAddr[1] + index * stBufInfo.stFrameData.u32Stride[1], 
+					   stBufInfo.stFrameData.u16Width);
+			}
+		}
 		#endif
 		
 		if (MI_SUCCESS != MI_SYS_ChnOutputPortPutBuf(stHandle)) {
@@ -358,9 +363,9 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
 				memcpy(extradata_buf, start_code, sizeof(start_code));
 				memcpy(extradata_buf + sizeof(start_code), nal->data, nal->size);
 			    //printf("packet pts : %lld.\n", avpkt->pts);
-			    if (v_pts.idx >= 10)
-					pts_queue_get(&v_pts, &ret);
-			    pts_queue_put(&v_pts, avpkt->pts);
+			    if (hevc_pts.idx >= 10)
+					pts_queue_get(&hevc_pts, &ret);
+			    pts_queue_put(&hevc_pts, avpkt->pts);
 				ss_hevc_send_stream(extradata_buf, nal->size + 4, avpkt->pts);
 			break;
 
@@ -434,7 +439,7 @@ static av_cold int ss_hevc_decode_free(AVCodecContext *avctx)
 	av_frame_free(&s->frame);
 	ff_h2645_packet_uninit(&s->pkt);
 	//sws_freeContext(s->img_ctx);
-    pts_queue_destroy(&v_pts);
+    pts_queue_destroy(&hevc_pts);
 	decoder_type = DEFAULT_DECODING;
 	
 	STCHECKRESULT(MI_VDEC_StopChn(stVdecChn));
@@ -533,7 +538,7 @@ static av_cold int ss_hevc_decode_init(AVCodecContext *avctx)
 		return 0;
 	}
 	s->frame->format = AV_PIX_FMT_NV12;
-	s->frame->width  = ALIGN_UP(avctx->width, 32);
+	s->frame->width  = avctx->width;
 	s->frame->height = avctx->height;
 	
 	if (avctx->pix_fmt != AV_PIX_FMT_NONE) {
@@ -550,7 +555,7 @@ static av_cold int ss_hevc_decode_init(AVCodecContext *avctx)
 		av_log(avctx, AV_LOG_ERROR, "sshevc malloc frame buf error!\n");
 	}
 
-	pts_queue_init(&v_pts);
+	pts_queue_init(&hevc_pts);
 	decoder_type = HARD_DECODING;
 
 	#if 0
@@ -616,7 +621,7 @@ static int ss_hevc_decode_frame(AVCodecContext *avctx, void *data,
 			gettimeofday(&now, NULL);       
 			outtime.tv_sec  = now.tv_sec;
 			outtime.tv_nsec = now.tv_usec * 1000 + 10 * 1000 * 1000;      
-			pthread_cond_timedwait(&continue_thread, &wait_mutex, &outtime);	
+			pthread_cond_timedwait(&hevc_thread, &wait_mutex, &outtime);	
 			pthread_mutex_unlock(&wait_mutex);
 			pthread_mutex_destroy(&wait_mutex);	
 		} else {

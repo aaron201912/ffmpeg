@@ -1254,9 +1254,6 @@ static void lv_notify(mWidget *self, int id, int nc, DWORD add_data)
                 return;
             }
 			printf("video file name is : %s\n", g_pstPlayStat->filename);
-
-			//choose decoder type
-			g_pstPlayStat->decode_type = HARD_DECODING;
 			
             // sendmessage to play file
             g_bPlaying = TRUE;

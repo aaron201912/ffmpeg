@@ -93,8 +93,6 @@ typedef struct pts_queue{
 	uint8_t idx;
 }pts_queue_t;
 
-pts_queue_t v_pts;
-
 static void pts_queue_init(pts_queue_t *ptr)
 {
 	memset(ptr, 0, sizeof(pts_queue_t));
@@ -165,11 +163,12 @@ static int pts_queue_destroy(pts_queue_t *q)
     return 0;
 }
 
-pthread_cond_t continue_thread;
+pts_queue_t h264_pts;
+pthread_cond_t h264_thread;
 
 static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
 {
-	MI_U32 s32Ret, ysize, uvsize;
+	MI_U32 s32Ret, ysize, uvsize, index;
 	MI_SYS_BUF_HANDLE stHandle;
 	MI_SYS_BufInfo_t  stBufInfo;
 	MI_SYS_ChnPort_t  stChnPort;
@@ -190,12 +189,9 @@ static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
 	{
 	    //get frame pts from vdec
 		//ssctx->f->pts	 = stBufInfo.u64Pts;
-		pts_queue_get(&v_pts, &ssctx->f->pts);
+		pts_queue_get(&h264_pts, &ssctx->f->pts);
 		
-		ssctx->f->width  = stBufInfo.stFrameData.u32Stride[0];
-		ssctx->f->height = stBufInfo.stFrameData.u16Height;
-		//ssctx->f->height = ALIGN_UP(stBufInfo.stFrameData.u16Height, 32);
-        ysize  = ssctx->f->width * ssctx->f->height;
+        ysize  = stBufInfo.stFrameData.u16Width * stBufInfo.stFrameData.u16Height;
 		//uvsize = stBufInfo.stFrameData.u32BufSize - ysize;
 		//printf("stride : %d, width : %d, height : %d, ysize : %d, uvsize : %d\n", 
 		//stBufInfo.stFrameData.u32Stride[0], stBufInfo.stFrameData.u16Width, stBufInfo.stFrameData.u16Height, ysize, uvsize);
@@ -223,8 +219,21 @@ static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
 		av_freep(&in_data[0]);
 		av_freep(&in_data[1]);
 		#else
-		memcpy(ssctx->f->data[0], stBufInfo.stFrameData.pVirAddr[0], ysize);
-		memcpy(ssctx->f->data[1], stBufInfo.stFrameData.pVirAddr[1], ysize / 2);
+		if (stBufInfo.stFrameData.u16Width == stBufInfo.stFrameData.u32Stride[0]){
+		    memcpy(ssctx->f->data[0], stBufInfo.stFrameData.pVirAddr[0], ysize);
+		    memcpy(ssctx->f->data[1], stBufInfo.stFrameData.pVirAddr[1], ysize / 2);
+		} else {
+			for (index = 0; index < stBufInfo.stFrameData.u16Height; index ++) {
+				memcpy(ssctx->f->data[0] + index * stBufInfo.stFrameData.u16Width, 
+					   stBufInfo.stFrameData.pVirAddr[0] + index * stBufInfo.stFrameData.u32Stride[0], 
+					   stBufInfo.stFrameData.u16Width);
+			}
+			for (index = 0; index < stBufInfo.stFrameData.u16Height / 2; index ++) {
+				memcpy(ssctx->f->data[1] + index * stBufInfo.stFrameData.u16Width, 
+					   stBufInfo.stFrameData.pVirAddr[1] + index * stBufInfo.stFrameData.u32Stride[1], 
+					   stBufInfo.stFrameData.u16Width);
+			}
+		}
 		#endif
 
 		//if (ssctx->f->pts >= 600 && ssctx->f->pts <= 700) {
@@ -492,7 +501,7 @@ static av_cold int ss_h264_decode_end(AVCodecContext *avctx)
     av_frame_free(&s->f);
 	ff_h2645_packet_uninit(&s->pkt);
     sws_freeContext(s->img_ctx);
-	pts_queue_destroy(&v_pts);
+	pts_queue_destroy(&h264_pts);
 	decoder_type = DEFAULT_DECODING;
 
     STCHECKRESULT(MI_VDEC_StopChn(0));
@@ -597,7 +606,7 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
         return 0;
     
 	s->f->format = AV_PIX_FMT_NV12;
-    s->f->width  = ALIGN_UP(avctx->width, 32);
+    s->f->width  = avctx->width;
     s->f->height = avctx->height;
 
 	if (avctx->pix_fmt != AV_PIX_FMT_NONE) {
@@ -612,7 +621,7 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
         av_frame_free(&s->f);
     }
 	
-	pts_queue_init(&v_pts);
+	pts_queue_init(&h264_pts);
 	decoder_type = HARD_DECODING;
 
 	#if 0
@@ -746,7 +755,7 @@ static int ss_h264_decode_frame(AVCodecContext *avctx, void *data,
 			gettimeofday(&now, NULL);       
 			outtime.tv_sec  = now.tv_sec;
 			outtime.tv_nsec = now.tv_usec * 1000 + 10 * 1000 * 1000;      
-			pthread_cond_timedwait(&continue_thread, &wait_mutex, &outtime);	
+			pthread_cond_timedwait(&h264_thread, &wait_mutex, &outtime);	
 			pthread_mutex_unlock(&wait_mutex);
 			pthread_mutex_destroy(&wait_mutex);	
 		}else 
@@ -781,9 +790,9 @@ static int ss_h264_decode_frame(AVCodecContext *avctx, void *data,
 				    case H264_NAL_DPC:
 				    case H264_NAL_IDR_SLICE:
 						pts = avpkt->pts;
-					    if (v_pts.idx >= 10) 
-							pts_queue_get(&v_pts, pts);
-					    pts_queue_put(&v_pts, avpkt->pts);
+					    if (h264_pts.idx >= 10) 
+							pts_queue_get(&h264_pts, pts);
+					    pts_queue_put(&h264_pts, avpkt->pts);
 					break;
 
 				    case H264_NAL_SPS:
