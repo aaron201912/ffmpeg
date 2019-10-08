@@ -3,10 +3,10 @@
 int packet_queue_init(packet_queue_t *q)
 {
     memset(q, 0, sizeof(packet_queue_t));
-	
-	CheckFuncResult(pthread_mutex_init(&q->mutex, NULL));
+
+    CheckFuncResult(pthread_mutex_init(&q->mutex, NULL));
     CheckFuncResult(pthread_cond_init(&q->cond,NULL));
-	
+
     q->abort_request = 0;
     return 0;
 }
@@ -88,13 +88,14 @@ int packet_queue_get(packet_queue_t *q, AVPacket *pkt, int block)
             q->size -= p_pkt_node->pkt.size + sizeof(*p_pkt_node);
             *pkt = p_pkt_node->pkt;
             av_free(p_pkt_node);
-#if 0
+            #if 0
             if(pkt->stream_index == 0)
                 printf("get video pkt queue nb: %d\n",q->nb_packets);
             else
                 printf("get audio pkt queue nb: %d\n",q->nb_packets);
-#endif
+            #endif
             ret = 1;
+            pthread_cond_signal(&q->cond);
             break;
         }
         else if (!block)            // 队列空且阻塞标志无效，则立即退出

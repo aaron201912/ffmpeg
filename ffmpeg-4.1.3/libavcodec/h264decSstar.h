@@ -63,6 +63,8 @@
  */
 typedef struct SsH264Context {
     AVFrame *f;
+    AVCodecContext *avctx;
+    
     int channel;
     int cropwidth;
     int cropheight;

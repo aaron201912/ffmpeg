@@ -144,7 +144,7 @@ static void do_exit(player_stat_t *is)
 
     //SDL_Quit();
     printf("do_exit player!\n");
-    //exit(0);
+    exit(0);
 }
 
 static MI_S32 ss_sys_Init(void)
@@ -203,8 +203,7 @@ static player_stat_t *player_init(const char *p_input_file)
 
     av_init_packet(&flush_pkt);
     flush_pkt.data = (uint8_t *)&flush_pkt;
-    
-    
+
     packet_queue_put(&is->video_pkt_queue, &flush_pkt);
     packet_queue_put(&is->audio_pkt_queue, &flush_pkt);
 
@@ -233,10 +232,10 @@ static void audio_decoder_abort(player_stat_t *is)
     packet_queue_abort(&is->audio_pkt_queue);
     frame_queue_signal(&is->audio_frm_queue);
 
-	pthread_join(is->audioDecode_tid, NULL); 
+    pthread_join(is->audioDecode_tid, NULL); 
     pthread_join(is->audioPlay_tid, NULL);
     printf("audio pthread_join exit!\n");
-	
+
     packet_queue_flush(&is->audio_pkt_queue);
 
     avcodec_free_context(&is->p_acodec_ctx);
@@ -247,10 +246,10 @@ static void video_decoder_abort(player_stat_t *is)
     packet_queue_abort(&is->video_pkt_queue);
     frame_queue_signal(&is->video_frm_queue);
 
-	pthread_join(is->videoDecode_tid, NULL);
-	pthread_join(is->videoPlay_tid, NULL);
+    pthread_join(is->videoDecode_tid, NULL);
+    pthread_join(is->videoPlay_tid, NULL);
     printf("video pthread_join exit!\n");
-	
+    
     packet_queue_flush(&is->video_pkt_queue);
 
     avcodec_free_context(&is->p_vcodec_ctx);
@@ -303,10 +302,11 @@ static int ss_module_Deinit(player_stat_t *is)
 {
 #if ENABLE_HDMI
     ss_disp_Deinit(is->p_vcodec_ctx);
-#else
+#else
 	sstar_disable_display();
 #endif
-    ss_ao_Deinit();
+    if (is->audio_idx >= 0)
+        ss_ao_Deinit();
 
     //deinit ss sys
     CheckFuncResult(MI_SYS_Exit());
@@ -337,7 +337,7 @@ static int player_deinit(player_stat_t *is)
     }
  
     av_frame_free(&is->p_frm_yuv);
-	printf("av_frame_free finish\n");
+    printf("av_frame_free finish\n");
     
     avformat_close_input(&is->p_fmt_ctx);
     printf("avformat_close_input finish\n");
@@ -351,21 +351,21 @@ static int player_deinit(player_stat_t *is)
     /* free all pictures */
     frame_queue_destory(&is->video_frm_queue);
     printf("video frame_queue_destory finish\n");
-	
+
     frame_queue_destory(&is->audio_frm_queue);
     printf("audio frame_queue_destory finish\n");
 
     pthread_cond_destroy(&is->continue_read_thread);
     printf("pthread_cond_destroy finish\n");
-	
+
     sws_freeContext(is->img_convert_ctx);
     printf("sws_freeContext finish\n");
-	
+
     av_free(is->filename);
-	printf("av_free file name finish\n");
+    printf("av_free file name finish\n");
     
     av_freep(&is);
-	printf("av_free player_stat_t finish\n");
+    printf("av_free player_stat_t finish\n");
 
     return 0;
 }
@@ -403,7 +403,26 @@ static void stream_seek(player_stat_t *is, int64_t pos, int64_t rel, int seek_by
     }
 }
 
+#if 0
+double incr;
+int g_flag;
 
+int get_play_status(player_stat_t *is)
+{
+    if (g_flag)//获取UI动作
+    {
+        double pos = get_master_clock(is);
+        if (isnan(pos))
+            pos = (double)is->seek_pos / AV_TIME_BASE;
+        pos += incr;
+        if (is->p_fmt_ctx->start_time != AV_NOPTS_VALUE && pos < is->p_fmt_ctx->start_time / (double)AV_TIME_BASE)
+            pos = is->p_fmt_ctx->start_time / (double)AV_TIME_BASE;
+        stream_seek(is, (int64_t)(pos * AV_TIME_BASE), (int64_t)(incr * AV_TIME_BASE), 0);
+    }
+
+    return 0;
+}
+#endif
 
 int player_running(const char *p_input_file, char *type)
 {
@@ -418,8 +437,8 @@ int player_running(const char *p_input_file, char *type)
         do_exit(is);
     }
     //set the decoding type
-	is->decoder_type = atoi(type);
-	
+    is->decoder_type = atoi(type);
+
     open_demux(is);
     open_video(is);
     open_audio(is);

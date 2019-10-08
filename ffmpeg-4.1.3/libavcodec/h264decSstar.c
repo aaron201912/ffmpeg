@@ -68,6 +68,7 @@
 #include "profiles.h"
 #include "rectangle.h"
 #include "thread.h"
+#include "decode.h"
 
 #define ALIGN_UP(x, align) (((x) + ((align) - 1)) & ~((align) - 1))
 
@@ -84,31 +85,31 @@
 
 typedef struct pts_list {
     int64_t pts;
-	struct pts_list *next;
+    struct pts_list *next;
 }pts_list_t;
-	
+
 
 typedef struct pts_queue{
     struct pts_list *first, *last;	
-	uint8_t idx;
+    uint8_t idx;
 }pts_queue_t;
 
 static void pts_queue_init(pts_queue_t *ptr)
 {
-	memset(ptr, 0, sizeof(pts_queue_t));
+    memset(ptr, 0, sizeof(pts_queue_t));
 }
 
 static int pts_queue_put(pts_queue_t *q, int64_t value)
 {
-	pts_list_t *pts_list;
+    pts_list_t *pts_list;
 
     if (NULL == (pts_list = av_malloc(sizeof(pts_list_t))))
     {
         av_log(NULL, AV_LOG_ERROR, "malloc pts list failed!\n");
-		return -1;
+        return -1;
     }
 
-	pts_list->pts  = value;       //strore value to queue
+    pts_list->pts  = value;       //strore value to queue
     pts_list->next = NULL;        
 
     if (!q->first)
@@ -119,42 +120,42 @@ static int pts_queue_put(pts_queue_t *q, int64_t value)
     {
         q->last->next = pts_list; //queue is not null 
     }
-	
+
     q->last = pts_list;           //add new list to queue tail
     q->idx ++;                    //num of queue self-adding
 
-	return 0;
+    return 0;
 }
 
 static int pts_queue_get(pts_queue_t *q, int64_t *value)
 {
-	pts_list_t *pts_head;
+    pts_list_t *pts_head;
 
     pts_head = q->first;
-	if (pts_head)             // queue is not null
-	{
- 	    q->first = pts_head->next;
- 	    if (!q->first)        // queue is the last
-	    {
-	        q->last = NULL;
-	    }
-	    q->idx --;
-	    *value = pts_head->pts;
-	    av_free(pts_head);
-	} else {
-		av_log(NULL, AV_LOG_INFO, "pts queue is null!\n");
-	}
+    if (pts_head)             // queue is not null
+    {
+        q->first = pts_head->next;
+        if (!q->first)        // queue is the last
+        {
+            q->last = NULL;
+        }
+        q->idx --;
+        *value = pts_head->pts;
+        av_free(pts_head);
+    } else {
+        av_log(NULL, AV_LOG_INFO, "pts queue is null!\n");
+    }
 
-	return 0;
+    return 0;
 }
 
 static int pts_queue_destroy(pts_queue_t *q)
 {
-	pts_list_t *tmp, *tmp1;
+    pts_list_t *tmp, *tmp1;
 
     for (tmp = q->first; tmp; tmp = tmp1) {
-	    tmp1 = tmp->next;
-	    av_freep(&tmp);
+        tmp1 = tmp->next;
+        av_freep(&tmp);
     }
     q->last = NULL;
     q->first = NULL;
@@ -168,129 +169,129 @@ pthread_cond_t h264_thread;
 
 static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
 {
-	MI_U32 s32Ret, ysize, uvsize, index;
-	MI_SYS_BUF_HANDLE stHandle;
-	MI_SYS_BufInfo_t  stBufInfo;
-	MI_SYS_ChnPort_t  stChnPort;
-	//void * pvirFramAddr = NULL;
+    MI_U32 s32Ret, ysize, uvsize, index;
+    MI_SYS_BUF_HANDLE stHandle;
+    MI_SYS_BufInfo_t  stBufInfo;
+    MI_SYS_ChnPort_t  stChnPort;
 
-	//uint8_t *in_data[4] = {NULL};
-	//int  in_linesize[4] = {ssctx->f->width, ssctx->f->width, 0, 0};
+    //uint8_t *in_data[4] = {NULL};
+    //int  in_linesize[4] = {ssctx->f->width, ssctx->f->width, 0, 0};
 
     stChnPort.eModId    = E_MI_MODULE_ID_VDEC;
     stChnPort.u32DevId  = 0;
     stChnPort.u32ChnId  = 0;
     stChnPort.u32PortId = 0;
     MI_SYS_SetChnOutputPortDepth(&stChnPort, 5, 10);
-	
-	stHandle = MI_HANDLE_NULL; 
-	memset(&stBufInfo, 0x0, sizeof(MI_SYS_BufInfo_t));
-	if (MI_SUCCESS == (s32Ret = MI_SYS_ChnOutputPortGetBuf(&stChnPort, &stBufInfo, &stHandle)))
-	{
-	    //get frame pts from vdec
-		//ssctx->f->pts	 = stBufInfo.u64Pts;
-		pts_queue_get(&h264_pts, &ssctx->f->pts);
-		
+
+    stHandle = MI_HANDLE_NULL; 
+    memset(&stBufInfo, 0x0, sizeof(MI_SYS_BufInfo_t));
+    if (MI_SUCCESS == (s32Ret = MI_SYS_ChnOutputPortGetBuf(&stChnPort, &stBufInfo, &stHandle)))
+    {
+        AVFrame *pframe = av_frame_alloc();
+        pframe->width  = ssctx->f->width;
+        pframe->height = ssctx->f->height;
+        pframe->format = ssctx->f->format;
+
+        s32Ret = av_frame_get_buffer(pframe, 32);
+        if (s32Ret < 0) {
+            av_frame_free(&pframe);
+            MI_SYS_ChnOutputPortPutBuf(stHandle);
+            return s32Ret;
+        }
+
+        //get frame pts from vdec
+        //pframe->pts = stBufInfo.u64Pts;
+        pts_queue_get(&h264_pts, &pframe->pts);
+
         ysize  = stBufInfo.stFrameData.u16Width * stBufInfo.stFrameData.u16Height;
-		//uvsize = stBufInfo.stFrameData.u32BufSize - ysize;
-		//printf("stride : %d, width : %d, height : %d, ysize : %d, uvsize : %d\n", 
-		//stBufInfo.stFrameData.u32Stride[0], stBufInfo.stFrameData.u16Width, stBufInfo.stFrameData.u16Height, ysize, uvsize);
+        //uvsize = stBufInfo.stFrameData.u32BufSize - ysize;
+        //printf("stride : %d, width : %d, height : %d, ysize : %d, uvsize : %d\n", 
+        //stBufInfo.stFrameData.u32Stride[0], stBufInfo.stFrameData.u16Width, stBufInfo.stFrameData.u16Height, ysize, uvsize);
 
-        //bufsize = ssctx->f->width * ssctx->f->height;
-		//if(MI_SUCCESS != MI_SYS_Mmap(stBufInfo.stFrameData.phyAddr[0], bufsize * 2, &pvirFramAddr, TRUE))
-		//	av_log(ssctx->avctx, AV_LOG_ERROR, "MI_SYS_Mmap failed!\n");
-		//stBufInfo.stFrameData.pVirAddr[0] = pvirFramAddr;
+        //in_data[0] = (uint8_t *)av_mallocz(ysize);
+        //in_data[1] = (uint8_t *)av_mallocz(ysize / 2);
+        //memcpy(in_data[0],stBufInfo.stFrameData.pVirAddr[0], ysize);
+        //memcpy(in_data[1],stBufInfo.stFrameData.pVirAddr[1], ysize / 2);
 
-        #if 0
-		in_data[0] = (uint8_t *)av_mallocz(ysize);
-		in_data[1] = (uint8_t *)av_mallocz(ysize / 2);
-		memcpy(in_data[0],stBufInfo.stFrameData.pVirAddr[0], ysize);
-		memcpy(in_data[1],stBufInfo.stFrameData.pVirAddr[1], ysize / 2);
-	
-		sws_scale(ssctx->img_ctx,                    // sws context
-		          (const uint8_t *const *)in_data,   // src slice
-		          in_linesize,                       // src stride
-		          0,                                 // src slice y
-		          ssctx->f->height,                  // src slice height
-		          ssctx->f->data,                    // dst planes
-		          ssctx->f->linesize                 // dst strides
-	         	  );
-		
-		av_freep(&in_data[0]);
-		av_freep(&in_data[1]);
-		#else
-		if (stBufInfo.stFrameData.u16Width == stBufInfo.stFrameData.u32Stride[0]){
-		    memcpy(ssctx->f->data[0], stBufInfo.stFrameData.pVirAddr[0], ysize);
-		    memcpy(ssctx->f->data[1], stBufInfo.stFrameData.pVirAddr[1], ysize / 2);
-		} else {
-			for (index = 0; index < stBufInfo.stFrameData.u16Height; index ++) {
-				memcpy(ssctx->f->data[0] + index * stBufInfo.stFrameData.u16Width, 
-					   stBufInfo.stFrameData.pVirAddr[0] + index * stBufInfo.stFrameData.u32Stride[0], 
-					   stBufInfo.stFrameData.u16Width);
-			}
-			for (index = 0; index < stBufInfo.stFrameData.u16Height / 2; index ++) {
-				memcpy(ssctx->f->data[1] + index * stBufInfo.stFrameData.u16Width, 
-					   stBufInfo.stFrameData.pVirAddr[1] + index * stBufInfo.stFrameData.u32Stride[1], 
-					   stBufInfo.stFrameData.u16Width);
-			}
-		}
-		#endif
+        //sws_scale(ssctx->img_ctx,                    // sws context
+        //          (const uint8_t *const *)in_data,   // src slice
+        //          in_linesize,                       // src stride
+        //          0,                                 // src slice y
+        //          pframe->height,                    // src slice height
+        //          pframe->data,                      // dst planes
+        //          pframe->linesize                   // dst strides
+        //          );
 
-		//if (ssctx->f->pts >= 600 && ssctx->f->pts <= 700) {
-		//	sprintf(text, "echo dumpfb 0 /mnt/ffplayer/ssplayer/dump/ 2 0 0 > /proc/mi_modules/mi_vdec/mi_vdec0");
-	    //    s32Ret = system(text);
-		//	if (s32Ret) 
-		//		av_log(NULL, AV_LOG_ERROR, "shell commnd execute failed!\n");
-			
-		//	FILE *fd = fopen("example.yuv", "a+");
-		//	fwrite(ssctx->f->data[0], ysize , 1, fd);
-		//	fwrite(ssctx->f->data[1], ysize / 2, 1, fd);
-		//	fclose(fd);
-		//}
+        //av_freep(&in_data[0]);
+        //av_freep(&in_data[1]);
 
-		if (MI_SUCCESS != MI_SYS_ChnOutputPortPutBuf(stHandle)) {
-			av_log(ssctx, AV_LOG_ERROR, "vdec output put buf error!\n");
-		}
+        if (stBufInfo.stFrameData.u16Width == stBufInfo.stFrameData.u32Stride[0])
+        {
+            memcpy(pframe->data[0], stBufInfo.stFrameData.pVirAddr[0], ysize);
+            memcpy(pframe->data[1], stBufInfo.stFrameData.pVirAddr[1], ysize / 2);
+        } 
+        else 
+        {
+            for (index = 0; index < stBufInfo.stFrameData.u16Height; index ++)
+            {
+                memcpy(pframe->data[0] + index * stBufInfo.stFrameData.u16Width, 
+                       stBufInfo.stFrameData.pVirAddr[0] + index * stBufInfo.stFrameData.u32Stride[0], 
+                       stBufInfo.stFrameData.u16Width);
+            }
+            for (index = 0; index < stBufInfo.stFrameData.u16Height / 2; index ++)
+            {
+                memcpy(pframe->data[1] + index * stBufInfo.stFrameData.u16Width, 
+                       stBufInfo.stFrameData.pVirAddr[1] + index * stBufInfo.stFrameData.u32Stride[1], 
+                       stBufInfo.stFrameData.u16Width);
+            }
+        }
 
-		if (ssctx->f->buf[0]) {
-			av_frame_ref(frame, ssctx->f); 
-		}
-	} else 
-		s32Ret = AVERROR(EAGAIN);
+        if (MI_SUCCESS != MI_SYS_ChnOutputPortPutBuf(stHandle)) {
+            av_log(ssctx, AV_LOG_ERROR, "vdec output put buf error!\n");
+        }
 
-	return s32Ret;
+        if (pframe->buf[0]) {
+            av_frame_ref(frame, pframe); 
+        }
+        av_frame_free(&pframe);
+
+    } 
+    else 
+        s32Ret = AVERROR(EAGAIN);
+
+    return s32Ret;
 }
 
-static MI_U32 ss_h264_send_stream(MI_U8 *data, MI_U32 size, int64_t pts)
+static MI_S32 ss_h264_send_stream(MI_U8 *data, MI_U32 size, int64_t pts)
 {
-	MI_VDEC_VideoStream_t stVdecStream;
-	MI_U32 s32Ret;
+    MI_VDEC_VideoStream_t stVdecStream;
+    MI_S32 s32Ret;
 
-	if (0x12 != data[4]) {
-		
-		stVdecStream.pu8Addr      = data;
-		stVdecStream.u32Len       = size;
-		stVdecStream.u64PTS       = pts;
-		stVdecStream.bEndOfFrame  = 1;
-		stVdecStream.bEndOfStream = 0;
+    if (0x12 != data[4]) {
 
-		//printf("size : %d. data : %x,%x,%x,%x,%x,%x,%x,%x.\n", stVdecStream.u32Len, stVdecStream.pu8Addr[0],
-		//stVdecStream.pu8Addr[1], stVdecStream.pu8Addr[2], stVdecStream.pu8Addr[3], stVdecStream.pu8Addr[4],
-		//stVdecStream.pu8Addr[5], stVdecStream.pu8Addr[6], stVdecStream.pu8Addr[7]);
+        stVdecStream.pu8Addr      = data;
+        stVdecStream.u32Len       = size;
+        stVdecStream.u64PTS       = pts;
+        stVdecStream.bEndOfFrame  = 1;
+        stVdecStream.bEndOfStream = 0;
 
-		//FILE *fpread = fopen("pstream_1080.h264", "a+");
-		//fwrite(stVdecStream.pu8Addr, stVdecStream.u32Len, 1, fpread);
-		//fclose(fpread);		
+        //printf("size : %d. data : %x,%x,%x,%x,%x,%x,%x,%x.\n", stVdecStream.u32Len, stVdecStream.pu8Addr[0],
+        //stVdecStream.pu8Addr[1], stVdecStream.pu8Addr[2], stVdecStream.pu8Addr[3], stVdecStream.pu8Addr[4],
+        //stVdecStream.pu8Addr[5], stVdecStream.pu8Addr[6], stVdecStream.pu8Addr[7]);
 
-		if(MI_SUCCESS != (s32Ret = MI_VDEC_SendStream(0, &stVdecStream, 20)))
-		{
-			av_log(NULL, AV_LOG_ERROR, "[%s %d]MI_VDEC_SendStream failed!\n", __FUNCTION__, __LINE__);
-			return AVERROR_INVALIDDATA;
-		} 	
-		//printf("[%s %d]MI_VDEC_SendStream success!.\n", __FUNCTION__, __LINE__);
-	}
-	
-	return s32Ret;
+        //FILE *fpread = fopen("pstream_720P.h264", "a+");
+        //fwrite(stVdecStream.pu8Addr, stVdecStream.u32Len, 1, fpread);
+        //fclose(fpread);
+
+        if(MI_SUCCESS != (s32Ret = MI_VDEC_SendStream(0, &stVdecStream, 20)))
+        {
+            av_log(NULL, AV_LOG_ERROR, "[%s %d]MI_VDEC_SendStream failed!\n", __FUNCTION__, __LINE__);
+            return AVERROR_INVALIDDATA;
+        } 	
+        //printf("[%s %d]MI_VDEC_SendStream success!.\n", __FUNCTION__, __LINE__);
+    }
+
+    return s32Ret;
 }	
 
 int h264_parse_sps(const uint8_t *buf, int len, h264_sps_data_t *sps) {
@@ -499,10 +500,10 @@ static av_cold int ss_h264_decode_end(AVCodecContext *avctx)
     SsH264Context *s = avctx->priv_data;
     printf("ss_h264_decode_end\n");
     av_frame_free(&s->f);
-	ff_h2645_packet_uninit(&s->pkt);
+    ff_h2645_packet_uninit(&s->pkt);
     sws_freeContext(s->img_ctx);
-	pts_queue_destroy(&h264_pts);
-	decoder_type = DEFAULT_DECODING;
+    pts_queue_destroy(&h264_pts);
+    decoder_type = DEFAULT_DECODING;
 
     STCHECKRESULT(MI_VDEC_StopChn(0));
     STCHECKRESULT(MI_VDEC_DestroyChn(0));
@@ -552,8 +553,8 @@ static int ss_h264_decode_extradata(const uint8_t *data, int size,
             memcpy(extradata_buf,start_code,sizeof(start_code));
             memcpy(extradata_buf+sizeof(start_code),p+2,nalsize-2);
             //send sps to vdec
-			ss_h264_send_stream(extradata_buf, nalsize + 2, 0);
-	
+            ss_h264_send_stream(extradata_buf, nalsize + 2, 0);
+
             av_freep(&extradata_buf);
 
             p += nalsize;
@@ -577,8 +578,8 @@ static int ss_h264_decode_extradata(const uint8_t *data, int size,
             memcpy(extradata_buf,start_code,sizeof(start_code));
             memcpy(extradata_buf+sizeof(start_code),p+2,nalsize-2);
             //send pps to vdec
-			ss_h264_send_stream(extradata_buf, nalsize + 2, 0);
-			
+            ss_h264_send_stream(extradata_buf, nalsize + 2, 0);
+
             av_freep(&extradata_buf);
             p += nalsize;
         }
@@ -595,55 +596,56 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
     MI_VDEC_ChnAttr_t stVdecChnAttr;
     MI_S32 s32Ret;
     MI_SYS_ChnPort_t stChnPort;
-	AVPixFmtDescriptor *desc;
-	
+    AVPixFmtDescriptor *desc;
+
     SsH264Context *s = avctx->priv_data;
+
     //uint8_t * buffer = NULL; 
-	
+
     //printf("ss_h264_decode_init width: %d\n",avctx->width);
     s->f = av_frame_alloc();
     if (!s->f) 
         return 0;
-    
-	s->f->format = AV_PIX_FMT_NV12;
+    s->avctx     = avctx;
+    s->f->format = AV_PIX_FMT_NV12;
     s->f->width  = avctx->width;
     s->f->height = avctx->height;
 
-	if (avctx->pix_fmt != AV_PIX_FMT_NONE) {
-		desc = av_pix_fmt_desc_get(avctx->pix_fmt);
-		av_log(avctx, AV_LOG_INFO, "video prefix format : %s.\n", desc->name);		
-	} else {
-		avctx->pix_fmt  = AV_PIX_FMT_NV12;
-	}
-
-    if (0 > (s32Ret = av_frame_get_buffer(s->f, 32)) )
-    {
-        av_frame_free(&s->f);
+    if (avctx->pix_fmt != AV_PIX_FMT_NONE) {
+        desc = av_pix_fmt_desc_get(avctx->pix_fmt);
+        av_log(avctx, AV_LOG_INFO, "video prefix format : %s.\n", desc->name);		
+    } else {
+        avctx->pix_fmt  = AV_PIX_FMT_NV12;
     }
-	
-	pts_queue_init(&h264_pts);
-	decoder_type = HARD_DECODING;
 
-	#if 0
- 	// vdec	format convert
-    s->img_ctx = sws_getContext( avctx->width,   			// src width
-                                 avctx->height,  			// src height
-                                 AV_PIX_FMT_NV12, 			// src format
-                                 avctx->width,   			// dst width
-                                 avctx->height,  			// dst height
-                                 avctx->pix_fmt,            // dst format
-                                 SWS_POINT,                 // flag
-                                 NULL,                      // src filter
-                                 NULL,                      // dst filter
-                                 NULL                       // param
-                               );
-    if (s->img_ctx == NULL)
-    {
-        av_log(avctx, AV_LOG_ERROR, "sws_getContext() failed\n");
-        return -1;
-    }
-	#endif
-	
+    //s32Ret = av_frame_get_buffer(s->f, 32);
+    //if (s32Ret < 0) 
+    //{
+    //	av_frame_free(&s->f);
+    //  return s32Ret;
+    //}
+
+    pts_queue_init(&h264_pts);
+    decoder_type = HARD_DECODING;
+
+    // vdec	format convert
+    //s->img_ctx = sws_getContext( avctx->width,            // src width
+    //                             avctx->height,           // src height
+    //                             AV_PIX_FMT_NV12,         // src format
+    //                             avctx->width,            // dst width
+    //                             avctx->height,           // dst height
+    //                             avctx->pix_fmt,          // dst format
+    //                             SWS_POINT,               // flag
+    //                             NULL,                    // src filter
+    //                             NULL,                    // dst filter
+    //                             NULL                     // param
+    //                           );
+    //if (s->img_ctx == NULL)
+    //{
+    //    av_log(avctx, AV_LOG_ERROR, "sws_getContext() failed\n");
+    //    return -1;
+    //}
+
     if(avctx->width != 0)
     {
         //init vdec
@@ -730,89 +732,104 @@ static int is_extra(const uint8_t *buf, int buf_size)
     return 1;
 }
 
+static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
+{
+    int ret, i;
+    int64_t pts;
+    char start_code[] = {0,0,0,1};
+    
+    ret = ff_h2645_packet_split(&s->pkt, avpkt->data, avpkt->size, s->avctx, s->is_avc,
+                             s->nal_length_size, s->avctx->codec_id, 1);
+    if (ret < 0) {
+        av_log(s->avctx, AV_LOG_ERROR, "Error splitting the input into NAL units.\n");
+        return ret;
+    }
+    
+    /* decode the NAL units */
+    for (i = 0; i < s->pkt.nb_nals; i++)
+    {
+        H2645NAL *nal = &s->pkt.nals[i];
+        uint8_t *extrabuf = av_mallocz(nal->size + sizeof(start_code));
+        if (!extrabuf)
+            return AVERROR(ENOMEM);
+    
+        //printf("avpckt data addr : %x. nal data addr : %x. tmp buf addr : %x.\n", (uint32_t)avpkt->data, (uint32_t)nal->data, (uint32_t)extrabuf);
+    
+        switch (nal->type) {
+            case H264_NAL_SLICE:
+            case H264_NAL_DPA:
+            case H264_NAL_DPB:
+            case H264_NAL_DPC:
+            case H264_NAL_IDR_SLICE:
+                pts = avpkt->pts;
+                if (h264_pts.idx > 10)
+                    pts_queue_get(&h264_pts, &ret);
+                pts_queue_put(&h264_pts, avpkt->pts);
+            break;
+    
+            case H264_NAL_SPS:
+            case H264_NAL_PPS:
+            case H264_NAL_SEI:
+                pts = 0;
+            break;
+    
+            default : break;
+        }
+        //add data head to nal
+        memcpy(extrabuf, start_code, sizeof(start_code));
+        memcpy(extrabuf + sizeof(start_code), nal->data, nal->size);
+        //send nal data to vdec
+        ret = ss_h264_send_stream(extrabuf, nal->size + sizeof(start_code), pts);
+    
+        av_freep(&extrabuf);
+    }
+
+    return ret;
+}
+
 static int ss_h264_decode_frame(AVCodecContext *avctx, void *data,
                              int *got_frame, AVPacket *avpkt)
 {
-    MI_S32 s32Ret;
     AVFrame *pFrame;
-	int i, ret;
-	int64_t pts;
-	struct timeval now;
+    int ret;
+    struct timeval now;
     struct timespec outtime;
     pthread_mutex_t wait_mutex;
-    char start_code[] = {0,0,0,1};
     
     SsH264Context *s = avctx->priv_data;
     pFrame = (AVFrame *)data;
-    
+
+    //av_log(avctx, AV_LOG_INFO, "get in ss_h264_decode_frame\n");
+
     if(avctx->debug)
     {
-		if (MI_SUCCESS != (s32Ret = ss_h264_get_frame(s, pFrame))) {
-			//av_log(avctx, AV_LOG_INFO, "fetch a frame from buffer failed!\n");
-			// vdec wait for 10ms and continue to send stream
-			pthread_mutex_init(&wait_mutex, NULL);		
-			pthread_mutex_lock(&wait_mutex);         
-			gettimeofday(&now, NULL);       
-			outtime.tv_sec  = now.tv_sec;
-			outtime.tv_nsec = now.tv_usec * 1000 + 10 * 1000 * 1000;      
-			pthread_cond_timedwait(&h264_thread, &wait_mutex, &outtime);	
-			pthread_mutex_unlock(&wait_mutex);
-			pthread_mutex_destroy(&wait_mutex);	
-		}else 
-			*got_frame = true;
-		
+        if (MI_SUCCESS != (ret = ss_h264_get_frame(s, pFrame))) {
+            //av_log(avctx, AV_LOG_INFO, "fetch a frame from buffer failed!\n");
+            // vdec wait for 10ms and continue to send stream
+            pthread_mutex_init(&wait_mutex, NULL);
+            pthread_mutex_lock(&wait_mutex);         
+            gettimeofday(&now, NULL);       
+            outtime.tv_sec  = now.tv_sec;
+            outtime.tv_nsec = now.tv_usec * 1000 + 10 * 1000 * 1000;      
+            pthread_cond_timedwait(&h264_thread, &wait_mutex, &outtime);	
+            pthread_mutex_unlock(&wait_mutex);
+            pthread_mutex_destroy(&wait_mutex);	
+        }else 
+            *got_frame = true;
+
         /* end of stream and vdec buf is null*/
-		if (!avpkt->size && s32Ret < 0) {
-			av_log(avctx, AV_LOG_INFO, "packet size is 0!!\n");
+        if (!avpkt->size && ret < 0) {
+            av_log(avctx, AV_LOG_INFO, "packet size is 0!!\n");
             return AVERROR_EOF;
-		} else {
-			//stream is not at the end, continue to parse nal data
-			ret = ff_h2645_packet_split(&s->pkt, avpkt->data, avpkt->size, avctx, s->is_avc,
-	                                 s->nal_length_size, avctx->codec_id, 1);
-			if (ret < 0) {
-		        av_log(avctx, AV_LOG_ERROR, "Error splitting the input into NAL units.\n");
-		        return ret;
-		    }
-
-			/* decode the NAL units */
-		    for (i = 0; i < s->pkt.nb_nals; i++) {
-		        H2645NAL *nal = &s->pkt.nals[i];
-				uint8_t *extrabuf = av_mallocz(nal->size + sizeof(start_code));
-				if (!extrabuf)
-		        	return AVERROR(ENOMEM);
-
-				//printf("avpckt data addr : %x. nal data addr : %x. tmp buf addr : %x.\n", (uint32_t)avpkt->data, (uint32_t)nal->data, (uint32_t)extrabuf);
-
-				switch (nal->type) {
-					case H264_NAL_SLICE:
-				    case H264_NAL_DPA:
-				    case H264_NAL_DPB:
-				    case H264_NAL_DPC:
-				    case H264_NAL_IDR_SLICE:
-						pts = avpkt->pts;
-					    if (h264_pts.idx >= 10) 
-							pts_queue_get(&h264_pts, pts);
-					    pts_queue_put(&h264_pts, avpkt->pts);
-					break;
-
-				    case H264_NAL_SPS:
-				    case H264_NAL_PPS:
-				    case H264_NAL_SEI:
-						pts = 0;
-					break;
-
-					default : break;
-		    	}
-		        //add data head to nal
-				memcpy(extrabuf, start_code, sizeof(start_code));
-				memcpy(extrabuf + sizeof(start_code), nal->data, nal->size);
-	            //send nal data to vdec
-				ss_h264_send_stream(extrabuf, nal->size + sizeof(start_code), pts);
-
-				av_freep(&extrabuf);
-		    }
-		}
-    } else {
+        } else {
+            //stream is not at the end, continue to parse nal data
+            ret = ss_h264_decode_nalu(s, avpkt);
+            if (ret < 0)
+                av_log(avctx, AV_LOG_ERROR, "ss_h264_decode_nalu failed!\n");
+        }
+    } 
+    else 
+    {
         if(!avctx->width)
         {
             int ret;
@@ -848,10 +865,158 @@ static int ss_h264_decode_frame(AVCodecContext *avctx, void *data,
         }
     }
 
-    if (s32Ret < 0)
-        return s32Ret;
+    if (ret < 0)
+        return ret;
     return avpkt->size;
 }
+
+static int ss_h264_receive_frame(AVCodecContext *avctx, AVFrame *frame)
+{
+    int ret, got_frame;
+    SsH264Context        *s = avctx->priv_data; 
+    AVCodecInternal   *avci = avctx->internal;
+    DecodeSimpleContext *ds = &avci->ds;
+    AVPacket         *avpkt = ds->in_pkt;
+
+    struct timeval now;
+    struct timespec outtime;
+    pthread_mutex_t wait_mutex;
+
+    //av_log(avctx, AV_LOG_INFO, "get in ss_h264_receive_frame\n");
+
+    #if 0
+    if (true == avctx->debug)
+    {
+        while(!frame->buf[0])
+        {
+            //根据flag的值判断取frame还是送packet
+            if (avctx->flags == 1)
+            {
+                if (MI_SUCCESS != (ret = ss_h264_get_frame(s, frame)))
+                {
+                    av_log(avctx, AV_LOG_INFO, "ss_h264_get_frame failed!\n");
+                    // if not a frame wait for 10ms
+                    pthread_mutex_init(&wait_mutex, NULL);
+                    pthread_mutex_lock(&wait_mutex);         
+                    gettimeofday(&now, NULL);       
+                    outtime.tv_sec  = now.tv_sec;
+                    outtime.tv_nsec = now.tv_usec * 1000 + 10 * 1000 * 1000;      
+                    pthread_cond_timedwait(&h264_thread, &wait_mutex, &outtime);
+                    pthread_mutex_unlock(&wait_mutex);
+                    pthread_mutex_destroy(&wait_mutex);
+
+                    return AVERROR(EAGAIN);
+                }
+                else
+                {
+                    frame->best_effort_timestamp = frame->pts;
+                    //av_log(avctx, AV_LOG_INFO, "get a frame from vdec success!\n");
+                }
+            }
+            else if (avctx->flags == 2)
+            {
+                if (!avpkt->data && !avci->draining)
+                {
+                    av_packet_unref(avpkt);
+                    ret = ff_decode_get_packet(avctx, avpkt);
+                    if (ret < 0 && ret != AVERROR_EOF)
+                        return ret;
+                }
+
+                if (avpkt->data)
+                {
+                    ret = ss_h264_decode_nalu(s, avpkt);
+                    if (ret < 0)
+                        av_log(avctx, AV_LOG_ERROR, "ss_h264_decode_nalu failed!\n");
+                    av_packet_unref(avpkt);
+                }
+                else
+                    av_log(avctx, AV_LOG_ERROR, "get packet failed!\n");
+            }
+        }
+    }
+
+    #else
+    if (true == avctx->debug) 
+    {
+        while (!frame->buf[0])
+        {
+            if (!avpkt->data && !avci->draining && !(avctx->flags & (1 << 5)))
+            {
+                av_packet_unref(avpkt);
+                ret = ff_decode_get_packet(avctx, avpkt);
+                if (ret < 0 && ret != AVERROR_EOF) 
+                    return AVERROR(EAGAIN);
+                else 
+                    return ret;
+            }
+            
+            got_frame = 0;
+            if (MI_SUCCESS != (ret = ss_h264_get_frame(s, frame)))
+            {
+                //av_log(avctx, AV_LOG_INFO, "fetch a frame from buffer failed!\n");
+                // vdec wait for 10ms and continue to send stream
+                pthread_mutex_init(&wait_mutex, NULL);
+                pthread_mutex_lock(&wait_mutex);
+                gettimeofday(&now, NULL);
+                outtime.tv_sec  = now.tv_sec;
+                outtime.tv_nsec = now.tv_usec * 1000 + 10 * 1000 * 1000;
+                pthread_cond_timedwait(&h264_thread, &wait_mutex, &outtime);
+                pthread_mutex_unlock(&wait_mutex);
+                pthread_mutex_destroy(&wait_mutex);
+            }
+            else
+            {
+                got_frame = 1;
+                frame->best_effort_timestamp = frame->pts;
+            }
+
+            if (avpkt->data)
+            {
+                ret = ss_h264_decode_nalu(s, avpkt);
+                if (ret < 0)
+                   av_log(avctx, AV_LOG_ERROR, "ss_h264_decode_nalu failed!\n");
+
+                if (!(avctx->codec->caps_internal & FF_CODEC_CAP_SETS_PKT_DTS))
+                    frame->pkt_dts = avpkt->dts;
+                if (avctx->codec->type == AVMEDIA_TYPE_VIDEO && !avctx->has_b_frames) {
+                    frame->pkt_pos = avpkt->pos;
+                }
+
+                if (!got_frame)
+                    av_frame_unref(frame);
+                
+                if (ret >= 0 && avctx->codec->type == AVMEDIA_TYPE_VIDEO && !(avctx->flags & AV_CODEC_FLAG_TRUNCATED))
+                    ret = avpkt->size;
+                avci->compat_decode_consumed += ret;
+
+                if (ret >= avpkt->size || ret < 0) {
+                    av_packet_unref(avpkt);
+                } else {
+                    int consumed = ret;
+
+                    avpkt->data                += consumed;
+                    avpkt->size                -= consumed;
+                    avci->last_pkt_props->size -= consumed; // See extract_packet_props() comment.
+                    avpkt->pts                  = AV_NOPTS_VALUE;
+                    avpkt->dts                  = AV_NOPTS_VALUE;
+                    avci->last_pkt_props->pts = AV_NOPTS_VALUE;
+                    avci->last_pkt_props->dts = AV_NOPTS_VALUE;
+                }
+
+                if (got_frame)
+                    av_assert0(frame->buf[0]);
+            }
+
+            if (ret < 0)
+                return ret;
+        }
+    }
+    #endif
+
+    return avpkt->size;
+}
+
 
 AVCodec ff_ssh264_decoder = {
     .name                  = "ssh264",
@@ -862,6 +1027,7 @@ AVCodec ff_ssh264_decoder = {
     .init                  = ss_h264_decode_init,
     .close                 = ss_h264_decode_end,
     .decode                = ss_h264_decode_frame,
+    .receive_frame         = ss_h264_receive_frame,
     .capabilities          = /*AV_CODEC_CAP_DRAW_HORIZ_BAND | AV_CODEC_CAP_DR1 |*/
                              AV_CODEC_CAP_DELAY | AV_CODEC_CAP_SLICE_THREADS |
                              AV_CODEC_CAP_FRAME_THREADS,

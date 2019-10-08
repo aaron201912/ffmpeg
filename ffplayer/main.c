@@ -8,7 +8,7 @@ int main(int argc, char *argv[])
     {
         printf("Please provide a movie file, usage: \n");
         printf("example: ./Ssplayer ring.mp4 0\n");
-		printf("0 : soft-decoding  1 : hard-decoding\n");
+        printf("0 : soft-decoding  1 : hard-decoding\n");
         return -1;
     }
     printf("Try playing %s ...\n", argv[1]);

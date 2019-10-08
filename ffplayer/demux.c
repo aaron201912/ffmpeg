@@ -4,6 +4,7 @@
 
 extern AVPacket flush_pkt;
 
+
 static int decode_interrupt_cb(void *ctx)
 {
     player_stat_t *is = ctx;
@@ -39,8 +40,8 @@ static int demux_init(player_stat_t *is)
         goto fail;
     }
     is->p_fmt_ctx = p_fmt_ctx;
-	double totle_seconds = p_fmt_ctx->duration * av_q2d(AV_TIME_BASE_Q);
-	printf("Total time of video : %f\n", totle_seconds);
+    double totle_seconds = p_fmt_ctx->duration * av_q2d(AV_TIME_BASE_Q);
+    printf("Total time of video : %f\n", totle_seconds);
     // 1.2 搜索流信息：读取一段视频文件数据，尝试解码，将取到的流信息填入p_fmt_ctx->streams
     //     ic->streams是一个指针数组，数组大小是pFormatCtx->nb_streams
     err = avformat_find_stream_info(p_fmt_ctx, NULL);
@@ -84,19 +85,19 @@ static int demux_init(player_stat_t *is)
         }
         return ret;
     }
-	
+
     printf("audio idx: %d,video idx: %d\n",a_idx,v_idx);
 
-	is->audio_idx = a_idx;
+    is->audio_idx = a_idx;
     is->video_idx = v_idx; 
-	
-	if (a_idx >= 0) {
-		is->p_audio_stream = p_fmt_ctx->streams[a_idx];
-	}
 
-	if (v_idx >= 0) {		
+    if (a_idx >= 0) {
+        is->p_audio_stream = p_fmt_ctx->streams[a_idx];
+    }
+
+    if (v_idx >= 0) {		
         is->p_video_stream = p_fmt_ctx->streams[v_idx];
-	}
+    }
 
     return 0;
 }
@@ -119,7 +120,7 @@ static void step_to_next_frame(player_stat_t *is)
 {
     /* if the stream is paused unpause it, then step */
     if (is->paused)
-        stream_toggle_pause(is);
+        stream_toggle_pause(is);                                                                                                      
     is->step = 1;
 }
 
@@ -129,7 +130,7 @@ static int demux_thread(void *arg)
     player_stat_t *is = (player_stat_t *)arg;
 //	AVFormatContext *p_fmt_ctx = is->p_fmt_ctx;
     int ret;
-    AVPacket pkt1, *pkt = &pkt1;
+    AVPacket pkt1, *pkt = &pkt1, tmpket;
 
     struct timeval now;
     struct timespec outtime;
@@ -177,6 +178,8 @@ static int demux_thread(void *arg)
             continue;
             
         }
+
+        //get_play_status(is);
 
         if (is->seek_req) {
             int64_t seek_target = is->seek_pos;
@@ -255,7 +258,8 @@ static int demux_thread(void *arg)
                     packet_queue_put_nullpacket(&is->audio_pkt_queue, is->audio_idx);
                 }
                 is->eof = 1;
-				av_log(is->p_fmt_ctx, AV_LOG_INFO, "read packet over!\n");
+                //av_log(is->p_fmt_ctx, AV_LOG_INFO, "read packet over!\n");
+                av_log(NULL, AV_LOG_INFO, "ret : %d, feof : %d\n", ret, avio_feof(is->p_fmt_ctx->pb));
             }
 
             pthread_mutex_lock(&wait_mutex);
@@ -276,13 +280,19 @@ static int demux_thread(void *arg)
             
         
         // 4.3 根据当前packet类型(音频、视频、字幕)，将其存入对应的packet队列
-		if (pkt->stream_index == is->audio_idx)
-		{
-		    packet_queue_put(&is->audio_pkt_queue, pkt);
-		    //printf("put audio pkt end\n");
-		}
-		else if (pkt->stream_index == is->video_idx)
+        if (pkt->stream_index == is->audio_idx)
         {
+            packet_queue_put(&is->audio_pkt_queue, pkt);
+            //printf("put audio pkt end\n");
+        }
+        else if (pkt->stream_index == is->video_idx)
+        {
+//            pthread_mutex_lock(&is->video_pkt_queue.mutex);
+//            while (is->video_pkt_queue.nb_packets >= MIN_FRAMES) {
+//            //printf("nb_pkt : %d wait video packet!\n", is->video_pkt_queue.nb_packets);
+//            pthread_cond_wait(&is->video_pkt_queue.cond, &is->video_pkt_queue.mutex);		
+//            }
+//            pthread_mutex_unlock(&is->video_pkt_queue.mutex);
             packet_queue_put(&is->video_pkt_queue, pkt);
             //printf("put video pkt end\n");
         }
