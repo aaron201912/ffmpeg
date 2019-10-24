@@ -300,11 +300,15 @@ static void stream_component_close(player_stat_t *is, int stream_index)
 }
 static int ss_module_Deinit(player_stat_t *is)
 {
-#if ENABLE_HDMI
-    ss_disp_Deinit(is->p_vcodec_ctx);
-#else
-	sstar_disable_display();
-#endif
+    if (is->audio_idx >= 0)
+    {
+        #if ENABLE_HDMI
+        ss_disp_Deinit(is->p_vcodec_ctx);
+        #else
+        sstar_disable_display();
+        #endif
+    }
+    
     if (is->audio_idx >= 0)
         ss_ao_Deinit();
 
@@ -390,7 +394,7 @@ void toggle_pause(player_stat_t *is)
     is->step = 0;
 }
 
-static void stream_seek(player_stat_t *is, int64_t pos, int64_t rel, int seek_by_bytes)
+void stream_seek(player_stat_t *is, int64_t pos, int64_t rel, int seek_by_bytes)
 {
     if (!is->seek_req) {
         is->seek_pos = pos;

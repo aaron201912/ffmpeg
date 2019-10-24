@@ -142,6 +142,14 @@ typedef struct MI_VDEC_OutputPortAttr_s
     MI_U16 u16Height;                        // Height of target image
 }MI_VDEC_OutputPortAttr_t;
 
+typedef enum
+{
+    E_MI_VDEC_OUTBUF_LAYOUT_AUTO = 0x0,
+    E_MI_VDEC_OUTBUF_LAYOUT_LINEAR,
+    E_MI_VDEC_OUTBUF_LAYOUT_TILE,
+    E_MI_VDEC_OUTBUF_LAYOUT_MAX
+} MI_VDEC_OutbufLayoutMode_e;
+
 typedef struct MI_VDEC_JpegAttr_s
 {
     MI_VDEC_JpegFormat_e    eJpegFormat;

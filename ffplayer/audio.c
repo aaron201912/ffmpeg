@@ -29,6 +29,7 @@
 
 #define MI_AUDIO_SAMPLE_PER_FRAME 1024
 
+#define MI_AUDIO_MAX_DATA_SIZE      25000
 
 #define MI_AUDIO_MAX_SAMPLES_PER_FRAME     2048
 #define MI_AUDIO_MAX_FRAME_NUM             6
@@ -68,7 +69,7 @@ static int audio_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
                 }
                 else
                 {
-                    av_log(NULL, AV_LOG_WARNING, "frame->pts no\n");
+                    //av_log(NULL, AV_LOG_WARNING, "frame->pts no\n");
                 }
 
                 return 1;
@@ -103,7 +104,6 @@ static int audio_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
         if (pkt.data == flush_pkt.data)
         {
             // 复位解码器内部状态/刷新内部缓冲区。当seek操作或切换流时应调用此函数。
-            printf("packet_queue_get null\n");
             avcodec_flush_buffers(p_codec_ctx);
         }
         else
@@ -234,14 +234,33 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
     int64_t dec_channel_layout;
     av_unused double audio_clock0;
     int wanted_nb_samples;
-    frame_t *af;
+    frame_t *af = NULL;
+    frame_queue_t *f = &is->audio_frm_queue;
     
     if (is->paused)
         return -1;
 
     // 若队列头部可读，则由af指向可读帧
-    if (!(af = frame_queue_peek_readable(&is->audio_frm_queue)))
-        return -1;
+    //if (!(af = frame_queue_peek_readable(&is->audio_frm_queue)))
+    //    return -1;
+
+    pthread_mutex_lock(&f->mutex);
+    while (f->size - f->rindex_shown <= 0 && !f->pktq->abort_request) {
+        printf("wait for audio frame\n");
+        if (!is->audio_complete && is->eof && is->audio_pkt_queue.nb_packets == 0)
+        {
+            is->audio_complete = 1;
+            if (is->audio_complete && is->video_complete)
+                stream_seek(is, is->p_fmt_ctx->start_time, 0, 0);
+        } 
+        pthread_cond_wait(&f->cond, &f->mutex);
+    }
+    pthread_mutex_unlock(&f->mutex);
+    
+    if (f->pktq->abort_request)
+        return NULL;
+    
+    af = &f->queue[(f->rindex + f->rindex_shown) % f->max_size];
 
     frame_queue_next(&is->audio_frm_queue);
     // 根据frame中指定的音频参数获取缓冲区的大小
@@ -419,25 +438,42 @@ static int audio_playing_thread(void *arg)
             //printf("save audio len: %d\n",is->audio_frm_size);
             //write(fda, (uint8_t *)is->p_audio_frm + is->audio_cp_index, len1);
             //put audio stream to ss player
+            int data_idx = 0, data_len = is->audio_frm_size;
+
             MI_AUDIO_Frame_t stAoSendFrame;
             MI_S32 s32RetSendStatus = 0;
             MI_AUDIO_DEV AoDevId = 0;
             MI_AO_CHN AoChn = 0;
 
-            //read data and send to AO module
-            stAoSendFrame.u32Len = is->audio_frm_size;
-            stAoSendFrame.apVirAddr[0] = is->p_audio_frm;
-            stAoSendFrame.apVirAddr[1] = NULL;
+            do {
+                if (data_len <= MI_AUDIO_MAX_DATA_SIZE)
+                {
+                    stAoSendFrame.u32Len = data_len;
+                }
+                else
+                {
+                    stAoSendFrame.u32Len = MI_AUDIO_MAX_DATA_SIZE; 
+                }
+                stAoSendFrame.apVirAddr[0] = &is->p_audio_frm[data_idx];
+                stAoSendFrame.apVirAddr[1] = NULL;  
+                
+                data_len -= MI_AUDIO_MAX_DATA_SIZE;
+                data_idx += MI_AUDIO_MAX_DATA_SIZE;
+                
+                //read data and send to AO module
+                //stAoSendFrame.u32Len = is->audio_frm_size;
+                //stAoSendFrame.apVirAddr[0] = is->p_audio_frm;
+                //stAoSendFrame.apVirAddr[1] = NULL;
 
-            do{
-                s32RetSendStatus = MI_AO_SendFrame(AoDevId, AoChn, &stAoSendFrame, 128);
-            }while(s32RetSendStatus == MI_AO_ERR_NOBUF);
+                do{
+                    s32RetSendStatus = MI_AO_SendFrame(AoDevId, AoChn, &stAoSendFrame, 128);
+                }while(s32RetSendStatus == MI_AO_ERR_NOBUF);
 
-            if(s32RetSendStatus != MI_SUCCESS)
-            {
-                printf("[Warning]: MI_AO_SendFrame fail, error is 0x%x: \n",s32RetSendStatus);
-            }
-
+                if(s32RetSendStatus != MI_SUCCESS)
+                {
+                    printf("[Warning]: MI_AO_SendFrame fail, error is 0x%x: \n",s32RetSendStatus);
+                }
+            }while(data_len > 0);
             //frame_queue_next(&is->audio_frm_queue);
         }
 

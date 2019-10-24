@@ -90,13 +90,17 @@ static int demux_init(player_stat_t *is)
 
     is->audio_idx = a_idx;
     is->video_idx = v_idx; 
+    is->audio_complete = 1;
+    is->video_complete = 1;
 
     if (a_idx >= 0) {
         is->p_audio_stream = p_fmt_ctx->streams[a_idx];
+        is->audio_complete = 0;
     }
 
-    if (v_idx >= 0) {		
+    if (v_idx >= 0) {
         is->p_video_stream = p_fmt_ctx->streams[v_idx];
+        is->video_complete = 0;
     }
 
     return 0;
@@ -213,6 +217,8 @@ static int demux_thread(void *arg)
             is->seek_req = 0;
             //is->queue_attachments_req = 1;
             is->eof = 0;
+            is->audio_complete = (is->audio_idx >= 0) ? 0 : 1;
+            is->video_complete = (is->video_idx >= 0) ? 0 : 1;
             if (is->paused)
                 step_to_next_frame(is);
         }

@@ -40,7 +40,8 @@ MI_S32 MI_VDEC_SetDisplayMode(MI_VDEC_CHN VdecChn, MI_VDEC_DisplayMode_e eDispla
 MI_S32 MI_VDEC_GetDisplayMode(MI_VDEC_CHN VdecChn, MI_VDEC_DisplayMode_e *peDisplayMode);
 MI_S32 MI_VDEC_SetOutputPortAttr(MI_VDEC_CHN VdecChn, MI_VDEC_OutputPortAttr_t *pstOutputPortAttr);
 MI_S32 MI_VDEC_GetOutputPortAttr(MI_VDEC_CHN VdecChn, MI_VDEC_OutputPortAttr_t *pstOutputPortAttr);
-
+MI_S32 MI_VDEC_SetOutputPortLayoutMode(MI_VDEC_OutbufLayoutMode_e eBufTileMode);
+MI_S32 MI_VDEC_GetOutputPortLayoutMode(MI_VDEC_OutbufLayoutMode_e *peBufTileMode);
 
 #ifdef __cplusplus
 }
