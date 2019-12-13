@@ -176,6 +176,12 @@ typedef struct
     MI_U16 u16VirHsyncEnd;
     MI_U16 u16VsyncRef;
     MI_U16 u16DataClkSkew;
+
+    MI_U8  u8PolCh0;  // channel 0 polarity, 0:HW default, 1:positive, 2:negative
+    MI_U8  u8PolCh1;  // channel 1 polarity, 0:HW default, 1:positive, 2:negative
+    MI_U8  u8PolCh2;  // channel 2 polarity, 0:HW default, 1:positive, 2:negative
+    MI_U8  u8PolCh3;  // channel 3 polarity, 0:HW default, 1:positive, 2:negative
+    MI_U8  u8PolCh4;  // channel 4 polarity, 0:HW default, 1:positive, 2:negative
 }MI_PANEL_MipiDsiConfig_t;
 
 typedef struct

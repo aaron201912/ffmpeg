@@ -192,6 +192,7 @@ typedef enum
     E_MI_MODULE_ID_CIPHER = 26,
     E_MI_MODULE_ID_SNR = 27,
     E_MI_MODULE_ID_WLAN =28,
+    E_MI_MODULE_ID_IPU = 29,	
     //E_MI_MODULE_ID_SED  = 29,
     E_MI_MODULE_ID_MAX,
 } MI_ModuleId_e;

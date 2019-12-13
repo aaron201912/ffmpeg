@@ -53,6 +53,10 @@ extern "C" {
 #define MI_ERR_VDEC_CHN_NO_CONTENT          MI_DEF_VDEC_ERR(E_MI_ERR_CHN_NO_CONTENT)
 #define MI_ERR_VDEC_FAILED                  MI_DEF_VDEC_ERR(E_MI_ERR_FAILED)
 
+typedef struct MI_VDEC_InitParam_s
+{
+    MI_BOOL bDisableLowLatency;
+} MI_VDEC_InitParam_t;
 
 typedef enum
 {

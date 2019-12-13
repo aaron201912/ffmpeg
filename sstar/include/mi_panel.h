@@ -21,7 +21,7 @@ extern "C" {
 #include "mi_panel_datatype.h"
 
 #define PANEL_MAJOR_VERSION 2
-#define PANEL_SUB_VERSION 5
+#define PANEL_SUB_VERSION 6
 #define MACRO_TO_STR(macro) #macro
 #define PANEL_VERSION_STR(major_version,sub_version) ({char *tmp = sub_version/100 ? \
                                     "mi_panel_version_" MACRO_TO_STR(major_version)"." MACRO_TO_STR(sub_version) : sub_version/10 ? \

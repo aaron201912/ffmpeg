@@ -16,7 +16,7 @@
 
 #include "mi_common.h"
 #define MI_SYS_MAX_INPUT_PORT_CNT   (16)
-#define MI_SYS_MAX_OUTPUT_PORT_CNT  (4)
+#define MI_SYS_MAX_OUTPUT_PORT_CNT  (5)
 #define MI_SYS_MAX_DEV_CHN_CNT      (48)
 #define MI_SYS_INVLAID_SEQUENCE_NUM ((MI_U32)-1)
 
@@ -193,11 +193,14 @@ typedef enum
     E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_422,
     E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420,
     E_MI_SYS_PIXEL_FRAME_YUV_MST_420,
+    E_MI_SYS_PIXEL_FRAME_YUV422_UYVY,
+    E_MI_SYS_PIXEL_FRAME_YUV422_YVYU,
+    E_MI_SYS_PIXEL_FRAME_YUV422_VYUY,
 
     //vdec sigmastar private video format
     E_MI_SYS_PIXEL_FRAME_YC420_MSTTILE1_H264,
     E_MI_SYS_PIXEL_FRAME_YC420_MSTTILE2_H265,
-    E_MI_SYS_PIXEL_FRAME_YC420_MSTTILE3_H265 = 15,
+    E_MI_SYS_PIXEL_FRAME_YC420_MSTTILE3_H265,
 
     E_MI_SYS_PIXEL_FRAME_RGB_BAYER_BASE,
     E_MI_SYS_PIXEL_FRAME_RGB_BAYER_NUM = E_MI_SYS_PIXEL_FRAME_RGB_BAYER_BASE + E_MI_SYS_DATA_PRECISION_MAX*E_MI_SYS_PIXEL_BAYERID_MAX-1,
@@ -249,6 +252,7 @@ typedef enum
 {
     E_MI_SYS_BUFDATA_RAW = 0,
     E_MI_SYS_BUFDATA_FRAME,
+    E_MI_SYS_BUFDATA_META,
 } MI_SYS_BufDataType_e;
 
 typedef enum
@@ -318,7 +322,7 @@ typedef struct MI_SYS_RawData_s
     MI_U64  u64SeqNum;
 } MI_SYS_RawData_t;
 
-typedef struct MI_SYS_PerFrameMetaBuf_s
+typedef struct MI_SYS_MetaData_s
 {
     void*  pVirAddr;
     MI_PHY phyAddr;//notice that this is miu bus addr,not cpu bus addr.
@@ -326,7 +330,7 @@ typedef struct MI_SYS_PerFrameMetaBuf_s
     MI_U32 u32Size;
     MI_U32 u32ExtraData;    /*driver special flag*/
     MI_ModuleId_e eDataFromModule;
-} MI_SYS_PerFrameMetaBuf_t;
+} MI_SYS_MetaData_t;
 
 typedef enum
 {
@@ -387,6 +391,7 @@ typedef  struct  MI_SYS_BufInfo_s
     {
         MI_SYS_FrameData_t stFrameData;
         MI_SYS_RawData_t stRawData;
+        MI_SYS_MetaData_t stMetaData;
     };
 } MI_SYS_BufInfo_t;
 
@@ -417,6 +422,11 @@ typedef struct MI_SYS_BufRawConfig_s
     MI_U32 u32Size;
 }MI_SYS_BufRawConfig_t;
 
+typedef struct MI_SYS_MetaDataConfig_s
+{
+    MI_U32 u32Size;
+}MI_SYS_MetaDataConfig_t;
+
 typedef struct MI_SYS_BufConf_s
 {
     MI_SYS_BufDataType_e eBufType;
@@ -426,6 +436,7 @@ typedef struct MI_SYS_BufConf_s
     {
         MI_SYS_BufFrameConfig_t stFrameCfg;
         MI_SYS_BufRawConfig_t stRawCfg;
+        MI_SYS_MetaDataConfig_t stMetaCfg;
     };
 }MI_SYS_BufConf_t;
 

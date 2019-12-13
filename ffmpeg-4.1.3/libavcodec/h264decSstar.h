@@ -48,6 +48,7 @@
 //sstar sdk lib
 #include "mi_vdec.h"
 #include "mi_vdec_datatype.h"
+#include "mi_vdec_extra.h"
 #include "mi_common.h"
 #include "mi_common_datatype.h"
 #include "mi_sys.h"
@@ -64,17 +65,17 @@
 typedef struct SsH264Context {
     AVFrame *f;
     AVCodecContext *avctx;
-    
-    int channel;
-    int cropwidth;
-    int cropheight;
 
     H2645Packet pkt;
-    H264ParamSets ps;
+
     int is_avc;           ///< this flag is != 0 if codec is avc1
     int nal_length_size;  ///< Number of bytes used for nal length (1, 2 or 4)
-    struct SwsContext *img_ctx;
+
+    uint8_t * extradata;
+    int       max_extradata_size;
+    int       extradata_size;
 } SsH264Context;
+
 typedef struct SsCropContext {
     int x;
     int y;
@@ -129,11 +130,11 @@ typedef struct {
 } h264_sps_data_t;
 
 typedef struct {
-	int     size;
-	uint8_t *data;
-	int64_t pts;
+    int     size;
+    uint8_t *data;
+    int64_t pts;
 } vdec_stream_t;
-	
+
 #define NOCACHE
 
 # ifdef NOCACHE

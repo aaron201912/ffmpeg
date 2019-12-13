@@ -24,6 +24,8 @@
 extern "C" {
 #endif
 
+MI_S32 MI_VDEC_InitDev(MI_VDEC_InitParam_t *pstVdecInitParam);
+MI_S32 MI_VDEC_DeInitDev(void);
 MI_S32 MI_VDEC_CreateChn(MI_VDEC_CHN VdecChn, MI_VDEC_ChnAttr_t *pstChnAttr);
 MI_S32 MI_VDEC_DestroyChn(MI_VDEC_CHN VdecChn);
 MI_S32 MI_VDEC_GetChnAttr(MI_VDEC_CHN VdecChn, MI_VDEC_ChnAttr_t *pstChnAttr);
