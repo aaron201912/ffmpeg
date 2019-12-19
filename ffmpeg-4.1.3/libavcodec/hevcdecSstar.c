@@ -193,8 +193,8 @@ static int ss_hevc_inject_frame(SsHevcContext *ssctx, AVFrame *frame)
         else
         {
             //get frame pts from vdec
-            //frame->pts = stVdecBufInfo.u64Pts;
-            pts_queue_get(&hevc_pts, &frame->pts);
+            frame->pts = stVdecBufInfo.u64Pts;
+            //pts_queue_get(&hevc_pts, &frame->pts);
 
             ysize      = frame->width * frame->height;
             totalsize  = ysize + ysize / 2;
@@ -261,8 +261,8 @@ static int ss_hevc_get_frame(SsHevcContext *ssctx, AVFrame *frame)
         else
         {
             //get frame pts from vdec
-            //frame->pts = stVdecBufInfo.u64Pts;
-            pts_queue_get(&hevc_pts, &frame->pts);
+            frame->pts = stVdecBufInfo.u64Pts;
+            //pts_queue_get(&hevc_pts, &frame->pts);
 
             // get image data form vdec module 
             ysize  = frame->width * frame->height;
@@ -423,9 +423,9 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
             case HEVC_NAL_RASL_N:
             case HEVC_NAL_RASL_R:
                 //printf("packet dts : %lld, pts : %lld.\n", avpkt->dts, avpkt->pts);
-                if (hevc_pts.idx > 10)
-                    pts_queue_get(&hevc_pts, &ret);
-                pts_queue_put(&hevc_pts, avpkt->pts);
+                //if (hevc_pts.idx > 10)
+                //    pts_queue_get(&hevc_pts, &ret);
+                //pts_queue_put(&hevc_pts, avpkt->pts);
                 //add head to nal data
                 memcpy(extradata_buf + data_idx, start_code, sizeof(start_code));
                 extradata_buf[data_idx + 3] =1;
@@ -643,9 +643,6 @@ static int ss_hevc_decode_frame(AVCodecContext *avctx, void *data,
                                       int *got_frame, AVPacket *avpkt)
 {
     int ret;
-    struct timeval now;
-    struct timespec outtime;
-    pthread_mutex_t wait_mutex;
     SsHevcContext   *s = avctx->priv_data; 
 
     //printf("get in ss_hevc_decode_frame!\n");
@@ -708,7 +705,7 @@ static int ss_hevc_receive_frame(AVCodecContext *avctx, AVFrame *frame)
 
             if (MI_SUCCESS != ret )
             {
-                //av_log(avctx, AV_LOG_INFO, "fetch a frame from buffer failed!\n");
+                //av_log(avctx, AV_LOG_ERROR, "ss_hevc fetch frame from buffer failed!\n");
                 // vdec wait for 10ms and continue to send stream
                 pthread_mutex_init(&wait_mutex, NULL);
                 pthread_mutex_lock(&wait_mutex);

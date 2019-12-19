@@ -173,7 +173,7 @@ pthread_cond_t h264_thread;
 // 此函数用于获取带B帧图像
 static int ss_h264_inject_frame(SsH264Context *ssctx, AVFrame *frame)
 {
-    MI_U32 ret, ysize, totalsize;
+    MI_S32 ret, ysize, totalsize;
 
     MI_SYS_ChnPort_t  stVdecChnPort;
     MI_SYS_BUF_HANDLE stVdecHandle;
@@ -210,8 +210,8 @@ static int ss_h264_inject_frame(SsH264Context *ssctx, AVFrame *frame)
         else
         {
             //get frame pts from vdec
-            //frame->pts = stVdecBufInfo.u64Pts;
-            pts_queue_get(&h264_pts, &frame->pts);
+            frame->pts = stVdecBufInfo.u64Pts;
+            //pts_queue_get(&h264_pts, &frame->pts);
             //printf("[%s %d]get frame pts : %lld\n", __FUNCTION__, __LINE__, stVdecBufInfo.u64Pts);
             ysize     = frame->width * frame->height;
             totalsize = ysize + ysize / 2;
@@ -246,7 +246,7 @@ static int ss_h264_inject_frame(SsH264Context *ssctx, AVFrame *frame)
 // 此函数用于获取不带B帧图像
 static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
 {
-    MI_U32 ret, ysize;
+    MI_S32 ret, ysize;
     MI_SYS_BUF_HANDLE stVdecHandle;
     MI_SYS_BufInfo_t  stVdecBufInfo;
     MI_SYS_ChnPort_t  stVdecChnPort;
@@ -276,8 +276,8 @@ static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
         else
         {
             //get frame pts from vdec
-            //frame->pts = stVdecBufInfo.u64Pts;
-            pts_queue_get(&h264_pts, &frame->pts);
+            frame->pts = stVdecBufInfo.u64Pts;
+            //pts_queue_get(&h264_pts, &frame->pts);
             //printf("[%s %d]get frame pts : %lld\n", __FUNCTION__, __LINE__, stVdecBufInfo.u64Pts);
             ysize  = frame->width * frame->height;
             //uvsize = stVdecBufInfo.stFrameData.u32BufSize - ysize;
@@ -650,10 +650,8 @@ static MI_U32 ss_h264_vdec_init(AVCodecContext *avctx)
 
 static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
 {
-    MI_VDEC_ChnAttr_t stVdecChnAttr;
     MI_S32 ret;
-    MI_SYS_ChnPort_t stChnPort;
-    AVPixFmtDescriptor *desc;
+    const AVPixFmtDescriptor *desc;
     SsH264Context *s = (SsH264Context *)avctx->priv_data;
 
     //printf("ss_h264_decode_init width: %d, height : %d\n", avctx->width, avctx->height);
@@ -796,9 +794,9 @@ static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
             case H264_NAL_DPA:
             case H264_NAL_DPB:
             case H264_NAL_DPC:
-                if (h264_pts.idx > 10)
-                    pts_queue_get(&h264_pts, &ret);
-                pts_queue_put(&h264_pts, avpkt->pts);
+                //if (h264_pts.idx > 10)
+                //    pts_queue_get(&h264_pts, &ret);
+                //pts_queue_put(&h264_pts, avpkt->pts);
                 //printf("pps,sps,sei dts : %lld, pts : %lld\n", avpkt->dts, avpkt->pts);
                 //add data head to nal
                 memcpy(extrabuf + data_idx, start_code, sizeof(start_code));
@@ -821,14 +819,9 @@ static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
 static int ss_h264_decode_frame(AVCodecContext *avctx, void *data,
                              int *got_frame, AVPacket *avpkt)
 {
-    AVFrame *pFrame;
     int ret;
-    struct timeval now;
-    struct timespec outtime;
-    pthread_mutex_t wait_mutex;
-    
+
     SsH264Context *s = avctx->priv_data;
-    pFrame = (AVFrame *)data;
 
     //av_log(avctx, AV_LOG_INFO, "get in ss_h264_decode_frame\n");
 
@@ -887,7 +880,7 @@ static int ss_h264_receive_frame(AVCodecContext *avctx, AVFrame *frame)
 
             if (MI_SUCCESS != ret)
             {
-                //av_log(avctx, AV_LOG_ERROR, "ss_hevc_inject_frame failed!\n");
+                //av_log(avctx, AV_LOG_ERROR, "ss_h264 fetch frame from buffer failed!\n");
                 // vdec wait for 10ms and continue to send stream
                 pthread_mutex_init(&wait_mutex, NULL);
                 pthread_mutex_lock(&wait_mutex);
