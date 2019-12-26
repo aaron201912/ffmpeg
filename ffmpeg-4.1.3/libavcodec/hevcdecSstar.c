@@ -63,6 +63,7 @@
 
 #define VDEC_CHN_ID  0
 
+#if 0
 typedef struct pts_list {
     int64_t pts;
     struct pts_list *next;
@@ -149,7 +150,10 @@ static int pts_queue_destroy(pts_queue_t *q)
 }
 
 pts_queue_t hevc_pts;
+#endif
+
 pthread_cond_t hevc_thread;
+//FILE *hevc_fd;
 /**************************************************************************/
 // 此函数用于获取带B帧的图像
 static int ss_hevc_inject_frame(SsHevcContext *ssctx, AVFrame *frame)
@@ -177,8 +181,6 @@ static int ss_hevc_inject_frame(SsHevcContext *ssctx, AVFrame *frame)
         void *vdec_vir_addr = NULL;
         pstVdecInfo = (mi_vdec_DispFrame_t *)stVdecBufInfo.stMetaData.pVirAddr;
 
-        //frame->width  = ssctx->frame->width;
-        //frame->height = ssctx->frame->height;
         frame->width  = pstVdecInfo->stFrmInfo.u16Stride;
         frame->height = pstVdecInfo->stFrmInfo.u16Height;
         frame->format = ssctx->frame->format;
@@ -244,7 +246,7 @@ static int ss_hevc_get_frame(SsHevcContext *ssctx, AVFrame *frame)
     stVdecChnPort.u32DevId      = 0;
     stVdecChnPort.u32ChnId      = VDEC_CHN_ID;
     stVdecChnPort.u32PortId     = 0;
-    MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 2, 5);
+    MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 3, 7);
 
     if (MI_SUCCESS == (ret = MI_SYS_ChnOutputPortGetBuf(&stVdecChnPort, &stVdecBufInfo, &stVdecHandle)))
     {
@@ -292,6 +294,15 @@ static MI_U32 ss_hevc_vdec_init(AVCodecContext *avctx)
     MI_VDEC_ChnAttr_t stVdecChnAttr;
     MI_VDEC_OutputPortAttr_t stOutputPortAttr;
     MI_VDEC_CHN stVdecChn = VDEC_CHN_ID;
+    MI_VDEC_InitParam_t stVdecInitParam;
+
+    memset(&stVdecInitParam, 0, sizeof(MI_VDEC_InitParam_t));
+    if (avctx->has_b_frames > 0)
+        stVdecInitParam.bDisableLowLatency = true;
+    else
+        stVdecInitParam.bDisableLowLatency = false;
+    STCHECKRESULT(MI_VDEC_InitDev(&stVdecInitParam));
+    
 
     memset(&stVdecChnAttr, 0, sizeof(MI_VDEC_ChnAttr_t));
     stVdecChnAttr.eCodecType    = E_MI_VDEC_CODEC_TYPE_H265;
@@ -334,9 +345,7 @@ static MI_U32 ss_hevc_send_stream(MI_U8 *data, MI_U32 size, int64_t pts)
         //stVdecStream.pu8Addr[1], stVdecStream.pu8Addr[2], stVdecStream.pu8Addr[3], stVdecStream.pu8Addr[4],
         //stVdecStream.pu8Addr[5], stVdecStream.pu8Addr[6], stVdecStream.pu8Addr[7]);
 
-        //FILE *fpread = fopen("/mnt/pstream_hevc.es", "a+");
-        //fwrite(stVdecStream.pu8Addr, stVdecStream.u32Len, 1, fpread);
-        //fclose(fpread);
+        //fwrite(stVdecStream.pu8Addr, stVdecStream.u32Len, 1, hevc_fd);
 
         if(MI_SUCCESS != (s32Ret = MI_VDEC_SendStream(stVdecChn, &stVdecStream, 20)))
         {
@@ -357,7 +366,7 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
     s->last_eos = s->eos;
     s->eos = 0;
 
-    ret = ff_h2645_packet_split(&s->pkt, avpkt->data, avpkt->size, s->avctx, s->is_nalff,
+    ret = ss_h2645_packet_split(&s->pkt, avpkt->data, avpkt->size, s->avctx, s->is_nalff,
                                  s->nal_length_size, s->avctx->codec_id, 1);
     if (ret < 0)
     {
@@ -394,18 +403,18 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
                 s->data_size = 0;
             case HEVC_NAL_SPS:
             case HEVC_NAL_PPS:
-            //case HEVC_NAL_SEI_PREFIX:
-            //case HEVC_NAL_SEI_SUFFIX:
                 memcpy(s->data + s->data_size, start_code, sizeof(start_code));
                 s->data[s->data_size + 3] = 1;
                 s->data_size += sizeof(start_code);
-                memcpy(s->data + s->data_size + sizeof(start_code), nal->data, nal->size);
-                s->data_size += sizeof(start_code);
+                memcpy(s->data + s->data_size, nal->data, nal->size);
+                s->data_size += nal->size;
                 //printf("vps/sps/pps size : %d, vps/sps/pps data : %x,%x,%x,%x\n", nal->size + 4, s->data[s->data_size + 2], 
                 //s->data[s->data_size + 3], s->data[s->data_size + 4],s->data[s->data_size + 5]);
                 break;
             case HEVC_NAL_IDR_W_RADL:
             case HEVC_NAL_IDR_N_LP:
+            case HEVC_NAL_CRA_NUT:
+                s->avctx->flags &= ~(1 << 7);
                 memcpy(extradata_buf, s->data, s->data_size);
                 data_idx = s->data_size;
             case HEVC_NAL_TRAIL_R:
@@ -417,7 +426,6 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
             case HEVC_NAL_BLA_W_LP:
             case HEVC_NAL_BLA_W_RADL:
             case HEVC_NAL_BLA_N_LP:
-            case HEVC_NAL_CRA_NUT:
             case HEVC_NAL_RADL_N:
             case HEVC_NAL_RADL_R:
             case HEVC_NAL_RASL_N:
@@ -426,14 +434,17 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
                 //if (hevc_pts.idx > 10)
                 //    pts_queue_get(&hevc_pts, &ret);
                 //pts_queue_put(&hevc_pts, avpkt->pts);
-                //add head to nal data
-                memcpy(extradata_buf + data_idx, start_code, sizeof(start_code));
-                extradata_buf[data_idx + 3] =1;
-                memcpy(extradata_buf + data_idx + sizeof(start_code), nal->data, nal->size);
-                //printf("extra size : %d, nal size : %d, nal data : %x,%x,%x,%x,%x,%x\n", data_idx, nal->size + 4, extradata_buf[data_idx + 2], 
-                //extradata_buf[data_idx + 3], extradata_buf[data_idx + 4], extradata_buf[data_idx + 5], extradata_buf[data_idx + 6], extradata_buf[data_idx + 7]);
-                //send nal data to vdec
-                ret = ss_hevc_send_stream(extradata_buf, nal->size + data_idx + sizeof(start_code), avpkt->pts);
+                if (!(s->avctx->flags & (1 << 7)))
+                {
+                    //add head to nal data
+                    memcpy(extradata_buf + data_idx, start_code, sizeof(start_code));
+                    extradata_buf[data_idx + 3] =1;
+                    memcpy(extradata_buf + data_idx + sizeof(start_code), nal->data, nal->size);
+                    //printf("extra size : %d, nal size : %d, nal data : %x,%x,%x,%x,%x,%x\n", data_idx, nal->size + 4, extradata_buf[data_idx + 2], 
+                    //extradata_buf[data_idx + 3], extradata_buf[data_idx + 4], extradata_buf[data_idx + 5], extradata_buf[data_idx + 6], extradata_buf[data_idx + 7]);
+                    //send nal data to vdec
+                    ret = ss_hevc_send_stream(extradata_buf, nal->size + data_idx + sizeof(start_code), avpkt->pts);
+                }
                 break;
             case HEVC_NAL_EOS_NUT:
             case HEVC_NAL_EOB_NUT:
@@ -448,6 +459,8 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
         av_freep(&extradata_buf);
     }
 
+    ff_h2645_packet_uninit(&s->pkt);
+
     return MI_SUCCESS;
 }
 
@@ -458,7 +471,7 @@ static int ss_hevc_parser_nalu(SsHevcContext *s, const uint8_t *buf, int buf_siz
     H2645Packet pkt = { 0 };
     const uint8_t start_code[4] = {0,0,0,1}; 
 
-    ret = ff_h2645_packet_split(&pkt, buf, buf_size, logctx, is_nalff, nal_length_size, AV_CODEC_ID_HEVC, 1);
+    ret = ss_h2645_packet_split(&pkt, buf, buf_size, logctx, is_nalff, nal_length_size, AV_CODEC_ID_HEVC, 1);
     if (ret < 0) {
         return ret;
     }
@@ -471,10 +484,9 @@ static int ss_hevc_parser_nalu(SsHevcContext *s, const uint8_t *buf, int buf_siz
         {
             /* ignore everything except parameter sets and VCL NALUs */
             case HEVC_NAL_VPS:
+                s->data_size = 0;
             case HEVC_NAL_SPS:
             case HEVC_NAL_PPS:
-            //case HEVC_NAL_SEI_PREFIX:
-            //case HEVC_NAL_SEI_SUFFIX:
                 memcpy(s->data + s->data_size, start_code, sizeof(start_code));
                 s->data[s->data_size + 3] = 1;
                 s->data_size += sizeof(start_code);
@@ -485,7 +497,9 @@ static int ss_hevc_parser_nalu(SsHevcContext *s, const uint8_t *buf, int buf_siz
 
             default : break;
         }
-    }	
+    }
+done:
+    ff_h2645_packet_uninit(&pkt);
     return ret;
 }
 
@@ -493,17 +507,17 @@ static av_cold int ss_hevc_decode_free(AVCodecContext *avctx)
 {
     MI_VDEC_CHN stVdecChn = VDEC_CHN_ID;
     SsHevcContext *s = avctx->priv_data;
-    
+
     av_frame_free(&s->frame);
     av_freep(&s->data);
     ff_h2645_packet_uninit(&s->pkt);
-    pts_queue_destroy(&hevc_pts);
-    decoder_type = DEFAULT_DECODING;
+    //pts_queue_destroy(&hevc_pts);
+    //fclose(hevc_fd);
 
     STCHECKRESULT(MI_VDEC_StopChn(stVdecChn));
     STCHECKRESULT(MI_VDEC_DestroyChn(stVdecChn));
-
-    printf("ss_hevc_decode_free!\n");
+    STCHECKRESULT(MI_VDEC_DeInitDev());
+    av_log(avctx, AV_LOG_INFO, "ss_hevc_decode_free successful!\n");
 
     return 0;
 }
@@ -577,8 +591,6 @@ static av_cold int ss_hevc_decode_init(AVCodecContext *avctx)
     const AVPixFmtDescriptor *desc;
     SsHevcContext *s = avctx->priv_data;
 
-    //printf("ss_hevc_decode_init width: %d, height : %d\n", avctx->width, avctx->height);
-
     s->avctx = avctx;
     s->eos = 0;
 
@@ -601,6 +613,7 @@ static av_cold int ss_hevc_decode_init(AVCodecContext *avctx)
         return 0;
     }
 
+    //printf("ss_hevc_decode_init width: %d, height : %d\n", avctx->width, avctx->height);
     //av_log(avctx, AV_LOG_INFO, "frame width : %d, height : %d.\n", s->frame->width, s->frame->height);
 
     if (avctx->pix_fmt != AV_PIX_FMT_NONE)
@@ -613,8 +626,8 @@ static av_cold int ss_hevc_decode_init(AVCodecContext *avctx)
         avctx->pix_fmt  = AV_PIX_FMT_NV12;
     }
 
-    pts_queue_init(&hevc_pts);
-    decoder_type = HARD_DECODING;
+    //pts_queue_init(&hevc_pts);
+    //FILE *fpread = fopen("/mnt/pstream_hevc.es", "a+");
 
     // Init vdec module
     if (MI_SUCCESS != (ret = ss_hevc_vdec_init(avctx)))
@@ -633,7 +646,7 @@ static av_cold int ss_hevc_decode_init(AVCodecContext *avctx)
         }
     }
 
-    printf("sshevc_decode_init success!\r\n");
+    av_log(avctx, AV_LOG_INFO, "sshevc_decode_init successful!\n");
 
     return 0;
 }
@@ -767,6 +780,16 @@ static int ss_hevc_receive_frame(AVCodecContext *avctx, AVFrame *frame)
     return avpkt->size;
 }
 
+static void ss_hevc_decode_flush(AVCodecContext *avctx)
+{
+    if (avctx->flags & (1 << 7))
+    {
+        MI_VDEC_FlushChn(VDEC_CHN_ID);
+        avctx->flags &= ~(1 << 7);
+        //av_log(avctx, AV_LOG_INFO, "ss_hevc_decode_flush done!\n");
+    }
+}
+
 AVCodec ff_sshevc_decoder = {
     .name                  = "sshevc",
     .long_name             = NULL_IF_CONFIG_SMALL("HEVC (High Efficiency Video Coding)"),
@@ -777,6 +800,7 @@ AVCodec ff_sshevc_decoder = {
     .close                 = ss_hevc_decode_free,
     .decode                = ss_hevc_decode_frame,
     .receive_frame         = ss_hevc_receive_frame,
+    .flush                 = ss_hevc_decode_flush,
     .capabilities          = /*AV_CODEC_CAP_DR1 |*/ AV_CODEC_CAP_DELAY |
                              AV_CODEC_CAP_SLICE_THREADS | AV_CODEC_CAP_FRAME_THREADS,
     .hw_configs            = (const AVCodecHWConfigInternal*[]) {

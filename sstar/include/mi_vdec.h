@@ -32,6 +32,7 @@ MI_S32 MI_VDEC_GetChnAttr(MI_VDEC_CHN VdecChn, MI_VDEC_ChnAttr_t *pstChnAttr);
 MI_S32 MI_VDEC_StartChn(MI_VDEC_CHN VdecChn);
 MI_S32 MI_VDEC_StopChn(MI_VDEC_CHN VdecChn);
 MI_S32 MI_VDEC_GetChnStat(MI_VDEC_CHN VdecChn, MI_VDEC_ChnStat_t *pstChnStat);
+MI_S32 MI_VDEC_FlushChn(MI_VDEC_CHN VdecChn);
 MI_S32 MI_VDEC_ResetChn(MI_VDEC_CHN VdecChn);
 MI_S32 MI_VDEC_SetChnParam(MI_VDEC_CHN VdecChn, MI_VDEC_ChnParam_t *pstChnParam);
 MI_S32 MI_VDEC_GetChnParam(MI_VDEC_CHN VdecChn, MI_VDEC_ChnParam_t *pstChnParam);

@@ -27,10 +27,6 @@
 #include "get_bits.h"
 
 
-#define  DEFAULT_DECODING  0
-#define  HARD_DECODING     1
-extern unsigned char decoder_type;
-
 #define MAX_MBPAIR_SIZE (256*1024) // a tighter bound could be calculated if someone cares about a few bytes
 
 typedef struct H2645NAL {
@@ -86,12 +82,17 @@ typedef struct H2645Packet {
 /**
  * Extract the raw (unescaped) bitstream.
  */
+int ss_h2645_extract_rbsp(const uint8_t *src, int length, H2645RBSP *rbsp,
+                          H2645NAL *nal, int small_padding); 
 int ff_h2645_extract_rbsp(const uint8_t *src, int length, H2645RBSP *rbsp,
                           H2645NAL *nal, int small_padding);
 
 /**
  * Split an input packet into NAL units.
  */
+int ss_h2645_packet_split(H2645Packet *pkt, const uint8_t *buf, int length,
+                          void *logctx, int is_nalff, int nal_length_size,
+                          enum AVCodecID codec_id, int small_padding); 
 int ff_h2645_packet_split(H2645Packet *pkt, const uint8_t *buf, int length,
                           void *logctx, int is_nalff, int nal_length_size,
                           enum AVCodecID codec_id, int small_padding);

@@ -31,7 +31,122 @@
 #include "h264.h"
 #include "h2645_parse.h"
 
-unsigned char decoder_type = DEFAULT_DECODING;
+
+int ss_h2645_extract_rbsp(const uint8_t *src, int length,
+                          H2645RBSP *rbsp, H2645NAL *nal, int small_padding)
+{
+    int i, si, di;
+    uint8_t *dst;
+
+    nal->skipped_bytes = 0;
+#define STARTCODE_TEST                                                  \
+        if (i + 2 < length && src[i + 1] == 0 && src[i + 2] <= 3) {     \
+            if (src[i + 2] != 3 && src[i + 2] != 0) {                   \
+                /* startcode, so we must be past the end */             \
+                length = i;                                             \
+            }                                                           \
+            break;                                                      \
+        }
+#if HAVE_FAST_UNALIGNED
+#define FIND_FIRST_ZERO                                                 \
+        if (i > 0 && !src[i])                                           \
+            i--;                                                        \
+        while (src[i])                                                  \
+            i++
+#if HAVE_FAST_64BIT
+    for (i = 0; i + 1 < length; i += 9) {
+        if (!((~AV_RN64(src + i) &
+               (AV_RN64(src + i) - 0x0100010001000101ULL)) &
+              0x8000800080008080ULL))
+            continue;
+        FIND_FIRST_ZERO;
+        STARTCODE_TEST;
+        i -= 7;
+    }
+#else
+    for (i = 0; i + 1 < length; i += 5) {
+        if (!((~AV_RN32(src + i) &
+               (AV_RN32(src + i) - 0x01000101U)) &
+              0x80008080U))
+            continue;
+        FIND_FIRST_ZERO;
+        STARTCODE_TEST;
+        i -= 3;
+    }
+#endif /* HAVE_FAST_64BIT */
+#else
+    for (i = 0; i + 1 < length; i += 2) {
+        if (src[i])
+            continue;
+        if (i > 0 && src[i - 1] == 0)
+            i--;
+        STARTCODE_TEST;
+    }
+#endif /* HAVE_FAST_UNALIGNED */
+
+    if (i >= length - 1 && small_padding) { // no escaped 0
+        nal->data     =
+        nal->raw_data = src;
+        nal->size     =
+        nal->raw_size = length;
+        return length;
+    } else if (i > length)
+        i = length;
+
+    nal->rbsp_buffer = &rbsp->rbsp_buffer[rbsp->rbsp_buffer_size];
+    dst = nal->rbsp_buffer;
+
+    memcpy(dst, src, i);
+    si = di = i;
+    while (si + 2 < length) {
+        // remove escapes (very rare 1:2^22)
+        if (src[si + 2] > 3) {
+            dst[di++] = src[si++];
+            dst[di++] = src[si++];
+        } else if (src[si] == 0 && src[si + 1] == 0 && src[si + 2] != 0) {
+            if (src[si + 2] == 3) { // escape
+                dst[di++] = 0;
+                dst[di++] = 0;
+                dst[di++] = 3;
+                si       += 3;
+                if (nal->skipped_bytes_pos) {
+                    nal->skipped_bytes++;
+                    if (nal->skipped_bytes_pos_size < nal->skipped_bytes) {
+                        nal->skipped_bytes_pos_size *= 2;
+                        av_assert0(nal->skipped_bytes_pos_size >= nal->skipped_bytes);
+                        av_reallocp_array(&nal->skipped_bytes_pos,
+                                nal->skipped_bytes_pos_size,
+                                sizeof(*nal->skipped_bytes_pos));
+                        if (!nal->skipped_bytes_pos) {
+                            nal->skipped_bytes_pos_size = 0;
+                            return AVERROR(ENOMEM);
+                        }
+                    }
+                    if (nal->skipped_bytes_pos)
+                        nal->skipped_bytes_pos[nal->skipped_bytes-1] = di - 1;
+                }
+                continue;
+            } else // next start code
+                goto nsc;
+        }
+
+        dst[di++] = src[si++];
+    }
+    while (si < length)
+        dst[di++] = src[si++];
+
+nsc:
+    memset(dst + di, 0, AV_INPUT_BUFFER_PADDING_SIZE);
+
+    nal->data = dst;
+    nal->size = di;
+    nal->raw_data = src;
+    nal->raw_size = si;
+    rbsp->rbsp_buffer_size += si;
+
+    return si;
+}
+
 
 int ff_h2645_extract_rbsp(const uint8_t *src, int length,
                           H2645RBSP *rbsp, H2645NAL *nal, int small_padding)
@@ -108,30 +223,23 @@ int ff_h2645_extract_rbsp(const uint8_t *src, int length,
             if (src[si + 2] == 3) { // escape
                 dst[di++] = 0;
                 dst[di++] = 0;
-              
-				//if (CONFIG_SSH264_DECODER || CONFIG_SSHEVC_DECODER) {
-				if (decoder_type == HARD_DECODING) {
-					dst[di++] = 3;
-					si		 += 3;
-				} else {
-					si		 += 3;
-					if (nal->skipped_bytes_pos) {
-						nal->skipped_bytes++;
-						if (nal->skipped_bytes_pos_size < nal->skipped_bytes) {
-							nal->skipped_bytes_pos_size *= 2;
-							av_assert0(nal->skipped_bytes_pos_size >= nal->skipped_bytes);
-							av_reallocp_array(&nal->skipped_bytes_pos,
-									nal->skipped_bytes_pos_size,
-									sizeof(*nal->skipped_bytes_pos));
-							if (!nal->skipped_bytes_pos) {
-								nal->skipped_bytes_pos_size = 0;
-								return AVERROR(ENOMEM);
-							}
-						}
-						if (nal->skipped_bytes_pos)
-							nal->skipped_bytes_pos[nal->skipped_bytes-1] = di - 1;
-					}
-				}
+                si       += 3;
+                if (nal->skipped_bytes_pos) {
+                    nal->skipped_bytes++;
+                    if (nal->skipped_bytes_pos_size < nal->skipped_bytes) {
+                        nal->skipped_bytes_pos_size *= 2;
+                        av_assert0(nal->skipped_bytes_pos_size >= nal->skipped_bytes);
+                        av_reallocp_array(&nal->skipped_bytes_pos,
+                                nal->skipped_bytes_pos_size,
+                                sizeof(*nal->skipped_bytes_pos));
+                        if (!nal->skipped_bytes_pos) {
+                            nal->skipped_bytes_pos_size = 0;
+                            return AVERROR(ENOMEM);
+                        }
+                    }
+                    if (nal->skipped_bytes_pos)
+                        nal->skipped_bytes_pos[nal->skipped_bytes-1] = di - 1;
+                }
                 continue;
             } else // next start code
                 goto nsc;
@@ -350,6 +458,130 @@ static int find_next_start_code(const uint8_t *buf, const uint8_t *next_avc)
     }
     return i + 3;
 }
+
+int ss_h2645_packet_split(H2645Packet *pkt, const uint8_t *buf, int length,
+                          void *logctx, int is_nalff, int nal_length_size,
+                          enum AVCodecID codec_id, int small_padding)
+{
+    GetByteContext bc;
+    int consumed, ret = 0;
+    int next_avc = is_nalff ? 0 : length;
+    int64_t padding = small_padding ? 0 : MAX_MBPAIR_SIZE;
+
+    bytestream2_init(&bc, buf, length);
+    av_fast_padded_malloc(&pkt->rbsp.rbsp_buffer, &pkt->rbsp.rbsp_buffer_alloc_size, length + padding);
+    if (!pkt->rbsp.rbsp_buffer)
+        return AVERROR(ENOMEM);
+
+    pkt->rbsp.rbsp_buffer_size = 0;
+    pkt->nb_nals = 0;
+    while (bytestream2_get_bytes_left(&bc) >= 4) {
+        H2645NAL *nal;
+        int extract_length = 0;
+        int skip_trailing_zeros = 1;
+
+        if (bytestream2_tell(&bc) == next_avc) {
+            int i = 0;
+            extract_length = get_nalsize(nal_length_size,
+                                         bc.buffer, bytestream2_get_bytes_left(&bc), &i, logctx);
+            if (extract_length < 0)
+                return extract_length;
+
+            bytestream2_skip(&bc, nal_length_size);
+
+            next_avc = bytestream2_tell(&bc) + extract_length;
+        } else {
+            int buf_index;
+
+            if (bytestream2_tell(&bc) > next_avc)
+                av_log(logctx, AV_LOG_WARNING, "Exceeded next NALFF position, re-syncing.\n");
+
+            /* search start code */
+            buf_index = find_next_start_code(bc.buffer, buf + next_avc);
+
+            bytestream2_skip(&bc, buf_index);
+
+            if (!bytestream2_get_bytes_left(&bc)) {
+                if (pkt->nb_nals > 0) {
+                    // No more start codes: we discarded some irrelevant
+                    // bytes at the end of the packet.
+                    return 0;
+                } else {
+                    av_log(logctx, AV_LOG_ERROR, "No start code is found.\n");
+                    return AVERROR_INVALIDDATA;
+                }
+            }
+
+            extract_length = FFMIN(bytestream2_get_bytes_left(&bc), next_avc - bytestream2_tell(&bc));
+
+            if (bytestream2_tell(&bc) >= next_avc) {
+                /* skip to the start of the next NAL */
+                bytestream2_skip(&bc, next_avc - bytestream2_tell(&bc));
+                continue;
+            }
+        }
+
+        if (pkt->nals_allocated < pkt->nb_nals + 1) {
+            int new_size = pkt->nals_allocated + 1;
+            void *tmp = av_realloc_array(pkt->nals, new_size, sizeof(*pkt->nals));
+
+            if (!tmp)
+                return AVERROR(ENOMEM);
+
+            pkt->nals = tmp;
+            memset(pkt->nals + pkt->nals_allocated, 0,
+                   (new_size - pkt->nals_allocated) * sizeof(*pkt->nals));
+
+            nal = &pkt->nals[pkt->nb_nals];
+            nal->skipped_bytes_pos_size = 1024; // initial buffer size
+            nal->skipped_bytes_pos = av_malloc_array(nal->skipped_bytes_pos_size, sizeof(*nal->skipped_bytes_pos));
+            if (!nal->skipped_bytes_pos)
+                return AVERROR(ENOMEM);
+
+            pkt->nals_allocated = new_size;
+        }
+        nal = &pkt->nals[pkt->nb_nals];
+
+        consumed = ss_h2645_extract_rbsp(bc.buffer, extract_length, &pkt->rbsp, nal, small_padding);
+        if (consumed < 0)
+            return consumed;
+
+        if (is_nalff && (extract_length != consumed) && extract_length)
+            av_log(logctx, AV_LOG_DEBUG,
+                   "NALFF: Consumed only %d bytes instead of %d\n",
+                   consumed, extract_length);
+
+        pkt->nb_nals++;
+
+        bytestream2_skip(&bc, consumed);
+
+        /* see commit 3566042a0 */
+        if (bytestream2_get_bytes_left(&bc) >= 4 &&
+            bytestream2_peek_be32(&bc) == 0x000001E0)
+            skip_trailing_zeros = 0;
+
+        nal->size_bits = get_bit_length(nal, skip_trailing_zeros);
+
+        ret = init_get_bits(&nal->gb, nal->data, nal->size_bits);
+        if (ret < 0)
+            return ret;
+
+        if (codec_id == AV_CODEC_ID_HEVC)
+            ret = hevc_parse_nal_header(nal, logctx);
+        else
+            ret = h264_parse_nal_header(nal, logctx);
+        if (ret <= 0 || nal->size <= 0 || nal->size_bits <= 0) {
+            if (ret < 0) {
+                av_log(logctx, AV_LOG_ERROR, "Invalid NAL unit %d, skipping.\n",
+                       nal->type);
+            }
+            pkt->nb_nals--;
+        }
+    }
+
+    return 0;
+}
+
 
 int ff_h2645_packet_split(H2645Packet *pkt, const uint8_t *buf, int length,
                           void *logctx, int is_nalff, int nal_length_size,
