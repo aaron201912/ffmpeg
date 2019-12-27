@@ -172,7 +172,7 @@ pts_queue_t h264_pts;
 #endif
 
 pthread_cond_t h264_thread;
-//FILE *h264_fd;
+FILE *h264_fd;
 /****************************************************************************************************/
 // 此函数用于获取带B帧图像
 static int ss_h264_inject_frame(SsH264Context *ssctx, AVFrame *frame)
@@ -193,7 +193,7 @@ static int ss_h264_inject_frame(SsH264Context *ssctx, AVFrame *frame)
     stVdecChnPort.u32DevId    = 0;
     stVdecChnPort.u32ChnId    = VDEC_CHN_ID;
     stVdecChnPort.u32PortId   = 0;
-    MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 2, 5);
+    MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 3, 6);
 
     if (MI_SUCCESS == (ret = MI_SYS_ChnOutputPortGetBuf(&stVdecChnPort, &stVdecBufInfo, &stVdecHandle)))
     {
@@ -262,7 +262,7 @@ static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
     stVdecChnPort.u32DevId    = 0;
     stVdecChnPort.u32ChnId    = VDEC_CHN_ID;
     stVdecChnPort.u32PortId   = 0;
-    MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 2, 5);
+    MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 3, 6);
     
     if (MI_SUCCESS == (ret = MI_SYS_ChnOutputPortGetBuf(&stVdecChnPort, &stVdecBufInfo, &stVdecHandle)))
     {
@@ -585,11 +585,9 @@ static int ss_h264_decode_extradata(const uint8_t *data, int size,
 
             // copy sps data to extradata
             memcpy(ssctx->extradata + ssctx->extradata_size, start_code, sizeof(start_code));
+            memcpy(ssctx->extradata + ssctx->extradata_size + sizeof(start_code), p + 2, nalsize - 2);
             ssctx->extradata[ssctx->extradata_size + 3] = 1;
-            ssctx->extradata_size += sizeof(start_code);
-            memcpy(ssctx->extradata + ssctx->extradata_size, p + 2, nalsize - 2);
-            ssctx->extradata_size += nalsize - 2;
-
+            ssctx->extradata_size += (nalsize - 2 + sizeof(start_code));
             p += nalsize;
         }
         // Decode pps from avcC
@@ -607,11 +605,9 @@ static int ss_h264_decode_extradata(const uint8_t *data, int size,
 
             // copy pps data to extradata
             memcpy(ssctx->extradata + ssctx->extradata_size, start_code, sizeof(start_code));
+            memcpy(ssctx->extradata + ssctx->extradata_size + sizeof(start_code), p + 2, nalsize - 2);
             ssctx->extradata[ssctx->extradata_size + 3] = 1;
-            ssctx->extradata_size += sizeof(start_code);
-            memcpy(ssctx->extradata + ssctx->extradata_size, p + 2, nalsize - 2);
-            ssctx->extradata_size += nalsize - 2;
-
+            ssctx->extradata_size += (nalsize - 2 + sizeof(start_code));
             p += nalsize;
         }
         // Store right nal length size that will be used to parse all other nals
@@ -627,6 +623,7 @@ static MI_U32 ss_h264_vdec_init(AVCodecContext *avctx)
     MI_VDEC_CHN stVdecChn = VDEC_CHN_ID;
     MI_VDEC_InitParam_t stVdecInitParam;
 
+    av_log(avctx, AV_LOG_WARNING, "h264 has b frames : %d\n", avctx->has_b_frames);
     memset(&stVdecInitParam, 0, sizeof(MI_VDEC_InitParam_t));
     if (avctx->has_b_frames > 0)
         stVdecInitParam.bDisableLowLatency = true;
@@ -636,7 +633,7 @@ static MI_U32 ss_h264_vdec_init(AVCodecContext *avctx)
 
     memset(&stVdecChnAttr, 0, sizeof(MI_VDEC_ChnAttr_t));
     stVdecChnAttr.eCodecType    = E_MI_VDEC_CODEC_TYPE_H264;
-    stVdecChnAttr.stVdecVideoAttr.u32RefFrameNum = 10;
+    stVdecChnAttr.stVdecVideoAttr.u32RefFrameNum = 16;
     stVdecChnAttr.eVideoMode    = E_MI_VDEC_VIDEO_MODE_FRAME;
     stVdecChnAttr.u32BufSize    = 1 * 1920 * 1080;
     stVdecChnAttr.u32PicWidth   = avctx->width;
@@ -697,7 +694,7 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
 
     // Init pts output
     //pts_queue_init(&h264_pts);
-    //FILE *h264_fd = fopen("/mnt/pstream_h264.es", "a+");
+    //h264_fd = fopen("/mnt/pstream_h264.es", "a+");
 
     // Init vdec module
     if (MI_SUCCESS != (ret = ss_h264_vdec_init(avctx)))
@@ -765,8 +762,9 @@ static int is_extra(const uint8_t *buf, int buf_size)
 
 static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
 {
-    int ret, i;
+    int ret, i, data_idx;
     const uint8_t start_code[4] = {0,0,0,1};
+    uint8_t *extrabuf;
 
     ret = ss_h2645_packet_split(&s->pkt, avpkt->data, avpkt->size, s->avctx, s->is_avc,
                              s->nal_length_size, s->avctx->codec_id, 1);
@@ -776,36 +774,27 @@ static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
     }
     //printf("avpkt size : %d, pkt.nb_nals : %d\n", avpkt->size, s->pkt.nb_nals);
     /* decode the NAL units */
+    extrabuf = av_mallocz(avpkt->size + s->extradata_size);
+    if (!extrabuf)
+        return AVERROR(ENOMEM);
+    data_idx = 0;
     for (i = 0; i < s->pkt.nb_nals; i++)
     {
         H2645NAL *nal = &s->pkt.nals[i];
-        int data_idx = 0;
-        uint8_t *extrabuf = av_mallocz(nal->size + sizeof(start_code) + s->extradata_size);
-        if (!extrabuf)
-            return AVERROR(ENOMEM);
-
-        //printf("avpckt data addr : %x. nal data addr : %x. tmp buf addr : %x.\n", (uint32_t)avpkt->data, (uint32_t)nal->data, (uint32_t)extrabuf);
-    
         switch (nal->type) {
-            case H264_NAL_SPS:
-                s->extradata_size = 0;
-            case H264_NAL_PPS:
-                memcpy(s->extradata + s->extradata_size, start_code, sizeof(start_code));
-                s->extradata[s->extradata_size + 3] = 1;
-                s->extradata_size += sizeof(start_code);
-                memcpy(s->extradata + s->extradata_size, nal->data, nal->size);
-                s->extradata_size += nal->size;
-                //printf("sps/pps size : %d, sps/pps data : %x,%x,%x,%x\n", nal->size + 4, s->extradata[s->extradata_size + 2], s->extradata[s->extradata_size + 3], 
-                //s->extradata[s->extradata_size + 4],s->extradata[s->extradata_size + 5]);
-                break;
             case H264_NAL_IDR_SLICE:
-                s->avctx->flags &= ~(1 << 7);
-                memcpy(extrabuf, s->extradata, s->extradata_size);
-                data_idx = s->extradata_size;
+                if (data_idx == 0)
+                {
+                    s->avctx->flags &= ~(1 << 7);
+                    memcpy(extrabuf, s->extradata, s->extradata_size);
+                    data_idx = s->extradata_size;
+                }
             case H264_NAL_SLICE:
             case H264_NAL_DPA:
             case H264_NAL_DPB:
             case H264_NAL_DPC:
+            case H264_NAL_SPS:
+            case H264_NAL_PPS:
                 //if (h264_pts.idx > 10)
                 //    pts_queue_get(&h264_pts, &ret);
                 //pts_queue_put(&h264_pts, avpkt->pts);
@@ -814,19 +803,22 @@ static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
                 {
                     //add data head to nal
                     memcpy(extrabuf + data_idx, start_code, sizeof(start_code));
-                    extrabuf[data_idx + 3] = 1;
                     memcpy(extrabuf + data_idx + sizeof(start_code), nal->data, nal->size);
+                    extrabuf[data_idx + 3] = 1;
+                    data_idx += (nal->size + sizeof(start_code));
                     //printf("extra size : %d, nal size : %d, nal data : %x,%x,%x,%x,%x,%x\n", data_idx, nal->size + 4, extrabuf[data_idx + 2], 
                     //extrabuf[data_idx + 3], extrabuf[data_idx + 4], extrabuf[data_idx + 5], extrabuf[data_idx + 6], extrabuf[data_idx + 7]);
-                    //send nal data to vdec
-                    ret = ss_h264_send_stream(extrabuf, nal->size + data_idx + sizeof(start_code), avpkt->pts);
                 }
                 break;
             default : break;
         }
-
-        av_freep(&extrabuf);
     }
+    //send nal data to vdec
+    if (!(s->avctx->flags & (1 << 7)))
+    {
+        ret = ss_h264_send_stream(extrabuf, data_idx, avpkt->pts);
+    }
+    av_freep(&extrabuf);
 
     ff_h2645_packet_uninit(&s->pkt);
 

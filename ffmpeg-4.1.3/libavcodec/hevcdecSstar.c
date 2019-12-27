@@ -174,7 +174,7 @@ static int ss_hevc_inject_frame(SsHevcContext *ssctx, AVFrame *frame)
     stVdecChnPort.u32DevId    = 0;
     stVdecChnPort.u32ChnId    = VDEC_CHN_ID;
     stVdecChnPort.u32PortId   = 0;
-    MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 3, 7);
+    MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 3, 6);
 
     if (MI_SUCCESS == (ret = MI_SYS_ChnOutputPortGetBuf(&stVdecChnPort, &stVdecBufInfo, &stVdecHandle)))
     {
@@ -246,7 +246,7 @@ static int ss_hevc_get_frame(SsHevcContext *ssctx, AVFrame *frame)
     stVdecChnPort.u32DevId      = 0;
     stVdecChnPort.u32ChnId      = VDEC_CHN_ID;
     stVdecChnPort.u32PortId     = 0;
-    MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 3, 7);
+    MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 3, 6);
 
     if (MI_SUCCESS == (ret = MI_SYS_ChnOutputPortGetBuf(&stVdecChnPort, &stVdecBufInfo, &stVdecHandle)))
     {
@@ -296,6 +296,7 @@ static MI_U32 ss_hevc_vdec_init(AVCodecContext *avctx)
     MI_VDEC_CHN stVdecChn = VDEC_CHN_ID;
     MI_VDEC_InitParam_t stVdecInitParam;
 
+    av_log(avctx, AV_LOG_WARNING, "hevc has b frames : %d\n", avctx->has_b_frames);
     memset(&stVdecInitParam, 0, sizeof(MI_VDEC_InitParam_t));
     if (avctx->has_b_frames > 0)
         stVdecInitParam.bDisableLowLatency = true;
@@ -306,7 +307,7 @@ static MI_U32 ss_hevc_vdec_init(AVCodecContext *avctx)
 
     memset(&stVdecChnAttr, 0, sizeof(MI_VDEC_ChnAttr_t));
     stVdecChnAttr.eCodecType    = E_MI_VDEC_CODEC_TYPE_H265;
-    stVdecChnAttr.stVdecVideoAttr.u32RefFrameNum = 15;
+    stVdecChnAttr.stVdecVideoAttr.u32RefFrameNum = 16;
     stVdecChnAttr.eVideoMode    = E_MI_VDEC_VIDEO_MODE_FRAME;
     stVdecChnAttr.u32BufSize    = 1 * 1920 * 1080;
     stVdecChnAttr.u32PicWidth   = avctx->width;
@@ -360,11 +361,9 @@ static MI_U32 ss_hevc_send_stream(MI_U8 *data, MI_U32 size, int64_t pts)
 
 static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
 {
-    int eos_at_start = 1, i, ret;
+    int i, ret, data_idx;
     const uint8_t start_code[4] = {0,0,0,1}; 
-
-    s->last_eos = s->eos;
-    s->eos = 0;
+    uint8_t *extradata_buf;
 
     ret = ss_h2645_packet_split(&s->pkt, avpkt->data, avpkt->size, s->avctx, s->is_nalff,
                                  s->nal_length_size, s->avctx->codec_id, 1);
@@ -374,49 +373,29 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
         "Error splitting the input into NAL units.\n");
         return ret;
     }
-
-    for (i = 0; i < s->pkt.nb_nals; i++){
-        if (s->pkt.nals[i].type == HEVC_NAL_EOB_NUT ||
-            s->pkt.nals[i].type == HEVC_NAL_EOS_NUT) {
-            if (eos_at_start) {
-                s->last_eos = 1;
-            } else {
-                s->eos = 1;
-            }
-        } else {
-            eos_at_start = 0;
-        }
-    }
-
+    //printf("avpkt size : %d, pkt.nb_nals : %d\n", avpkt->size, s->pkt.nb_nals);
     /* decode the NAL units */
+    extradata_buf = av_mallocz(avpkt->size + s->data_size);
+    if (!extradata_buf)
+        return AVERROR(ENOMEM);
+    data_idx = 0;
     for (i = 0; i < s->pkt.nb_nals; i++)
     {
         H2645NAL *nal = &s->pkt.nals[i];
-        int data_idx = 0;
-        uint8_t *extradata_buf = av_mallocz(nal->size + sizeof(start_code) + s->data_size);
-        if (!extradata_buf)
-            return AVERROR(ENOMEM);
-
         switch (nal->type)
         {
-            case HEVC_NAL_VPS:
-                s->data_size = 0;
-            case HEVC_NAL_SPS:
-            case HEVC_NAL_PPS:
-                memcpy(s->data + s->data_size, start_code, sizeof(start_code));
-                s->data[s->data_size + 3] = 1;
-                s->data_size += sizeof(start_code);
-                memcpy(s->data + s->data_size, nal->data, nal->size);
-                s->data_size += nal->size;
-                //printf("vps/sps/pps size : %d, vps/sps/pps data : %x,%x,%x,%x\n", nal->size + 4, s->data[s->data_size + 2], 
-                //s->data[s->data_size + 3], s->data[s->data_size + 4],s->data[s->data_size + 5]);
-                break;
             case HEVC_NAL_IDR_W_RADL:
             case HEVC_NAL_IDR_N_LP:
             case HEVC_NAL_CRA_NUT:
-                s->avctx->flags &= ~(1 << 7);
-                memcpy(extradata_buf, s->data, s->data_size);
-                data_idx = s->data_size;
+                if (data_idx == 0)
+                {
+                    s->avctx->flags &= ~(1 << 7);
+                    memcpy(extradata_buf, s->data, s->data_size);
+                    data_idx = s->data_size;
+                }
+            case HEVC_NAL_VPS:
+            case HEVC_NAL_SPS:
+            case HEVC_NAL_PPS:
             case HEVC_NAL_TRAIL_R:
             case HEVC_NAL_TRAIL_N:
             case HEVC_NAL_TSA_N:
@@ -438,26 +417,22 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
                 {
                     //add head to nal data
                     memcpy(extradata_buf + data_idx, start_code, sizeof(start_code));
-                    extradata_buf[data_idx + 3] =1;
                     memcpy(extradata_buf + data_idx + sizeof(start_code), nal->data, nal->size);
+                    extradata_buf[data_idx + 3] = 1;
+                    data_idx += (nal->size + sizeof(start_code));
                     //printf("extra size : %d, nal size : %d, nal data : %x,%x,%x,%x,%x,%x\n", data_idx, nal->size + 4, extradata_buf[data_idx + 2], 
                     //extradata_buf[data_idx + 3], extradata_buf[data_idx + 4], extradata_buf[data_idx + 5], extradata_buf[data_idx + 6], extradata_buf[data_idx + 7]);
-                    //send nal data to vdec
-                    ret = ss_hevc_send_stream(extradata_buf, nal->size + data_idx + sizeof(start_code), avpkt->pts);
                 }
-                break;
-            case HEVC_NAL_EOS_NUT:
-            case HEVC_NAL_EOB_NUT:
-                s->seq_decode = (s->seq_decode + 1) & 0xff;
-                s->max_ra     = INT_MAX;
-                break;
-            case HEVC_NAL_AUD:
-            case HEVC_NAL_FD_NUT:
                 break;
             default: break;
         }
-        av_freep(&extradata_buf);
     }
+    //send nal data to vdec
+    if (!(s->avctx->flags & (1 << 7)))
+    {
+        ret = ss_hevc_send_stream(extradata_buf, data_idx, avpkt->pts);
+    }
+    av_freep(&extradata_buf);
 
     ff_h2645_packet_uninit(&s->pkt);
 
@@ -488,10 +463,9 @@ static int ss_hevc_parser_nalu(SsHevcContext *s, const uint8_t *buf, int buf_siz
             case HEVC_NAL_SPS:
             case HEVC_NAL_PPS:
                 memcpy(s->data + s->data_size, start_code, sizeof(start_code));
+                memcpy(s->data + s->data_size + sizeof(start_code), nal->data, nal->size);
                 s->data[s->data_size + 3] = 1;
-                s->data_size += sizeof(start_code);
-                memcpy(s->data + s->data_size, nal->data, nal->size);
-                s->data_size += nal->size;
+                s->data_size += (nal->size + sizeof(start_code));
                 printf("type of nal : %x. len : %d, data : %x,%x,%x,%x\n", nal->type, nal->size, nal->data[0],nal->data[1],nal->data[2],nal->data[3]);
             break;
 
@@ -627,7 +601,7 @@ static av_cold int ss_hevc_decode_init(AVCodecContext *avctx)
     }
 
     //pts_queue_init(&hevc_pts);
-    //FILE *fpread = fopen("/mnt/pstream_hevc.es", "a+");
+    //hevc_fd = fopen("/mnt/pstream_hevc.es", "a+");
 
     // Init vdec module
     if (MI_SUCCESS != (ret = ss_hevc_vdec_init(avctx)))
