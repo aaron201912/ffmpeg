@@ -174,7 +174,7 @@ static int ss_hevc_inject_frame(SsHevcContext *ssctx, AVFrame *frame)
     stVdecChnPort.u32DevId    = 0;
     stVdecChnPort.u32ChnId    = VDEC_CHN_ID;
     stVdecChnPort.u32PortId   = 0;
-    MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 3, 6);
+    MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 2, 5);
 
     if (MI_SUCCESS == (ret = MI_SYS_ChnOutputPortGetBuf(&stVdecChnPort, &stVdecBufInfo, &stVdecHandle)))
     {
@@ -246,7 +246,7 @@ static int ss_hevc_get_frame(SsHevcContext *ssctx, AVFrame *frame)
     stVdecChnPort.u32DevId      = 0;
     stVdecChnPort.u32ChnId      = VDEC_CHN_ID;
     stVdecChnPort.u32PortId     = 0;
-    MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 3, 6);
+    MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 2, 5);
 
     if (MI_SUCCESS == (ret = MI_SYS_ChnOutputPortGetBuf(&stVdecChnPort, &stVdecBufInfo, &stVdecHandle)))
     {
@@ -359,6 +359,31 @@ static MI_U32 ss_hevc_send_stream(MI_U8 *data, MI_U32 size, int64_t pts)
     return s32Ret;
 }
 
+static int64_t ss_hevc_guess_correct_pts(AVCodecContext *ctx, int64_t reordered_pts, int64_t dts)
+{
+    int64_t pts = AV_NOPTS_VALUE;
+
+    if (dts != AV_NOPTS_VALUE) {
+        ctx->pts_correction_num_faulty_dts += dts <= ctx->pts_correction_last_dts;
+        ctx->pts_correction_last_dts = dts;
+    } else if (reordered_pts != AV_NOPTS_VALUE)
+        ctx->pts_correction_last_dts = reordered_pts;
+
+    if (reordered_pts != AV_NOPTS_VALUE) {
+        ctx->pts_correction_num_faulty_pts += reordered_pts <= ctx->pts_correction_last_pts;
+        ctx->pts_correction_last_pts = reordered_pts;
+    } else if(dts != AV_NOPTS_VALUE)
+        ctx->pts_correction_last_pts = dts;
+
+    if ((ctx->pts_correction_num_faulty_pts<=ctx->pts_correction_num_faulty_dts || dts == AV_NOPTS_VALUE)
+       && reordered_pts != AV_NOPTS_VALUE)
+        pts = reordered_pts;
+    else
+        pts = dts;
+
+    return pts;
+}
+
 static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
 {
     int i, ret, data_idx;
@@ -375,7 +400,7 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
     }
     //printf("avpkt size : %d, pkt.nb_nals : %d\n", avpkt->size, s->pkt.nb_nals);
     /* decode the NAL units */
-    extradata_buf = av_mallocz(avpkt->size + s->data_size);
+    extradata_buf = av_mallocz(avpkt->size + s->max_data_size);
     if (!extradata_buf)
         return AVERROR(ENOMEM);
     data_idx = 0;
@@ -430,6 +455,7 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
     //send nal data to vdec
     if (!(s->avctx->flags & (1 << 7)))
     {
+        avpkt->pts = ss_hevc_guess_correct_pts(s->avctx, avpkt->pts, avpkt->dts);
         ret = ss_hevc_send_stream(extradata_buf, data_idx, avpkt->pts);
     }
     av_freep(&extradata_buf);
@@ -759,7 +785,6 @@ static void ss_hevc_decode_flush(AVCodecContext *avctx)
     if (avctx->flags & (1 << 7))
     {
         MI_VDEC_FlushChn(VDEC_CHN_ID);
-        avctx->flags &= ~(1 << 7);
         //av_log(avctx, AV_LOG_INFO, "ss_hevc_decode_flush done!\n");
     }
 }
