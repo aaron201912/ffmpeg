@@ -67,6 +67,7 @@ typedef struct SsHevcContext {
     uint8_t *data;
     int data_size;
     int max_data_size;
+    int find_header;
 
     // type of the first VCL NAL of the current frame
     int seq_decode;

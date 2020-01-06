@@ -74,6 +74,7 @@ typedef struct SsH264Context {
     uint8_t * extradata;
     int       max_extradata_size;
     int       extradata_size;
+    int       find_header;
 } SsH264Context;
 
 typedef struct SsCropContext {

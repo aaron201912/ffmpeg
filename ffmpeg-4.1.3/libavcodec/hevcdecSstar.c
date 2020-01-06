@@ -323,6 +323,7 @@ static MI_U32 ss_hevc_vdec_init(AVCodecContext *avctx)
     stOutputPortAttr.u16Height  = (avctx->flags2 > 0) ? avctx->flags2 : avctx->height;
     STCHECKRESULT(MI_VDEC_SetOutputPortAttr(0, &stOutputPortAttr));
 
+    printf("sshevc vdec input width, height : [%d,%d], output width, height : [%d,%d]\n", avctx->width, avctx->height, avctx->flags, avctx->flags2);
     printf("ss_hevc_vdec_init successful!\n");
 
     return MI_SUCCESS;
@@ -412,7 +413,7 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
             case HEVC_NAL_IDR_W_RADL:
             case HEVC_NAL_IDR_N_LP:
             case HEVC_NAL_CRA_NUT:
-                if (data_idx == 0)
+                if (data_idx == 0 && s->find_header)
                 {
                     s->avctx->flags &= ~(1 << 7);
                     memcpy(extradata_buf, s->data, s->data_size);
@@ -438,7 +439,7 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
                 //if (hevc_pts.idx > 10)
                 //    pts_queue_get(&hevc_pts, &ret);
                 //pts_queue_put(&hevc_pts, avpkt->pts);
-                if (!(s->avctx->flags & (1 << 7)))
+                if (!(s->avctx->flags & (1 << 7)) && s->find_header)
                 {
                     //add head to nal data
                     memcpy(extradata_buf + data_idx, start_code, sizeof(start_code));
@@ -448,12 +449,23 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
                     //printf("extra size : %d, nal size : %d, nal data : %x,%x,%x,%x,%x,%x\n", data_idx, nal->size + 4, extradata_buf[data_idx + 2], 
                     //extradata_buf[data_idx + 3], extradata_buf[data_idx + 4], extradata_buf[data_idx + 5], extradata_buf[data_idx + 6], extradata_buf[data_idx + 7]);
                 }
+                if (!s->find_header && (nal->type == HEVC_NAL_VPS || nal->type == HEVC_NAL_SPS || nal->type == HEVC_NAL_PPS))
+                {
+                    if (nal->type == HEVC_NAL_VPS)
+                        s->data_size = 0;
+                    else if (nal->type == HEVC_NAL_PPS)
+                        s->find_header = !s->find_header;
+                    memcpy(s->data + s->data_size, start_code, sizeof(start_code));
+                    memcpy(s->data + s->data_size + sizeof(start_code), nal->data, nal->size);
+                    s->data[s->data_size + 3] = 1;
+                    s->data_size += (nal->size + sizeof(start_code));
+                }
                 break;
             default: break;
         }
     }
     //send nal data to vdec
-    if (!(s->avctx->flags & (1 << 7)))
+    if (!(s->avctx->flags & (1 << 7)) && s->find_header)
     {
         avpkt->pts = ss_hevc_guess_correct_pts(s->avctx, avpkt->pts, avpkt->dts);
         ret = ss_hevc_send_stream(extradata_buf, data_idx, avpkt->pts);
@@ -498,6 +510,7 @@ static int ss_hevc_parser_nalu(SsHevcContext *s, const uint8_t *buf, int buf_siz
             default : break;
         }
     }
+    s->find_header = 1;
 done:
     ff_h2645_packet_uninit(&pkt);
     return ret;
@@ -603,8 +616,8 @@ static av_cold int ss_hevc_decode_init(AVCodecContext *avctx)
     s->frame->format = AV_PIX_FMT_NV12;
     s->frame->width  = avctx->flags;
     s->frame->height = avctx->flags2;
-
-    s->data_size = 0;
+    s->find_header   = 0;
+    s->data_size     = 0;
     s->max_data_size = 384;
     s->data = av_mallocz(s->max_data_size);
     if (!s->data)

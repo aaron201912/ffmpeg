@@ -609,6 +609,8 @@ static int ss_h264_decode_extradata(const uint8_t *data, int size,
         }
         // Store right nal length size that will be used to parse all other nals
         *nal_length_size = (data[4] & 0x03) + 1;
+        ssctx->find_header = 1;
+        av_log(NULL, AV_LOG_INFO, "ssh264 find valid sps, pps nal header!\n");
     }
     return size;
 }
@@ -646,6 +648,7 @@ static MI_U32 ss_h264_vdec_init(AVCodecContext *avctx)
     stOutputPortAttr.u16Height  = (avctx->flags2 > 0) ? avctx->flags2 : avctx->height;
     STCHECKRESULT(MI_VDEC_SetOutputPortAttr(0, &stOutputPortAttr));
 
+    printf("ssh264 vdec input width, height : [%d,%d], output width, height : [%d,%d]\n", avctx->width, avctx->height, avctx->flags, avctx->flags2);
     printf("ss_h264_vdec_init successful!\n");
 
     return MI_SUCCESS;
@@ -669,7 +672,7 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
     s->f->format = AV_PIX_FMT_NV12;
     s->f->width  = avctx->flags;
     s->f->height = avctx->flags2;
-
+    s->find_header        = 0;
     s->extradata_size     = 0;
     s->max_extradata_size = 256;
     s->extradata = av_mallocz(s->max_extradata_size);
@@ -805,7 +808,7 @@ static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
         H2645NAL *nal = &s->pkt.nals[i];
         switch (nal->type) {
             case H264_NAL_IDR_SLICE:
-                if (data_idx == 0)
+                if (data_idx == 0 && s->find_header)
                 {
                     s->avctx->flags &= ~(1 << 7);
                     memcpy(extrabuf, s->extradata, s->extradata_size);
@@ -821,7 +824,7 @@ static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
                 //    pts_queue_get(&h264_pts, &ret);
                 //pts_queue_put(&h264_pts, avpkt->pts);
                 //printf("pps,sps,sei dts : %lld, pts : %lld\n", avpkt->dts, avpkt->pts);
-                if (!(s->avctx->flags & (1 << 7)))
+                if (!(s->avctx->flags & (1 << 7)) && s->find_header)
                 {
                     //add data head to nal
                     memcpy(extrabuf + data_idx, start_code, sizeof(start_code));
@@ -831,12 +834,23 @@ static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
                     //printf("extra size : %d, nal size : %d, nal data : %x,%x,%x,%x,%x,%x\n", data_idx, nal->size + 4, extrabuf[data_idx + 2], 
                     //extrabuf[data_idx + 3], extrabuf[data_idx + 4], extrabuf[data_idx + 5], extrabuf[data_idx + 6], extrabuf[data_idx + 7]);
                 }
+                if (!s->find_header && (nal->type == H264_NAL_SPS || nal->type == H264_NAL_PPS))
+                {
+                    if (nal->type == H264_NAL_SPS)
+                        s->extradata_size = 0;
+                    else if (nal->type == H264_NAL_PPS)
+                        s->find_header = !s->find_header;
+                    memcpy(s->extradata + s->extradata_size, start_code, sizeof(start_code));
+                    memcpy(s->extradata + s->extradata_size + sizeof(start_code), nal->data, nal->size);
+                    s->extradata[s->extradata_size + 3] = 1;
+                    s->extradata_size += (nal->size + sizeof(start_code));
+                }
                 break;
             default : break;
         }
     }
     //send nal data to vdec
-    if (!(s->avctx->flags & (1 << 7)))
+    if (!(s->avctx->flags & (1 << 7)) && s->find_header)
     {
         avpkt->pts = ss_h264_guess_correct_pts(s->avctx, avpkt->pts, avpkt->dts);
         ret = ss_h264_send_stream(extrabuf, data_idx, avpkt->pts);
