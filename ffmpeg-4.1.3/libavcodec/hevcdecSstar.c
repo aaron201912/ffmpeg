@@ -153,7 +153,7 @@ pts_queue_t hevc_pts;
 #endif
 
 pthread_cond_t hevc_thread;
-//FILE *hevc_fd;
+FILE *hevc_fd;
 /**************************************************************************/
 // 此函数用于获取带B帧的图像
 static int ss_hevc_inject_frame(SsHevcContext *ssctx, AVFrame *frame)
@@ -324,6 +324,12 @@ static MI_U32 ss_hevc_vdec_init(AVCodecContext *avctx)
     STCHECKRESULT(MI_VDEC_SetOutputPortAttr(0, &stOutputPortAttr));
 
     printf("sshevc vdec input width, height : [%d,%d], output width, height : [%d,%d]\n", avctx->width, avctx->height, avctx->flags, avctx->flags2);
+
+    if (avctx->has_b_frames > 0)
+        avctx->flags |= (1 << 6);
+    else
+        avctx->flags &= ~(1 << 6);
+
     printf("ss_hevc_vdec_init successful!\n");
 
     return MI_SUCCESS;
@@ -594,7 +600,8 @@ static int ss_hevc_decode_extradata(SsHevcContext *s, uint8_t *buf, int length, 
         if (ret < 0)
             return ret;
     }
-
+    if (s->find_header)
+        av_log(NULL, AV_LOG_INFO, "sshevc find valid vps, sps, pps nal header!\n");
     return ret;
 }
 

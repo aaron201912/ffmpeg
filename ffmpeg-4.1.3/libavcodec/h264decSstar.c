@@ -333,7 +333,7 @@ int h264_parse_sps(const uint8_t *buf, int len, h264_sps_data_t *sps) {
  
     //find sps
     bool findSPS = false;
- 
+
     if (buf[2] == 0) {
         if ((buf[4]&0x1f) == 7) { //start code 0 0 0 1
             len -= 5;
@@ -353,8 +353,7 @@ int h264_parse_sps(const uint8_t *buf, int len, h264_sps_data_t *sps) {
             findSPS = true;
         }
     }
- 
- 
+
     br_state br = BR_INIT(buf, len);
     int profile_idc, pic_order_cnt_type;
     int frame_mbs_only;
@@ -372,7 +371,6 @@ int h264_parse_sps(const uint8_t *buf, int len, h264_sps_data_t *sps) {
     br_skip_bits(&br, 8);
     br_skip_ue_golomb(&br);   /* seq_parameter_set_id */
     if (profile_idc >= 100) {
- 
         if (br_get_ue_golomb(&br) == 3) /* chroma_format_idc      */
             br_skip_bit(&br);     /* residual_colour_transform_flag */
         br_skip_ue_golomb(&br); /* bit_depth_luma - 8             */
@@ -384,30 +382,25 @@ int h264_parse_sps(const uint8_t *buf, int len, h264_sps_data_t *sps) {
                     /* seq_scaling_list_present    */
                     int last = 8, next = 8, size = (i<6) ? 16 : 64;
                     for (j = 0; j < size; j++) {
- 
                         if (next)
                             next = (last + br_get_se_golomb(&br)) & 0xff;
                         last = next ? next: last;
- 
                     }
- 
                 }
- 
     }
- 
+
     br_skip_ue_golomb(&br);      /* log2_max_frame_num - 4 */
     pic_order_cnt_type = br_get_ue_golomb(&br);
     if (pic_order_cnt_type == 0)
         br_skip_ue_golomb(&br);    /* log2_max_poc_lsb - 4 */
     else if (pic_order_cnt_type == 1) {
- 
+
         br_skip_bit(&br);          /* delta_pic_order_always_zero     */
         br_skip_se_golomb(&br);    /* offset_for_non_ref_pic          */
         br_skip_se_golomb(&br);    /* offset_for_top_to_bottom_field  */
         j = br_get_ue_golomb(&br); /* num_ref_frames_in_pic_order_cnt_cycle */
         for (i = 0; i < j; i++)
             br_skip_se_golomb(&br);  /* offset_for_ref_frame[i]         */
- 
     }
     br_skip_ue_golomb(&br);      /* ref_frames                      */
     br_skip_bit(&br);            /* gaps_in_frame_num_allowed       */
@@ -417,10 +410,10 @@ int h264_parse_sps(const uint8_t *buf, int len, h264_sps_data_t *sps) {
     printf("H.264 SPS: pic_width:  %u mbs", (unsigned) sps->width);
     printf("H.264 SPS: pic_height: %u mbs", (unsigned) sps->height);
     printf("H.264 SPS: frame only flag: %d", frame_mbs_only);
- 
+
     sps->width  *= 16;
     sps->height *= 16 * (2-frame_mbs_only);
- 
+
     if (!frame_mbs_only)
         if (br_get_bit(&br)) /* mb_adaptive_frame_field_flag */
             printf("H.264 SPS: MBAFF");
@@ -433,15 +426,13 @@ int h264_parse_sps(const uint8_t *buf, int len, h264_sps_data_t *sps) {
         uint32_t crop_bottom = br_get_ue_golomb(&br);
         printf("H.264 SPS: cropping %d %d %d %d",
                crop_left, crop_top, crop_right, crop_bottom);
- 
+
         sps->width -= 2*(crop_left + crop_right);
         if (frame_mbs_only)
             sps->height -= 2*(crop_top + crop_bottom);
         else
             sps->height -= 4*(crop_top + crop_bottom);
- 
     }
- 
     /* VUI parameters */
     sps->pixel_aspect.num = 0;
     if (br_get_bit(&br)) {
@@ -450,15 +441,12 @@ int h264_parse_sps(const uint8_t *buf, int len, h264_sps_data_t *sps) {
             /* aspect_ratio_info_present */
             uint32_t aspect_ratio_idc = br_get_u8(&br);
             printf("H.264 SPS: aspect_ratio_idc %d", aspect_ratio_idc);
- 
+
             if (aspect_ratio_idc == 255 /* Extended_SAR */) {
- 
                 sps->pixel_aspect.num = br_get_u16(&br); /* sar_width */
                 sps->pixel_aspect.den = br_get_u16(&br); /* sar_height */
                 printf("H.264 SPS: -> sar %dx%d", sps->pixel_aspect.num, sps->pixel_aspect.den);
- 
             } else {
- 
                 static const mpeg_rational_t aspect_ratios[] =
                 {
                 /* page 213: */
@@ -501,30 +489,18 @@ int h264_parse_sps(const uint8_t *buf, int len, h264_sps_data_t *sps) {
                     }, {
                         2,  1
                     }
- 
                 };
- 
                 if (aspect_ratio_idc < sizeof(aspect_ratios)/sizeof(aspect_ratios[0])) {
- 
                     memcpy(&sps->pixel_aspect, &aspect_ratios[aspect_ratio_idc], sizeof(mpeg_rational_t));
                     printf("H.264 SPS: -> aspect ratio %d / %d", sps->pixel_aspect.num, sps->pixel_aspect.den);
- 
                 } else {
- 
                     printf("H.264 SPS: aspect_ratio_idc out of range !");
- 
                 }
- 
             }
- 
         }
- 
     }
- 
- 
     printf("H.264 SPS: -> video size %dx%d, aspect %d:%d",
            sps->width, sps->height, sps->pixel_aspect.num, sps->pixel_aspect.den);
-
     return 1;
 }
 
@@ -545,13 +521,49 @@ static av_cold int ss_h264_decode_end(AVCodecContext *avctx)
     return 0;
 }
 
-static int ss_h264_decode_extradata(const uint8_t *data, int size,
+static int ss_h264_decode_parse(SsH264Context *s, const uint8_t *buf, int buf_size, int is_avc, void *logctx)
+{
+    H2645Packet pkt = { 0 };
+    int i, ret = 0;
+    const uint8_t start_code[4]={0,0,0,1};
+
+    ret = ff_h2645_packet_split(&pkt, buf, buf_size, logctx, is_avc, 2, AV_CODEC_ID_H264, 1);
+    if (ret < 0) {
+        goto fail;
+    }
+
+    for (i = 0; i < pkt.nb_nals; i++) {
+        H2645NAL *nal = &pkt.nals[i];
+        if (!nal->data[nal->size - 1] && !s->is_avc)
+            nal->size = nal->size - 1;
+        switch (nal->type) {
+        case H264_NAL_SPS:
+            s->extradata_size = 0;
+        case H264_NAL_PPS:
+            // copy sps data to extradata
+            memcpy(s->extradata + s->extradata_size, start_code, sizeof(start_code));
+            memcpy(s->extradata + s->extradata_size + sizeof(start_code), nal->data, nal->size);
+            s->extradata[s->extradata_size + 3] = 1;
+            s->extradata_size += (nal->size + sizeof(start_code));
+            printf("type of nal : %x. len : %d, data : %x,%x,%x,%x\n", nal->type, nal->size, nal->data[0],nal->data[1],nal->data[2],nal->data[3]);
+            break;
+        default:
+            av_log(logctx, AV_LOG_VERBOSE, "Ignoring NAL type %d in extradata\n",
+                   nal->type);
+            break;
+        }
+    }
+    s->find_header = 1;
+fail:
+    ff_h2645_packet_uninit(&pkt);
+    return ret;
+}
+
+static int ss_h264_decode_extradata(SsH264Context *s, const uint8_t *data, int size,
                              int *is_avc, int *nal_length_size, void *logctx)
 {
-    int j;
-    SsH264Context *ssctx = (SsH264Context *)logctx;
-    const uint8_t start_code[4]={0,0,0,1};
-    
+    int ret;
+
     if (!data || size <= 0)
         return -1;
 
@@ -560,9 +572,9 @@ static int ss_h264_decode_extradata(const uint8_t *data, int size,
         const uint8_t *p = data;
 
         *is_avc = 1;
-
+        s->start_len = 4;
         if (size < 7) {
-            av_log(ssctx, AV_LOG_ERROR, "avcC %d too short\n", size);
+            av_log(logctx, AV_LOG_ERROR, "avcC %d too short\n", size);
             return AVERROR_INVALIDDATA;
         }
 
@@ -573,18 +585,12 @@ static int ss_h264_decode_extradata(const uint8_t *data, int size,
             nalsize = AV_RB16(p) + 2;
             if (nalsize > size - (p - data))
                 return AVERROR_INVALIDDATA;
-            printf("\nSPS: ");
-            for(j = 0;j < nalsize;j++)
-            {
-                printf("%x,",*(p+j));
+            ret = ss_h264_decode_parse(s, p, nalsize, 1, logctx);
+            if (ret < 0) {
+                av_log(logctx, AV_LOG_ERROR,
+                       "Decoding sps %d from avcC failed\n", i);
+                return ret;
             }
-            printf("\n");
-
-            // copy sps data to extradata
-            memcpy(ssctx->extradata + ssctx->extradata_size, start_code, sizeof(start_code));
-            memcpy(ssctx->extradata + ssctx->extradata_size + sizeof(start_code), p + 2, nalsize - 2);
-            ssctx->extradata[ssctx->extradata_size + 3] = 1;
-            ssctx->extradata_size += (nalsize - 2 + sizeof(start_code));
             p += nalsize;
         }
         // Decode pps from avcC
@@ -593,25 +599,25 @@ static int ss_h264_decode_extradata(const uint8_t *data, int size,
             nalsize = AV_RB16(p) + 2;
             if (nalsize > size - (p - data))
                 return AVERROR_INVALIDDATA;
-            printf("\nPPS: ");
-            for(j = 0;j < nalsize;j++)
-            {
-                printf("%x,",*(p+j));
+            ret = ss_h264_decode_parse(s, p, nalsize, 1, logctx);
+            if (ret < 0) {
+                av_log(logctx, AV_LOG_ERROR,
+                       "Decoding pps %d from avcC failed\n", i);
+                return ret;
             }
-            printf("\n");
-
-            // copy pps data to extradata
-            memcpy(ssctx->extradata + ssctx->extradata_size, start_code, sizeof(start_code));
-            memcpy(ssctx->extradata + ssctx->extradata_size + sizeof(start_code), p + 2, nalsize - 2);
-            ssctx->extradata[ssctx->extradata_size + 3] = 1;
-            ssctx->extradata_size += (nalsize - 2 + sizeof(start_code));
             p += nalsize;
         }
         // Store right nal length size that will be used to parse all other nals
         *nal_length_size = (data[4] & 0x03) + 1;
-        ssctx->find_header = 1;
-        av_log(NULL, AV_LOG_INFO, "ssh264 find valid sps, pps nal header!\n");
+    } else {
+        *is_avc = 0;
+        s->start_len = 3;
+        ret = ss_h264_decode_parse(s, data, size, 0, logctx);
+        if (ret < 0)
+            return ret;
     }
+    if (s->find_header)
+        av_log(NULL, AV_LOG_INFO, "ssh264 find valid sps, pps nal header!\n");
     return size;
 }
 
@@ -649,6 +655,12 @@ static MI_U32 ss_h264_vdec_init(AVCodecContext *avctx)
     STCHECKRESULT(MI_VDEC_SetOutputPortAttr(0, &stOutputPortAttr));
 
     printf("ssh264 vdec input width, height : [%d,%d], output width, height : [%d,%d]\n", avctx->width, avctx->height, avctx->flags, avctx->flags2);
+
+    if (avctx->has_b_frames > 0)
+        avctx->flags |= (1 << 6);
+    else
+        avctx->flags &= ~(1 << 6);
+
     printf("ss_h264_vdec_init successful!\n");
 
     return MI_SUCCESS;
@@ -705,7 +717,7 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
     //check h264 or avc1
     if (avctx->extradata_size > 0 && avctx->extradata) 
     {
-        ret = ss_h264_decode_extradata(avctx->extradata, avctx->extradata_size,
+        ret = ss_h264_decode_extradata(s, avctx->extradata, avctx->extradata_size,
                                        &s->is_avc, &s->nal_length_size, s);
         if (ret < 0 || s->extradata_size > s->max_extradata_size) {
             av_log(avctx, AV_LOG_ERROR, "ss_h264_decode_extradata failed!\n");
@@ -797,6 +809,7 @@ static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
         av_log(s->avctx, AV_LOG_ERROR, "Error splitting the input into NAL units.\n");
         return ret;
     }
+
     //printf("avpkt size : %d, pkt.nb_nals : %d\n", avpkt->size, s->pkt.nb_nals);
     /* decode the NAL units */
     extrabuf = av_mallocz(avpkt->size + s->max_extradata_size);
@@ -806,6 +819,9 @@ static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
     for (i = 0; i < s->pkt.nb_nals; i++)
     {
         H2645NAL *nal = &s->pkt.nals[i];
+        //discard last data if is not avc1
+        if (!nal->data[nal->size - 1] && !s->is_avc)
+            nal->size = nal->size - 1;
         switch (nal->type) {
             case H264_NAL_IDR_SLICE:
                 if (data_idx == 0 && s->find_header)
@@ -827,10 +843,10 @@ static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
                 if (!(s->avctx->flags & (1 << 7)) && s->find_header)
                 {
                     //add data head to nal
-                    memcpy(extrabuf + data_idx, start_code, sizeof(start_code));
-                    memcpy(extrabuf + data_idx + sizeof(start_code), nal->data, nal->size);
-                    extrabuf[data_idx + 3] = 1;
-                    data_idx += (nal->size + sizeof(start_code));
+                    memset(extrabuf + data_idx, 0, s->start_len);
+                    memcpy(extrabuf + data_idx + s->start_len, nal->data, nal->size);
+                    extrabuf[data_idx + s->start_len - 1] = 1;
+                    data_idx += (nal->size + s->start_len);
                     //printf("extra size : %d, nal size : %d, nal data : %x,%x,%x,%x,%x,%x\n", data_idx, nal->size + 4, extrabuf[data_idx + 2], 
                     //extrabuf[data_idx + 3], extrabuf[data_idx + 4], extrabuf[data_idx + 5], extrabuf[data_idx + 6], extrabuf[data_idx + 7]);
                 }

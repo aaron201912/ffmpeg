@@ -70,6 +70,7 @@ typedef struct SsH264Context {
 
     int is_avc;           ///< this flag is != 0 if codec is avc1
     int nal_length_size;  ///< Number of bytes used for nal length (1, 2 or 4)
+    int start_len;
 
     uint8_t * extradata;
     int       max_extradata_size;
