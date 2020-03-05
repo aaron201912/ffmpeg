@@ -28,6 +28,8 @@
 --enable-gpl \
 --enable-nonfree \
 --enable-pthreads \
+--enable-decoder=h264 \
+--enable-decoder=hevc \
 --enable-decoder=ssh264 \
 --enable-decoder=sshevc \
 --enable-decoder=aac \

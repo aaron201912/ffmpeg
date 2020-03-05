@@ -55,18 +55,21 @@
 #include "mi_sys_datatype.h"
 //#include "mi_divp.h"
 //#include "mi_divp_datatype.h"
-#include "mi_hdmi.h"
-#include "mi_hdmi_datatype.h"
-#include "mi_disp.h"
-#include "mi_disp_datatype.h"
+//#include "mi_hdmi.h"
+//#include "mi_hdmi_datatype.h"
+//#include "mi_disp.h"
+//#include "mi_disp_datatype.h"
 /**
  * H264Context
  */
 typedef struct SsH264Context {
     AVFrame *f;
     AVCodecContext *avctx;
-
     H2645Packet pkt;
+
+    int width;
+    int height;
+    int format;
 
     int is_avc;           ///< this flag is != 0 if codec is avc1
     int nal_length_size;  ///< Number of bytes used for nal length (1, 2 or 4)

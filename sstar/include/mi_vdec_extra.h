@@ -100,5 +100,11 @@ typedef struct mi_vdec_DispFrame_s
     atomic64_t u64FastChnId;
 } mi_vdec_DispFrame_t;
 
+typedef struct SS_Vdec_BufInfo {
+    MI_SYS_BUF_HANDLE stVdecHandle;
+    MI_SYS_BufInfo_t  stVdecBufInfo;
+    MI_S32  s32Index;
+    MI_BOOL bType;
+}SS_Vdec_BufInfo;
 
 #endif
