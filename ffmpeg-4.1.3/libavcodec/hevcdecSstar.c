@@ -877,89 +877,67 @@ static int ss_hevc_receive_frame(AVCodecContext *avctx, AVFrame *frame)
     DecodeSimpleContext *ds = &avci->ds;
     AVPacket         *avpkt = ds->in_pkt;
 
-    //struct timeval now;
-    //struct timespec outtime;
-    //pthread_mutex_t wait_mutex;
-
     if (true == avctx->debug) 
     {
         while (!frame->buf[0])
         {
-            if (!avpkt->data && !avci->draining && !(avctx->flags & (1 << 5)))
-            {
-                av_packet_unref(avpkt);
-                ret = ff_decode_get_packet(avctx, avpkt);
-                if (ret < 0 && ret != AVERROR_EOF) 
-                    return AVERROR(EAGAIN);
-                else 
-                    return ret;
-            }
-
             got_frame = 0;
             if (avctx->flags & (1 << 6))
                 ret2 = ss_hevc_get_bframe(s, frame);
             else
                 ret2 = ss_hevc_get_frame(s, frame);
 
-            if (MI_SUCCESS != ret2)
-            {
-                //av_log(avctx, AV_LOG_ERROR, "ss_hevc fetch frame from buffer failed!\n");
-                // vdec wait for 10ms and continue to send stream
-                //pthread_mutex_init(&wait_mutex, NULL);
-                //pthread_mutex_lock(&wait_mutex);
-                //gettimeofday(&now, NULL);
-                //outtime.tv_sec  = now.tv_sec;
-                //outtime.tv_nsec = now.tv_usec * 1000 + 10 * 1000 * 1000;
-                //pthread_cond_timedwait(&hevc_thread, &wait_mutex, &outtime);
-                //pthread_mutex_unlock(&wait_mutex);
-                //pthread_mutex_destroy(&wait_mutex);
-                av_usleep(10 * 1000);
-            }
-            else
+            if (MI_SUCCESS == ret2)
             {
                 got_frame = 1;
                 frame->best_effort_timestamp = frame->pts;
             }
 
-            if (avpkt->data)
+            if (!avpkt->data && !avci->draining)
             {
-                ret = ss_hevc_decode_nalu(s, avpkt);
-                if (ret < 0)
-                   av_log(avctx, AV_LOG_ERROR, "ss_hevc_decode_nalu failed!\n");
+                av_packet_unref(avpkt);
+                ret = ff_decode_get_packet(avctx, avpkt);
+                if (ret >= 0 && avpkt->data)
+                {
+                    ret = ss_hevc_decode_nalu(s, avpkt);
+                    if (ret < 0)
+                       av_log(avctx, AV_LOG_ERROR, "ss_hevc_decode_nalu failed!\n");
 
-                if (!(avctx->codec->caps_internal & FF_CODEC_CAP_SETS_PKT_DTS))
-                    frame->pkt_dts = avpkt->dts;
-                if (avctx->codec->type == AVMEDIA_TYPE_VIDEO && !avctx->has_b_frames) {
-                    frame->pkt_pos = avpkt->pos;
+                    if (!(avctx->codec->caps_internal & FF_CODEC_CAP_SETS_PKT_DTS))
+                        frame->pkt_dts = avpkt->dts;
+                    if (avctx->codec->type == AVMEDIA_TYPE_VIDEO && !avctx->has_b_frames) {
+                        frame->pkt_pos = avpkt->pos;
+                    }
+
+                    if (!got_frame)
+                        av_frame_unref(frame);
+                    
+                    if (ret >= 0 && avctx->codec->type == AVMEDIA_TYPE_VIDEO && !(avctx->flags & AV_CODEC_FLAG_TRUNCATED))
+                        ret = avpkt->size;
+                    avci->compat_decode_consumed += ret;
+
+                    if (ret >= avpkt->size || ret < 0) {
+                        av_packet_unref(avpkt);
+                    } else {
+                        int consumed = ret;
+
+                        avpkt->data                += consumed;
+                        avpkt->size                -= consumed;
+                        avci->last_pkt_props->size -= consumed; // See extract_packet_props() comment.
+                        avpkt->pts                  = AV_NOPTS_VALUE;
+                        avpkt->dts                  = AV_NOPTS_VALUE;
+                        avci->last_pkt_props->pts = AV_NOPTS_VALUE;
+                        avci->last_pkt_props->dts = AV_NOPTS_VALUE;
+                    }
+
+                    if (got_frame)
+                        av_assert0(frame->buf[0]);
                 }
-
-                if (!got_frame)
-                    av_frame_unref(frame);
-                
-                if (ret >= 0 && avctx->codec->type == AVMEDIA_TYPE_VIDEO && !(avctx->flags & AV_CODEC_FLAG_TRUNCATED))
-                    ret = avpkt->size;
-                avci->compat_decode_consumed += ret;
-
-                if (ret >= avpkt->size || ret < 0) {
-                    av_packet_unref(avpkt);
-                } else {
-                    int consumed = ret;
-
-                    avpkt->data                += consumed;
-                    avpkt->size                -= consumed;
-                    avci->last_pkt_props->size -= consumed; // See extract_packet_props() comment.
-                    avpkt->pts                  = AV_NOPTS_VALUE;
-                    avpkt->dts                  = AV_NOPTS_VALUE;
-                    avci->last_pkt_props->pts = AV_NOPTS_VALUE;
-                    avci->last_pkt_props->dts = AV_NOPTS_VALUE;
-                }
-
-                if (got_frame)
-                    av_assert0(frame->buf[0]);
             }
 
-            if (ret2 < 0)
-                return ret2;
+            if (ret2 < 0) {
+                return AVERROR(EAGAIN);
+            }
         }
     }
 
