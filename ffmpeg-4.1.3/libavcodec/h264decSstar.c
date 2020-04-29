@@ -690,7 +690,7 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
     if (avctx->extradata_size > 0 && avctx->extradata) 
     {
         ret = ss_h264_decode_extradata(s, avctx->extradata, avctx->extradata_size,
-                                       &s->is_avc, &s->nal_length_size, s);
+                                       &s->is_avc, &s->nal_length_size, s->avctx);
         if (ret < 0 || s->extradata_size > s->max_extradata_size) {
             av_log(avctx, AV_LOG_ERROR, "ss_h264_decode_extradata failed!\n");
             ss_h264_decode_end(avctx);
