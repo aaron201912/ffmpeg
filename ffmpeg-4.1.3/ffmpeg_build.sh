@@ -27,6 +27,7 @@
 --enable-shared \
 --enable-gpl \
 --enable-nonfree \
+--enable-openssl \
 --enable-pthreads \
 --enable-error-resilience \
 --enable-debug \
@@ -39,5 +40,5 @@
 --disable-filters \
 --shlibdir=host/dynamic \
 --libdir=host/static \
---extra-cflags=-I./../sstar/include \
---extra-ldflags=-L./../sstar/lib
+--extra-cflags="-I./../sstar/include -I./../3rdparty" \
+--extra-ldflags="-L./../sstar/lib -L./../3rdparty/lib"
