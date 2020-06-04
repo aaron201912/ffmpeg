@@ -520,11 +520,10 @@ static int64_t ss_hevc_guess_correct_pts(AVCodecContext *ctx, int64_t reordered_
     } else if(dts != AV_NOPTS_VALUE)
         ctx->pts_correction_last_pts = dts;
 
-    if ((ctx->pts_correction_num_faulty_pts<=ctx->pts_correction_num_faulty_dts || dts == AV_NOPTS_VALUE)
-       && reordered_pts != AV_NOPTS_VALUE)
+    if (reordered_pts != AV_NOPTS_VALUE)
         pts = reordered_pts;
     else
-        pts = dts;
+        pts = ctx->pts_correction_last_pts;
 
     return pts;
 }
@@ -611,7 +610,7 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
     //send nal data to vdec
     if (!(s->avctx->flags & (1 << 7)) && s->find_header)
     {
-        avpkt->pts = ss_hevc_guess_correct_pts(s->avctx, avpkt->pts, avpkt->dts);
+        //avpkt->pts = ss_hevc_guess_correct_pts(s->avctx, avpkt->pts, avpkt->dts);
         ret2 = ss_hevc_send_stream(extradata_buf, data_idx, avpkt->pts);
     }
     av_freep(&extradata_buf);

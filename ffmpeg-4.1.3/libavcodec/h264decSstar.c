@@ -230,7 +230,7 @@ static int ss_h264_get_bframe(SsH264Context *ssctx, AVFrame *frame)
             frame->pts    = frame_buf->stVdecBufInfo.u64Pts;
             frame->format = ssctx->format;
 
-            //av_log(NULL, AV_LOG_INFO, "vdec input buffer addr : 0x%x\n", &frame_buf->stVdecHandle);
+            //av_log(NULL, AV_LOG_WARNING, "frame_buf->stVdecBufInfo.u64Pts = %lld\n", frame_buf->stVdecBufInfo.u64Pts);
         }
         else
         {
@@ -718,11 +718,10 @@ static int64_t ss_h264_guess_correct_pts(AVCodecContext *ctx, int64_t reordered_
     } else if(dts != AV_NOPTS_VALUE)
         ctx->pts_correction_last_pts = dts;
 
-    if ((ctx->pts_correction_num_faulty_pts<=ctx->pts_correction_num_faulty_dts || dts == AV_NOPTS_VALUE)
-       && reordered_pts != AV_NOPTS_VALUE)
+    if (reordered_pts != AV_NOPTS_VALUE)
         pts = reordered_pts;
     else
-        pts = dts;
+        pts = ctx->pts_correction_last_pts;
 
     return pts;
 }
