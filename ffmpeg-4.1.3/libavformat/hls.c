@@ -627,8 +627,10 @@ static int open_url(AVFormatContext *s, AVIOContext **pb, const char *url,
     if (!proto_name)
         proto_name = avio_find_protocol_name(url);
 
-    if (!proto_name)
+    if (!proto_name) {
+        av_dict_free(&tmp);
         return AVERROR_INVALIDDATA;
+    }
 
     // only http(s) & file are allowed
     if (av_strstart(proto_name, "file", NULL)) {
@@ -637,23 +639,29 @@ static int open_url(AVFormatContext *s, AVIOContext **pb, const char *url,
                 "Filename extension of \'%s\' is not a common multimedia extension, blocked for security reasons.\n"
                 "If you wish to override this adjust allowed_extensions, you can set it to \'ALL\' to allow all\n",
                 url);
+            av_dict_free(&tmp);
             return AVERROR_INVALIDDATA;
         }
     } else if (av_strstart(proto_name, "http", NULL)) {
         is_http = 1;
-    } else
+    } else {
+        av_dict_free(&tmp);
         return AVERROR_INVALIDDATA;
+    }
 
     if (!strncmp(proto_name, url, strlen(proto_name)) && url[strlen(proto_name)] == ':')
         ;
     else if (av_strstart(url, "crypto", NULL) && !strncmp(proto_name, url + 7, strlen(proto_name)) && url[7 + strlen(proto_name)] == ':')
         ;
-    else if (strcmp(proto_name, "file") || !strncmp(url, "file,", 5))
+    else if (strcmp(proto_name, "file") || !strncmp(url, "file,", 5)) {
+        av_dict_free(&tmp);
         return AVERROR_INVALIDDATA;
+    }
 
     if (is_http && c->http_persistent && *pb) {
         ret = open_url_keepalive(c->ctx, pb, url);
         if (ret == AVERROR_EXIT) {
+            av_dict_free(&tmp);
             return ret;
         } else if (ret < 0) {
             if (ret != AVERROR_EOF)
