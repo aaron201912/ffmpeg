@@ -61,6 +61,8 @@ void  free(void *ptr);
 
 #include "mem_internal.h"
 
+#include "libavutil/my_mcheck.h"
+
 #define ALIGN (HAVE_AVX512 ? 64 : (HAVE_AVX ? 32 : 16))
 
 /* NOTE: if you want to override these functions with your own
@@ -129,6 +131,10 @@ void *av_malloc(size_t size)
     if (ptr)
         memset(ptr, FF_MEMORY_POISON, size);
 #endif
+
+#if ENABLE_MCHECK
+    mcheck_creat_record(ptr, size);
+#endif
     return ptr;
 }
 
@@ -138,10 +144,24 @@ void *av_realloc(void *ptr, size_t size)
     if (size > (max_alloc_size - 32))
         return NULL;
 
-#if HAVE_ALIGNED_MALLOC
-    return _aligned_realloc(ptr, size + !size, ALIGN);
+#if ENABLE_MCHECK
+    void *re_ptr = NULL;
+    #if HAVE_ALIGNED_MALLOC
+    re_ptr = _aligned_realloc(ptr, size + !size, ALIGN);
+    #else
+    re_ptr = realloc(ptr, size + !size);
+    #endif
+    if (re_ptr) {
+        mcheck_destory_record(ptr);
+        mcheck_creat_record(re_ptr, size);
+    }
+    return re_ptr;
 #else
+    #if HAVE_ALIGNED_MALLOC
+    return _aligned_realloc(ptr, size + !size, ALIGN);
+    #else
     return realloc(ptr, size + !size);
+    #endif
 #endif
 }
 
@@ -221,6 +241,10 @@ void av_free(void *ptr)
     _aligned_free(ptr);
 #else
     free(ptr);
+#endif
+
+#if ENABLE_MCHECK
+     mcheck_destory_record(ptr);
 #endif
 }
 
