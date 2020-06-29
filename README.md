@@ -3,6 +3,9 @@ DownLoad:
     git clone https://github.com/aaron201912/ffmpeg.git
 
 BuildCodeFlow:
-    1. ./configure --disable-all --enable-protocols --enable-decoder=hevc --enable-decoder=h264 --enable-demuxer=h264 --enable-decoder=ssh264 --enable-demuxer=hevc --cc="arm-linux-gnueabihf-gcc" --prefix=host --enable-cross-compile --arch=arm --target-os=linux --cross-prefix=arm-linux-gnueabihf- --enable-static --enable-gpl --enable-nonfree --enable-pthreads --enable-avcodec --enable-error-resilience --enable-debug --enable-parsers --enable-swscale --enable-avformat --extra-cflags=-I/home/aaron.feng/ffmpeg/GitProject/ffmpeg/sstar/include --extra-ldflags=-L/home/aaron.feng/ffmpeg/GitProject/ffmpeg/sstar/lib
-    2. make clean;make
-    3. make install
+    1. cd ffmpeg-4.1.3
+    2. ./ffmpeg_build.sh 
+    3. make clean;make -j4
+    4. make install
+
+注: 生成的库文件安装路径在ffmpeg-4.1.3/host下, 默认编译选项支持https协议, 需要3rdparty/lib中的动态库支持. 去掉ffmpeg_build.sh中--enable-openssl编译选项可关闭https支持.
