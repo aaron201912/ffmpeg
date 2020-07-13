@@ -159,10 +159,16 @@ pthread_cond_t hevc_thread;
 FILE *hevc_fd;
 /**************************************************************************/
 #if 1
+
+#define  VDEC_ES_BUF_MAX        2 * 1024 * 1024
+#define  VDEC_ES_BUF_BUSY       2 * 1024 * 768
+#define  GET_FRAME_TIME_OUT     5
+
 static int ss_hevc_get_bframe(SsHevcContext *ssctx, AVFrame *frame)
 {
-    MI_U32 ret;
+    MI_S32 ret, s32Fd = -1;
     MI_SYS_ChnPort_t  stVdecChnPort;
+    MI_VDEC_ChnStat_t stChnStat;
     SS_Vdec_BufInfo  *frame_buf;
     mi_vdec_DispFrame_t *pstVdecInfo = NULL;
 
@@ -195,24 +201,41 @@ static int ss_hevc_get_bframe(SsHevcContext *ssctx, AVFrame *frame)
         stVdecChnPort.u32ChnId    = VDEC_CHN_ID;
         stVdecChnPort.u32PortId   = 0;
         MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 3, 5);
-
+regetbframe:
         if (MI_SUCCESS == (ret = MI_SYS_ChnOutputPortGetBuf(&stVdecChnPort, &frame_buf->stVdecBufInfo, &frame_buf->stVdecHandle)))
         {
             pstVdecInfo = (mi_vdec_DispFrame_t *)frame_buf->stVdecBufInfo.stMetaData.pVirAddr;
             frame_buf->s32Index = pstVdecInfo->s32Idx;
             frame->opaque = (SS_Vdec_BufInfo *)frame_buf;
-            frame->width  = pstVdecInfo->stFrmInfo.u16Stride;
+            frame->width  = pstVdecInfo->stFrmInfo.u16Width;
             frame->height = pstVdecInfo->stFrmInfo.u16Height;
             frame->pts    = frame_buf->stVdecBufInfo.u64Pts;
             frame->format = ssctx->format;
-
+            ssctx->time_sec = av_gettime_relative();
             //av_log(NULL, AV_LOG_INFO, "vdec input buffer addr : 0x%x\n", &frame_buf->stVdecHandle);
         }
         else
         {
-            av_frame_unref(frame);
-            av_freep(&frame_buf);
-            return AVERROR(EAGAIN);
+            ssctx->time_sec  = (ssctx->time_sec == 0) ? av_gettime_relative() : ssctx->time_sec;
+            ssctx->time_wait = av_gettime_relative();
+
+            if ((ssctx->time_wait - ssctx->time_sec) / AV_TIME_BASE > GET_FRAME_TIME_OUT) {
+                av_freep(&frame_buf);
+                av_frame_unref(frame);
+                ssctx->time_sec = av_gettime_relative();
+                av_log(NULL, AV_LOG_ERROR, "hevc get bframe from vdec time out!\n");
+                return AVERROR_EOF;
+            } else {
+                MI_VDEC_GetChnStat(0, &stChnStat);
+                if (stChnStat.u32LeftStreamBytes > VDEC_ES_BUF_BUSY) {
+                    MI_SYS_GetFd(&stVdecChnPort, &s32Fd);
+                    goto regetbframe;
+                } else {
+                    av_freep(&frame_buf);
+                    av_frame_unref(frame);
+                    return AVERROR(EAGAIN);
+                }
+            }
         }
     }
 
@@ -222,8 +245,9 @@ static int ss_hevc_get_bframe(SsHevcContext *ssctx, AVFrame *frame)
 // 此函数用于获取不带B帧的图像
 static int ss_hevc_get_frame(SsHevcContext *ssctx, AVFrame *frame)
 {
-    MI_U32 ret;
+    MI_S32 ret, s32Fd;
     MI_SYS_ChnPort_t  stVdecChnPort;
+    MI_VDEC_ChnStat_t stChnStat;
     SS_Vdec_BufInfo  *frame_buf;
 
     frame->width  = ssctx->width;
@@ -255,22 +279,39 @@ static int ss_hevc_get_frame(SsHevcContext *ssctx, AVFrame *frame)
         stVdecChnPort.u32ChnId      = VDEC_CHN_ID;
         stVdecChnPort.u32PortId     = 0;
         MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 3, 5);
-
+regetframe:
         if (MI_SUCCESS == (ret = MI_SYS_ChnOutputPortGetBuf(&stVdecChnPort, &frame_buf->stVdecBufInfo, &frame_buf->stVdecHandle)))
         {
             frame->opaque = (SS_Vdec_BufInfo *)frame_buf;
-            frame->width  = frame_buf->stVdecBufInfo.stFrameData.u32Stride[0];
+            frame->width  = frame_buf->stVdecBufInfo.stFrameData.u16Width;
             frame->height = frame_buf->stVdecBufInfo.stFrameData.u16Height;
             frame->pts    = frame_buf->stVdecBufInfo.u64Pts;
             frame->format = ssctx->format;
-
+            ssctx->time_sec = av_gettime_relative();
             //av_log(NULL, AV_LOG_INFO, "vdec input buffer addr : 0x%x\n", &frame_buf->stVdecHandle);
         } 
         else 
         {
-            av_frame_unref(frame);
-            av_freep(&frame_buf);
-            return AVERROR(EAGAIN);
+            ssctx->time_sec  = (ssctx->time_sec == 0) ? av_gettime_relative() : ssctx->time_sec;
+            ssctx->time_wait = av_gettime_relative();
+
+            if ((ssctx->time_wait - ssctx->time_sec) / AV_TIME_BASE > GET_FRAME_TIME_OUT) {
+                av_freep(&frame_buf);
+                av_frame_unref(frame);
+                ssctx->time_sec = av_gettime_relative();
+                av_log(NULL, AV_LOG_ERROR, "hevc get frame from vdec time out!\n");
+                return AVERROR_EOF;
+            } else {
+                MI_VDEC_GetChnStat(0, &stChnStat);
+                if (stChnStat.u32LeftStreamBytes > VDEC_ES_BUF_BUSY) {
+                    MI_SYS_GetFd(&stVdecChnPort, &s32Fd);
+                    goto regetframe;
+                } else {
+                    av_freep(&frame_buf);
+                    av_frame_unref(frame);
+                    return AVERROR(EAGAIN);
+                }
+            }
         }
     }
 
@@ -430,6 +471,7 @@ static MI_U32 ss_hevc_vdec_init(AVCodecContext *avctx)
     if (!(avctx->flags & (1 << 17))) {
         STCHECKRESULT(MI_VDEC_SetOutputPortLayoutMode(E_MI_VDEC_OUTBUF_LAYOUT_LINEAR));
     } else {
+        av_log(avctx, AV_LOG_WARNING, "hevc enable vdec tilemode\n");
         STCHECKRESULT(MI_VDEC_SetOutputPortLayoutMode(E_MI_VDEC_OUTBUF_LAYOUT_TILE));
     }
 
@@ -437,7 +479,7 @@ static MI_U32 ss_hevc_vdec_init(AVCodecContext *avctx)
     stVdecChnAttr.eCodecType    = E_MI_VDEC_CODEC_TYPE_H265;
     stVdecChnAttr.stVdecVideoAttr.u32RefFrameNum = 16;
     stVdecChnAttr.eVideoMode    = E_MI_VDEC_VIDEO_MODE_FRAME;
-    stVdecChnAttr.u32BufSize    = 1 * 1920 * 1080;
+    stVdecChnAttr.u32BufSize    = VDEC_ES_BUF_MAX;
     stVdecChnAttr.u32PicWidth   = avctx->width;
     stVdecChnAttr.u32PicHeight  = avctx->height;
     stVdecChnAttr.eDpbBufMode   = E_MI_VDEC_DPB_MODE_NORMAL;
@@ -530,7 +572,7 @@ static int64_t ss_hevc_guess_correct_pts(AVCodecContext *ctx, int64_t reordered_
 
 static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
 {
-    int i, ret, ret2, data_idx;
+    int i, ret, data_idx;
     const uint8_t start_code[4] = {0,0,0,1}; 
     uint8_t *extradata_buf;
 
@@ -610,8 +652,8 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
     //send nal data to vdec
     if (!(s->avctx->flags & (1 << 7)) && s->find_header)
     {
-        //avpkt->pts = ss_hevc_guess_correct_pts(s->avctx, avpkt->pts, avpkt->dts);
-        ret2 = ss_hevc_send_stream(extradata_buf, data_idx, avpkt->pts);
+        avpkt->pts = ss_hevc_guess_correct_pts(s->avctx, avpkt->pts, avpkt->dts);
+        ret = ss_hevc_send_stream(extradata_buf, data_idx, avpkt->pts);
     }
     av_freep(&extradata_buf);
 
@@ -629,7 +671,7 @@ static int ss_hevc_parser_nalu(SsHevcContext *s, const uint8_t *buf, int buf_siz
 
     ret = ss_h2645_packet_split(&pkt, buf, buf_size, logctx, is_nalff, nal_length_size, AV_CODEC_ID_HEVC, 1);
     if (ret < 0) {
-        return ret;
+        goto done;
     }
 
     for (i = 0; i < pkt.nb_nals; i++)
@@ -750,6 +792,8 @@ static av_cold int ss_hevc_decode_init(AVCodecContext *avctx)
 
     s->avctx = avctx;
     s->eos = 0;
+    s->time_sec  = 0;
+    s->time_wait = 0;
 
     s->format        = AV_PIX_FMT_NV12;
     s->width         = (avctx->flags  & 0xFFFF);
