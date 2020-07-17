@@ -6161,7 +6161,13 @@ const AVCodecDescriptor *avcodec_descriptor_get_by_name(const char *name);
 AVCPBProperties *av_cpb_properties_alloc(size_t *size);
 
 /**
- * @}
+ * Add a extra struct to save h2645 vps/sps/pps value and user can access these parameter
+ * @ Author : jeffrey.wu
+ * @ 
  */
+typedef struct AVh2645HeadInfo {
+    int frame_mbs_only_flag;        // h264 sps : frame_mbs_only_flagm must be 1
+    int max_bytes_per_pic_denom;    // hevc vui : max_bytes_per_pic_denom must less than 16
+}AVH2645HeadInfo;
 
 #endif /* AVCODEC_AVCODEC_H */

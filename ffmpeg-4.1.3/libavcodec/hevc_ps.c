@@ -709,6 +709,11 @@ timing_info:
         vui->log2_max_mv_length_vertical             = get_ue_golomb_long(gb);
     }
 
+    if (avctx->opaque) {
+        AVH2645HeadInfo *vui_info = (AVH2645HeadInfo *)avctx->opaque;
+        vui_info->max_bytes_per_pic_denom = vui->max_bytes_per_pic_denom;
+    }
+
     if (get_bits_left(gb) < 1 && !alt) {
         // XXX: Alternate syntax when sps_range_extension_flag != 0?
         av_log(avctx, AV_LOG_WARNING,

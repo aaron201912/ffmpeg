@@ -3801,6 +3801,16 @@ FF_ENABLE_DEPRECATION_WARNINGS
             st->internal->avctx_inited = 1;
         }
 
+        if ((st->codecpar->codec_id == AV_CODEC_ID_H264 || st->codecpar->codec_id == AV_CODEC_ID_HEVC)
+            && avctx->codec_type == AVMEDIA_TYPE_VIDEO && !avctx->opaque) {
+            avctx->opaque = (AVH2645HeadInfo *)av_malloc(sizeof(AVH2645HeadInfo));
+            if (avctx->opaque) {
+                AVH2645HeadInfo *head_info = (AVH2645HeadInfo *)avctx->opaque;
+                head_info->frame_mbs_only_flag = 1;
+                head_info->max_bytes_per_pic_denom = 0;
+            }
+        }
+
         if (pkt->dts != AV_NOPTS_VALUE && st->codec_info_nb_frames > 1) {
             /* check for non-increasing dts */
             if (st->info->fps_last_dts != AV_NOPTS_VALUE &&
@@ -3905,6 +3915,23 @@ FF_ENABLE_DEPRECATION_WARNINGS
 
         st->codec_info_nb_frames++;
         count++;
+
+        //jeffrey.wu add
+        if (avctx->codec_type == AVMEDIA_TYPE_VIDEO && avctx->opaque) {
+            AVH2645HeadInfo *head_info = (AVH2645HeadInfo *)avctx->opaque;
+            if (!head_info->frame_mbs_only_flag) {
+                av_log(ic, AV_LOG_WARNING, "[%s %d]sps.frame_mbs_only_flag isn't 1\n",__FUNCTION__, __LINE__);
+                ret = AVERROR_EXIT;
+            }
+            if (head_info->max_bytes_per_pic_denom > 16) {
+                av_log(ic, AV_LOG_WARNING, "[%s %d]vps.max_bytes_per_pic_denom is greater than 16\n",__FUNCTION__, __LINE__);
+                ret = AVERROR_EXIT;
+            }
+            av_freep(&avctx->opaque);
+            if (ret == AVERROR_EXIT) {
+                goto find_stream_info_err;
+            }
+        }
     }
 
     if (eof_reached) {
