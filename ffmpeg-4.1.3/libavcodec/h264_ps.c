@@ -560,6 +560,11 @@ int ff_h264_decode_seq_parameter_set(GetBitContext *gb, AVCodecContext *avctx,
         sps->crop        = 0;
     }
 
+    if (avctx->opaque) {
+        AVH2645HeadInfo *sps_info = (AVH2645HeadInfo *)avctx->opaque;
+        sps_info->frame_cropping_flag = sps->crop;
+    }
+
     sps->vui_parameters_present_flag = get_bits1(gb);
     if (sps->vui_parameters_present_flag) {
         int ret = decode_vui_parameters(gb, avctx, sps);

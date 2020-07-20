@@ -6168,6 +6168,8 @@ AVCPBProperties *av_cpb_properties_alloc(size_t *size);
 typedef struct AVh2645HeadInfo {
     int frame_mbs_only_flag;        // h264 sps : frame_mbs_only_flagm must be 1
     int max_bytes_per_pic_denom;    // hevc vui : max_bytes_per_pic_denom must less than 16
+    int frame_cropping_flag;        // h264 cropping flag
+    int conformance_window_flag;   // hevc cropping flag
 }AVH2645HeadInfo;
 
 #endif /* AVCODEC_AVCODEC_H */

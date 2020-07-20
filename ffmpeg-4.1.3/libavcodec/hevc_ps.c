@@ -935,7 +935,8 @@ int ff_hevc_parse_sps(HEVCSPS *sps, GetBitContext *gb, unsigned int *sps_id,
                                    sps->height, 0, avctx)) < 0)
         return ret;
 
-    if (get_bits1(gb)) { // pic_conformance_flag
+    int conformance_window_flag = get_bits1(gb);
+    if (conformance_window_flag) { // pic_conformance_flag
         int vert_mult  = hevc_sub_height_c[sps->chroma_format_idc];
         int horiz_mult = hevc_sub_width_c[sps->chroma_format_idc];
         sps->pic_conf_win.left_offset   = get_ue_golomb_long(gb) * horiz_mult;
@@ -958,6 +959,11 @@ int ff_hevc_parse_sps(HEVCSPS *sps, GetBitContext *gb, unsigned int *sps_id,
             sps->pic_conf_win.bottom_offset = 0;
         }
         sps->output_window = sps->pic_conf_win;
+    }
+
+    if (avctx->opaque) {
+        AVH2645HeadInfo *sps_info = (AVH2645HeadInfo *)avctx->opaque;
+        sps_info->conformance_window_flag = conformance_window_flag;
     }
 
     sps->bit_depth   = get_ue_golomb_long(gb) + 8;

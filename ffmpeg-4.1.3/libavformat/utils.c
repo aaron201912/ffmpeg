@@ -3576,7 +3576,7 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
     int64_t max_stream_analyze_duration;
     int64_t max_subtitle_analyze_duration;
     int64_t probesize = ic->probesize;
-    int eof_reached = 0;
+    int eof_reached = 0, find_extra_info = 0;
     int *missing_streams = av_opt_ptr(ic->iformat->priv_class, ic->priv_data, "missing_streams");
 
     flush_codecs = probesize > 0;
@@ -3611,6 +3611,18 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
                 st->time_base = */
             if (!avctx->time_base.num)
                 avctx->time_base = st->time_base;
+        }
+
+        if ((st->codecpar->codec_id == AV_CODEC_ID_H264 || st->codecpar->codec_id == AV_CODEC_ID_HEVC)
+            && avctx->codec_type == AVMEDIA_TYPE_VIDEO && !avctx->opaque && !find_extra_info) {
+            avctx->opaque = (AVH2645HeadInfo *)av_malloc(sizeof(AVH2645HeadInfo));
+            if (avctx->opaque) {
+                AVH2645HeadInfo *head_info = (AVH2645HeadInfo *)avctx->opaque;
+                head_info->frame_mbs_only_flag = 1;
+                head_info->max_bytes_per_pic_denom = 0;
+                head_info->frame_cropping_flag = 0;
+                head_info->conformance_window_flag = 0;
+            }
         }
 
         /* check if the caller has overridden the codec id */
@@ -3674,6 +3686,35 @@ FF_ENABLE_DEPRECATION_WARNINGS
         }
         if (!options)
             av_dict_free(&thread_opt);
+
+        //jeffrey.wu add
+        if (avctx->codec_type == AVMEDIA_TYPE_VIDEO && avctx->opaque) {
+            AVH2645HeadInfo *head_info = (AVH2645HeadInfo *)avctx->opaque;
+            if (!head_info->frame_mbs_only_flag) {
+                av_log(ic, AV_LOG_WARNING, "[%s %d]sps.frame_mbs_only_flag isn't 1\n",__FUNCTION__, __LINE__);
+                ret = AVERROR_EXIT;
+                find_extra_info = 1;
+            }
+            if (head_info->max_bytes_per_pic_denom > 16) {
+                av_log(ic, AV_LOG_WARNING, "[%s %d]vps.max_bytes_per_pic_denom is greater than 16\n",__FUNCTION__, __LINE__);
+                ret = AVERROR_EXIT;
+                find_extra_info = 1;
+            }
+            if (ic->opaque) {
+                AVH2645HeadInfo *my_info = (AVH2645HeadInfo *)ic->opaque;
+                my_info->frame_mbs_only_flag = head_info->frame_mbs_only_flag;
+                my_info->max_bytes_per_pic_denom = head_info->max_bytes_per_pic_denom;
+                my_info->frame_cropping_flag = head_info->frame_cropping_flag;
+                my_info->conformance_window_flag = head_info->conformance_window_flag;
+                if (my_info->conformance_window_flag || my_info->frame_cropping_flag) {
+                    find_extra_info = 1;
+                }
+            }
+            av_freep(&avctx->opaque);
+            if (ret == AVERROR_EXIT) {
+                goto find_stream_info_err;
+            }
+        }
     }
 
     for (i = 0; i < ic->nb_streams; i++) {
@@ -3802,12 +3843,14 @@ FF_ENABLE_DEPRECATION_WARNINGS
         }
 
         if ((st->codecpar->codec_id == AV_CODEC_ID_H264 || st->codecpar->codec_id == AV_CODEC_ID_HEVC)
-            && avctx->codec_type == AVMEDIA_TYPE_VIDEO && !avctx->opaque) {
+            && avctx->codec_type == AVMEDIA_TYPE_VIDEO && !avctx->opaque && !find_extra_info) {
             avctx->opaque = (AVH2645HeadInfo *)av_malloc(sizeof(AVH2645HeadInfo));
             if (avctx->opaque) {
                 AVH2645HeadInfo *head_info = (AVH2645HeadInfo *)avctx->opaque;
                 head_info->frame_mbs_only_flag = 1;
                 head_info->max_bytes_per_pic_denom = 0;
+                head_info->frame_cropping_flag = 0;
+                head_info->conformance_window_flag = 0;
             }
         }
 
@@ -3922,10 +3965,22 @@ FF_ENABLE_DEPRECATION_WARNINGS
             if (!head_info->frame_mbs_only_flag) {
                 av_log(ic, AV_LOG_WARNING, "[%s %d]sps.frame_mbs_only_flag isn't 1\n",__FUNCTION__, __LINE__);
                 ret = AVERROR_EXIT;
+                find_extra_info = 1;
             }
             if (head_info->max_bytes_per_pic_denom > 16) {
                 av_log(ic, AV_LOG_WARNING, "[%s %d]vps.max_bytes_per_pic_denom is greater than 16\n",__FUNCTION__, __LINE__);
                 ret = AVERROR_EXIT;
+                find_extra_info = 1;
+            }
+            if (ic->opaque) {
+                AVH2645HeadInfo *my_info = (AVH2645HeadInfo *)ic->opaque;
+                my_info->frame_mbs_only_flag = head_info->frame_mbs_only_flag;
+                my_info->max_bytes_per_pic_denom = head_info->max_bytes_per_pic_denom;
+                my_info->frame_cropping_flag = head_info->frame_cropping_flag;
+                my_info->conformance_window_flag = head_info->conformance_window_flag;
+                if (my_info->frame_cropping_flag || my_info->conformance_window_flag) {
+                    find_extra_info = 1;
+                }
             }
             av_freep(&avctx->opaque);
             if (ret == AVERROR_EXIT) {
