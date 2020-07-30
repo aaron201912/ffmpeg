@@ -183,7 +183,7 @@ FILE *h264_fd;
 
 #define  VDEC_ES_BUF_MAX        2 * 1024 * 1024
 #define  VDEC_ES_BUF_BUSY       2 * 1024 * 768
-#define  GET_FRAME_TIME_OUT     5
+#define  GET_FRAME_TIME_OUT     3
 
 static int ss_h264_get_bframe(SsH264Context *ssctx, AVFrame *frame)
 {
@@ -192,6 +192,7 @@ static int ss_h264_get_bframe(SsH264Context *ssctx, AVFrame *frame)
     MI_VDEC_ChnStat_t stChnStat;
     SS_Vdec_BufInfo  *frame_buf;
     mi_vdec_DispFrame_t *pstVdecInfo = NULL;
+    int64_t time_start = 0, time_wait = 0;
 
     //av_log(NULL, AV_LOG_ERROR, "get in h264_get_bframe!\n");
 
@@ -235,31 +236,30 @@ regetbframe:
             frame->height = pstVdecInfo->stFrmInfo.u16Height;
             frame->pts    = frame_buf->stVdecBufInfo.u64Pts;
             frame->format = ssctx->format;
-            ssctx->time_sec = av_gettime_relative();
             //av_log(NULL, AV_LOG_WARNING, "frame_buf->stVdecBufInfo.u64Pts = %lld\n", frame_buf->stVdecBufInfo.u64Pts);
         }
         else
         {
-            ssctx->time_sec  = (ssctx->time_sec == 0) ? av_gettime_relative() : ssctx->time_sec;
-            ssctx->time_wait = av_gettime_relative();
+            av_usleep(5 * 1000);
 
-            if ((ssctx->time_wait - ssctx->time_sec) / AV_TIME_BASE > GET_FRAME_TIME_OUT) {
-                av_freep(&frame_buf);
-                av_frame_unref(frame);
-                ssctx->time_sec = av_gettime_relative();
-                av_log(NULL, AV_LOG_ERROR, "h264 get bframe from vdec time out!\n");
-                return AVERROR_EOF;
-            } else {
-                MI_VDEC_GetChnStat(0, &stChnStat);
-                if (stChnStat.u32LeftStreamBytes > VDEC_ES_BUF_BUSY) {
-                    MI_SYS_GetFd(&stVdecChnPort, &s32Fd);
-                    goto regetbframe;
-                } else {
+            MI_VDEC_GetChnStat(0, &stChnStat);
+            if (stChnStat.u32LeftStreamBytes > VDEC_ES_BUF_BUSY) {
+                if (!time_start) {
+                    time_start = av_gettime_relative();
+                }
+                time_wait = av_gettime_relative();
+                if ((time_wait - time_start) / AV_TIME_BASE > GET_FRAME_TIME_OUT) {
                     av_freep(&frame_buf);
                     av_frame_unref(frame);
-                    return AVERROR(EAGAIN);
+                    av_log(NULL, AV_LOG_ERROR, "h264 get bframe from vdec time out!\n");
+                    return MI_ERR_VDEC_FAILED;
                 }
+                goto regetbframe;
             }
+
+            av_freep(&frame_buf);
+            av_frame_unref(frame);
+            return AVERROR(EAGAIN);
         }
     }
 
@@ -272,6 +272,7 @@ static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
     MI_SYS_ChnPort_t  stVdecChnPort;
     MI_VDEC_ChnStat_t stChnStat;
     SS_Vdec_BufInfo  *frame_buf;
+    int64_t time_start = 0, time_wait = 0;
 
     //av_log(NULL, AV_LOG_ERROR, "get in h264_get_frame!\n");
 
@@ -313,31 +314,30 @@ regetframe:
             frame->height = frame_buf->stVdecBufInfo.stFrameData.u16Height;
             frame->pts    = frame_buf->stVdecBufInfo.u64Pts;
             frame->format = ssctx->format;
-            ssctx->time_sec = av_gettime_relative();
             //av_log(NULL, AV_LOG_INFO, "vdec input buffer addr : 0x%x\n", &frame_buf->stVdecHandle);
         }
         else
         {
-            ssctx->time_sec  = (ssctx->time_sec == 0) ? av_gettime_relative() : ssctx->time_sec;
-            ssctx->time_wait = av_gettime_relative();
+            av_usleep(5 * 1000);    //等待一段时间让vdec解码,否则上层一旦陷入死循环,导致丢帧
 
-            if ((ssctx->time_wait - ssctx->time_sec) / AV_TIME_BASE > GET_FRAME_TIME_OUT) {
-                av_freep(&frame_buf);
-                av_frame_unref(frame);
-                ssctx->time_sec = av_gettime_relative();
-                av_log(NULL, AV_LOG_ERROR, "h264 get frame from vdec time out!\n");
-                return AVERROR_EOF;
-            } else {
-                MI_VDEC_GetChnStat(0, &stChnStat);
-                if (stChnStat.u32LeftStreamBytes > VDEC_ES_BUF_BUSY) {
-                    MI_SYS_GetFd(&stVdecChnPort, &s32Fd);
-                    goto regetframe;
-                } else {
+            MI_VDEC_GetChnStat(0, &stChnStat);
+            if (stChnStat.u32LeftStreamBytes > VDEC_ES_BUF_BUSY) {
+                if (!time_start) {
+                    time_start = av_gettime_relative();
+                }
+                time_wait = av_gettime_relative();
+                if ((time_wait - time_start) / AV_TIME_BASE > GET_FRAME_TIME_OUT) {
                     av_freep(&frame_buf);
                     av_frame_unref(frame);
-                    return AVERROR(EAGAIN);
-                }
+                    av_log(NULL, AV_LOG_ERROR, "h264 get frame from vdec time out!\n");
+                    return MI_ERR_VDEC_FAILED;
+                } 
+                goto regetframe;
             }
+
+            av_freep(&frame_buf);
+            av_frame_unref(frame);
+            return AVERROR(EAGAIN);
         }
     }
 
@@ -473,6 +473,7 @@ static MI_S32 ss_h264_send_stream(MI_U8 *data, MI_U32 size, int64_t pts)
 {
     MI_VDEC_VideoStream_t stVdecStream;
     MI_S32 s32Ret;
+    int64_t time_start = 0, time_wait = 0;
 
     stVdecStream.pu8Addr      = data;
     stVdecStream.u32Len       = size;
@@ -488,20 +489,24 @@ static MI_S32 ss_h264_send_stream(MI_U8 *data, MI_U32 size, int64_t pts)
     fwrite(stVdecStream.pu8Addr, stVdecStream.u32Len, 1, h264_fd);
     #endif
     //av_log(NULL, AV_LOG_INFO, "[%s %d]send to stream pts : %lld\n",  __FUNCTION__, __LINE__, stVdecStream.u64PTS);
-retry:
-    s32Ret = MI_VDEC_SendStream(0, &stVdecStream, 30);
-    if (s32Ret != MI_SUCCESS)
-    {
-        if (s32Ret == MI_ERR_VDEC_BUF_FULL) {
-            av_usleep(10 * 1000);
+    s32Ret = MI_VDEC_SendStream(0, &stVdecStream, 30); 
+    while (s32Ret == MI_ERR_VDEC_BUF_FULL) {
+        av_usleep(10 * 1000);
+        if (!time_start) {
             av_log(NULL, AV_LOG_ERROR, "vdec es buf is full!\n");
-            goto retry;
+            time_start = av_gettime_relative();
         }
-        else
-        {
-            av_log(NULL, AV_LOG_ERROR, "[%s %d]MI_VDEC_SendStream failed!\n", __FUNCTION__, __LINE__);
-            return s32Ret;
+        time_wait = av_gettime_relative();
+        if ((time_wait - time_start) / AV_TIME_BASE > 2) {
+            av_log(NULL, AV_LOG_ERROR, "ss_h264_send_stream time out!\n");
+            return MI_ERR_VDEC_FAILED;
         }
+        s32Ret = MI_VDEC_SendStream(0, &stVdecStream, 30);
+    }
+
+    if (s32Ret < 0) {
+        av_log(NULL, AV_LOG_ERROR, "[%s %d]MI_VDEC_SendStream failed!\n", __FUNCTION__, __LINE__);
+        return MI_ERR_VDEC_FAILED;
     }
     //av_log(NULL, AV_LOG_INFO, "[%s %d]MI_VDEC_SendStream success!.\n", __FUNCTION__, __LINE__);
 
@@ -945,8 +950,11 @@ static int ss_h264_receive_frame(AVCodecContext *avctx, AVFrame *frame)
                 if (ret >= 0 && avpkt->data) 
                 {
                     ret = ss_h264_decode_nalu(s, avpkt);
-                    if (ret < 0)
-                       av_log(avctx, AV_LOG_ERROR, "ss_h264_decode_nalu failed!\n");
+                    if (ret == MI_ERR_VDEC_FAILED && !got_frame) {
+                        return MI_ERR_VDEC_FAILED;
+                    } else if (ret < 0) {
+                        av_log(avctx, AV_LOG_ERROR, "ss_h264_decode_nalu failed!\n");
+                    }
 
                     if (!(avctx->codec->caps_internal & FF_CODEC_CAP_SETS_PKT_DTS))
                         frame->pkt_dts = avpkt->dts;
