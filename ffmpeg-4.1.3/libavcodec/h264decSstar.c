@@ -74,7 +74,6 @@
 
 #define VDEC_CHN_ID     0
 
-
 #define STCHECKRESULT(result)\
     if (result != MI_SUCCESS)\
     {\
@@ -179,15 +178,15 @@ pthread_cond_t h264_thread;
 FILE *h264_fd;
 #endif
 /****************************************************************************************************/
-#if 1
 
 #define  VDEC_ES_BUF_MAX        2 * 1024 * 1024
 #define  VDEC_ES_BUF_BUSY       2 * 1024 * 768
 #define  GET_FRAME_TIME_OUT     3
 
+#if 1
 static int ss_h264_get_bframe(SsH264Context *ssctx, AVFrame *frame)
 {
-    MI_S32 ret, s32Fd;
+    MI_S32 ret;
     MI_SYS_ChnPort_t  stVdecChnPort;
     MI_VDEC_ChnStat_t stChnStat;
     SS_Vdec_BufInfo  *frame_buf;
@@ -268,7 +267,7 @@ regetbframe:
 
 static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
 {
-    MI_S32 ret, s32Fd;
+    MI_S32 ret;
     MI_SYS_ChnPort_t  stVdecChnPort;
     MI_VDEC_ChnStat_t stChnStat;
     SS_Vdec_BufInfo  *frame_buf;
@@ -489,7 +488,7 @@ static MI_S32 ss_h264_send_stream(MI_U8 *data, MI_U32 size, int64_t pts)
     fwrite(stVdecStream.pu8Addr, stVdecStream.u32Len, 1, h264_fd);
     #endif
     //av_log(NULL, AV_LOG_INFO, "[%s %d]send to stream pts : %lld\n",  __FUNCTION__, __LINE__, stVdecStream.u64PTS);
-    s32Ret = MI_VDEC_SendStream(0, &stVdecStream, 30); 
+    s32Ret = MI_VDEC_SendStream(VDEC_CHN_ID, &stVdecStream, 30); 
     while (s32Ret == MI_ERR_VDEC_BUF_FULL) {
         av_usleep(10 * 1000);
         if (!time_start) {
@@ -501,7 +500,7 @@ static MI_S32 ss_h264_send_stream(MI_U8 *data, MI_U32 size, int64_t pts)
             av_log(NULL, AV_LOG_ERROR, "ss_h264_send_stream time out!\n");
             return MI_ERR_VDEC_FAILED;
         }
-        s32Ret = MI_VDEC_SendStream(0, &stVdecStream, 30);
+        s32Ret = MI_VDEC_SendStream(VDEC_CHN_ID, &stVdecStream, 30);
     }
 
     if (s32Ret < 0) {
@@ -517,7 +516,10 @@ static av_cold int ss_h264_decode_end(AVCodecContext *avctx)
 {
     SsH264Context *s = (SsH264Context *)avctx->priv_data;
 
-    av_freep(&s->extradata);
+    if (s->extradata) {
+        av_freep(&s->extradata);
+    }
+
     ff_h2645_packet_uninit(&s->pkt);
     //pts_queue_destroy(&h264_pts);
 
@@ -525,10 +527,12 @@ static av_cold int ss_h264_decode_end(AVCodecContext *avctx)
     fclose(h264_fd);
     #endif
 
-    STCHECKRESULT(MI_VDEC_StopChn(0));
-    STCHECKRESULT(MI_VDEC_DestroyChn(0));
+    STCHECKRESULT(MI_VDEC_StopChn(VDEC_CHN_ID));
+    STCHECKRESULT(MI_VDEC_DestroyChn(VDEC_CHN_ID));
     STCHECKRESULT(MI_VDEC_DeInitDev());
+
     av_log(avctx, AV_LOG_WARNING, "ss_h264_decode_end successful!\n");
+
     return 0;
 }
 
@@ -639,7 +643,17 @@ static MI_U32 ss_h264_vdec_init(AVCodecContext *avctx)
     MI_VDEC_OutputPortAttr_t stOutputPortAttr;
     MI_VDEC_CHN stVdecChn = VDEC_CHN_ID;
     MI_VDEC_InitParam_t stVdecInitParam;
-    int stWidth, stHeight;
+    MI_S32 stWidth, stHeight;
+
+    if (avctx->width <= 0
+        || avctx->height <= 0
+        || (avctx->flags  & 0xFFFF) <= 8
+        || (avctx->flags2 & 0xFFFF) <= 8
+        || (avctx->flags  & 0xFFFF) >= 8192
+        || (avctx->flags2 & 0xFFFF) >= 8192) {
+        av_log(avctx, AV_LOG_ERROR, "ss_h264_vdec_init parameter check error!\n");
+        return AVERROR_UNKNOWN;
+    }
 
     av_log(avctx, AV_LOG_WARNING, "h264 has b frames : %d\n", avctx->has_b_frames);
     memset(&stVdecInitParam, 0, sizeof(MI_VDEC_InitParam_t));
@@ -674,8 +688,7 @@ static MI_U32 ss_h264_vdec_init(AVCodecContext *avctx)
     memset(&stOutputPortAttr, 0, sizeof(MI_VDEC_OutputPortAttr_t));
     stOutputPortAttr.u16Width   = (stWidth  > 0) ? stWidth  : avctx->width;
     stOutputPortAttr.u16Height  = (stHeight > 0) ? stHeight : avctx->height;
-    STCHECKRESULT(MI_VDEC_SetOutputPortAttr(0, &stOutputPortAttr));
-
+    STCHECKRESULT(MI_VDEC_SetOutputPortAttr(stVdecChn, &stOutputPortAttr));
     av_log(avctx, AV_LOG_INFO, "ssh264 vdec input width, height : [%d,%d], output width, height : [%d,%d]\n", avctx->width, avctx->height, stWidth, stHeight);
 
     avctx->flags  &= (0xFFFF0000);
@@ -710,7 +723,7 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
     if (!s->extradata)
     {
         av_log(avctx, AV_LOG_ERROR, "ssh264 malloc for extra data failed!\n");
-        return 0;
+        return AVERROR(ENOMEM);
     }
 
     //av_log(NULL, AV_LOG_INFO, "ss_h264_decode_init width: %d, height : %d\n", avctx->flags, avctx->flags2);
@@ -733,6 +746,10 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
     if (MI_SUCCESS != (ret = ss_h264_vdec_init(avctx)))
     {
         av_log(avctx, AV_LOG_ERROR, "ss_h264_vdec_init failed!\n");
+        if (s->extradata) {
+            av_freep(&s->extradata);
+        }
+        return AVERROR_UNKNOWN;
     }
 
     //check h264 or avc1
@@ -748,6 +765,7 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
     }
 
     av_log(avctx, AV_LOG_INFO, "ss_h264_decode_init successful!\n");
+
     return 0;
 }
 
@@ -1023,6 +1041,5 @@ AVCodec ff_ssh264_decoder = {
     .hw_configs            = (const AVCodecHWConfigInternal*[]) {
                                NULL
                            },
-
 };
 
