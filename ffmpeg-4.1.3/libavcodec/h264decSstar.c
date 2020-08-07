@@ -183,8 +183,7 @@ FILE *h264_fd;
 #define  VDEC_ES_BUF_BUSY       2 * 1024 * 768
 #define  GET_FRAME_TIME_OUT     3
 
-#if 1
-static int ss_h264_get_bframe(SsH264Context *ssctx, AVFrame *frame)
+static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
 {
     MI_S32 ret;
     MI_SYS_ChnPort_t  stVdecChnPort;
@@ -192,88 +191,6 @@ static int ss_h264_get_bframe(SsH264Context *ssctx, AVFrame *frame)
     SS_Vdec_BufInfo  *frame_buf;
     mi_vdec_DispFrame_t *pstVdecInfo = NULL;
     int64_t time_start = 0, time_wait = 0;
-
-    //av_log(NULL, AV_LOG_ERROR, "get in h264_get_bframe!\n");
-
-    frame->width  = ssctx->width;
-    frame->height = ssctx->height;
-    frame->format = ssctx->format;
-    ret = av_frame_get_buffer(frame, 32);
-    if (ret < 0 || !frame->width || !frame->height)
-    {
-        av_log(NULL, AV_LOG_ERROR, "av_frame_get_buffer failed\n");
-        av_frame_unref(frame);
-        return AVERROR(ENOMEM);
-    }
-
-    if (!(ssctx->avctx->flags & (1 << 8)))
-    {
-        frame_buf = (SS_Vdec_BufInfo *)av_mallocz(sizeof(SS_Vdec_BufInfo));
-        if (!frame_buf)
-        {
-            av_log(NULL, AV_LOG_ERROR, "av_mallocz for ss_frame_buf failed\n");
-            av_frame_unref(frame);
-            return AVERROR(ENOMEM);
-        }
-        frame_buf->bType        = true;
-        frame_buf->stVdecHandle = NULL;
-        memset(&frame_buf->stVdecBufInfo, 0x0, sizeof(MI_SYS_BufInfo_t));
-
-        memset(&stVdecChnPort, 0, sizeof(MI_SYS_ChnPort_t));
-        stVdecChnPort.eModId      = E_MI_MODULE_ID_VDEC;
-        stVdecChnPort.u32DevId    = 0;
-        stVdecChnPort.u32ChnId    = VDEC_CHN_ID;
-        stVdecChnPort.u32PortId   = 0;
-        MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 3, 5);
-regetbframe:
-        if (MI_SUCCESS == (ret = MI_SYS_ChnOutputPortGetBuf(&stVdecChnPort, &frame_buf->stVdecBufInfo, &frame_buf->stVdecHandle)))
-        {
-            pstVdecInfo = (mi_vdec_DispFrame_t *)frame_buf->stVdecBufInfo.stMetaData.pVirAddr;
-            frame_buf->s32Index = pstVdecInfo->s32Idx;
-            frame->opaque = (SS_Vdec_BufInfo *)frame_buf;
-            frame->width  = pstVdecInfo->stFrmInfo.u16Width;
-            frame->height = pstVdecInfo->stFrmInfo.u16Height;
-            frame->pts    = frame_buf->stVdecBufInfo.u64Pts;
-            frame->format = ssctx->format;
-            //av_log(NULL, AV_LOG_WARNING, "frame_buf->stVdecBufInfo.u64Pts = %lld\n", frame_buf->stVdecBufInfo.u64Pts);
-        }
-        else
-        {
-            av_usleep(5 * 1000);
-
-            MI_VDEC_GetChnStat(0, &stChnStat);
-            if (stChnStat.u32LeftStreamBytes > VDEC_ES_BUF_BUSY) {
-                if (!time_start) {
-                    time_start = av_gettime_relative();
-                }
-                time_wait = av_gettime_relative();
-                if ((time_wait - time_start) / AV_TIME_BASE > GET_FRAME_TIME_OUT) {
-                    av_freep(&frame_buf);
-                    av_frame_unref(frame);
-                    av_log(NULL, AV_LOG_ERROR, "h264 get bframe from vdec time out!\n");
-                    return MI_ERR_VDEC_FAILED;
-                }
-                goto regetbframe;
-            }
-
-            av_freep(&frame_buf);
-            av_frame_unref(frame);
-            return AVERROR(EAGAIN);
-        }
-    }
-
-    return MI_SUCCESS;
-}
-
-static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
-{
-    MI_S32 ret;
-    MI_SYS_ChnPort_t  stVdecChnPort;
-    MI_VDEC_ChnStat_t stChnStat;
-    SS_Vdec_BufInfo  *frame_buf;
-    int64_t time_start = 0, time_wait = 0;
-
-    //av_log(NULL, AV_LOG_ERROR, "get in h264_get_frame!\n");
 
     frame->width  = ssctx->width;
     frame->height = ssctx->height;
@@ -295,10 +212,8 @@ static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
             av_frame_unref(frame);
             return AVERROR(ENOMEM);
         }
-        frame_buf->bType        = false;
-        frame_buf->stVdecHandle = NULL;
-        memset(&frame_buf->stVdecBufInfo, 0x0, sizeof(MI_SYS_BufInfo_t));
 
+        memset(&frame_buf->stVdecBufInfo, 0x0, sizeof(MI_SYS_BufInfo_t));
         memset(&stVdecChnPort, 0, sizeof(MI_SYS_ChnPort_t));
         stVdecChnPort.eModId      = E_MI_MODULE_ID_VDEC;
         stVdecChnPort.u32DevId    = 0;
@@ -308,12 +223,20 @@ static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
 regetframe:
         if (MI_SUCCESS == (ret = MI_SYS_ChnOutputPortGetBuf(&stVdecChnPort, &frame_buf->stVdecBufInfo, &frame_buf->stVdecHandle)))
         {
+            if (frame_buf->stVdecBufInfo.eBufType == E_MI_SYS_BUFDATA_FRAME) {
+                frame_buf->bType    = FALSE;
+                frame->width        = frame_buf->stVdecBufInfo.stFrameData.u16Width;
+                frame->height       = frame_buf->stVdecBufInfo.stFrameData.u16Height;
+            } else if (frame_buf->stVdecBufInfo.eBufType == E_MI_SYS_BUFDATA_META) {
+                pstVdecInfo         = (mi_vdec_DispFrame_t *)frame_buf->stVdecBufInfo.stMetaData.pVirAddr;
+                frame_buf->bType    = TRUE;
+                frame_buf->s32Index = pstVdecInfo->s32Idx;
+                frame->width        = pstVdecInfo->stFrmInfo.u16Width;
+                frame->height       = pstVdecInfo->stFrmInfo.u16Height;
+            }
             frame->opaque = (SS_Vdec_BufInfo *)frame_buf;
-            frame->width  = frame_buf->stVdecBufInfo.stFrameData.u16Width;
-            frame->height = frame_buf->stVdecBufInfo.stFrameData.u16Height;
             frame->pts    = frame_buf->stVdecBufInfo.u64Pts;
             frame->format = ssctx->format;
-            //av_log(NULL, AV_LOG_INFO, "vdec input buffer addr : 0x%x\n", &frame_buf->stVdecHandle);
         }
         else
         {
@@ -342,7 +265,8 @@ regetframe:
 
     return MI_SUCCESS;
 }
-#else
+
+#if 0
 static int ss_h264_get_bframe(SsH264Context *ssctx, AVFrame *frame)
 {
     MI_S32 ret, ysize, totalsize;
@@ -896,10 +820,7 @@ static int ss_h264_decode_frame(AVCodecContext *avctx, void *data,
             return AVERROR_EOF;
         } else {
             *got_frame = 0;
-            if (avctx->flags & (1 << 6))
-                ret = ss_h264_get_bframe(s, frame);
-            else
-                ret = ss_h264_get_frame(s, frame);
+            ret = ss_h264_get_frame(s, frame);
 
             if (MI_SUCCESS != ret)
             {
@@ -950,12 +871,7 @@ static int ss_h264_receive_frame(AVCodecContext *avctx, AVFrame *frame)
         while (!frame->buf[0])
         {
             got_frame = 0;
-            if (avctx->flags & (1 << 6))
-                ret2 = ss_h264_get_bframe(s, frame);
-            else
-                ret2 = ss_h264_get_frame(s, frame);
-
-            if (MI_SUCCESS == ret2)
+            if (MI_SUCCESS == (ret2 = ss_h264_get_frame(s, frame)))
             {
                 got_frame = 1;
                 frame->best_effort_timestamp = frame->pts;

@@ -162,8 +162,7 @@ FILE *hevc_fd;
 #define  VDEC_ES_BUF_BUSY       2 * 1024 * 768
 #define  GET_FRAME_TIME_OUT     3
 
-#if 1
-static int ss_hevc_get_bframe(SsHevcContext *ssctx, AVFrame *frame)
+static int ss_hevc_get_frame(SsHevcContext *ssctx, AVFrame *frame)
 {
     MI_S32 ret;
     MI_SYS_ChnPort_t  stVdecChnPort;
@@ -178,40 +177,45 @@ static int ss_hevc_get_bframe(SsHevcContext *ssctx, AVFrame *frame)
     ret = av_frame_get_buffer(frame, 32);
     if (ret < 0 || !frame->width || !frame->height)
     {
+        av_log(ssctx, AV_LOG_ERROR, "av_frame_get_buffer failed\n");
         av_frame_unref(frame);
         return AVERROR(ENOMEM);
     }
 
     if (!(ssctx->avctx->flags & (1 << 8)))
     {
-        frame_buf = av_mallocz(sizeof(SS_Vdec_BufInfo));
+        frame_buf = (SS_Vdec_BufInfo *)av_mallocz(sizeof(SS_Vdec_BufInfo));
         if (!frame_buf)
         {
-            av_log(NULL, AV_LOG_ERROR, "av_mallocz for frame_buf failed\n");
+            av_log(ssctx, AV_LOG_ERROR, "av_mallocz for ss_frame_buf failed\n");
             av_frame_unref(frame);
             return AVERROR(ENOMEM);
         }
-        frame_buf->bType        = true;
-        frame_buf->stVdecHandle = NULL;
-        memset(&frame_buf->stVdecBufInfo, 0x0, sizeof(MI_SYS_BufInfo_t));
 
+        memset(&frame_buf->stVdecBufInfo, 0x0, sizeof(MI_SYS_BufInfo_t));
         memset(&stVdecChnPort, 0, sizeof(MI_SYS_ChnPort_t));
         stVdecChnPort.eModId      = E_MI_MODULE_ID_VDEC;
         stVdecChnPort.u32DevId    = 0;
         stVdecChnPort.u32ChnId    = VDEC_CHN_ID;
         stVdecChnPort.u32PortId   = 0;
         MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 3, 5);
-regetbframe:
+regetframe:
         if (MI_SUCCESS == (ret = MI_SYS_ChnOutputPortGetBuf(&stVdecChnPort, &frame_buf->stVdecBufInfo, &frame_buf->stVdecHandle)))
         {
-            pstVdecInfo = (mi_vdec_DispFrame_t *)frame_buf->stVdecBufInfo.stMetaData.pVirAddr;
-            frame_buf->s32Index = pstVdecInfo->s32Idx;
+            if (frame_buf->stVdecBufInfo.eBufType == E_MI_SYS_BUFDATA_FRAME) {
+                frame_buf->bType    = FALSE;
+                frame->width        = frame_buf->stVdecBufInfo.stFrameData.u16Width;
+                frame->height       = frame_buf->stVdecBufInfo.stFrameData.u16Height;
+            } else if (frame_buf->stVdecBufInfo.eBufType == E_MI_SYS_BUFDATA_META) {
+                pstVdecInfo         = (mi_vdec_DispFrame_t *)frame_buf->stVdecBufInfo.stMetaData.pVirAddr;
+                frame_buf->bType    = TRUE;
+                frame_buf->s32Index = pstVdecInfo->s32Idx;
+                frame->width        = pstVdecInfo->stFrmInfo.u16Width;
+                frame->height       = pstVdecInfo->stFrmInfo.u16Height;
+            }
             frame->opaque = (SS_Vdec_BufInfo *)frame_buf;
-            frame->width  = pstVdecInfo->stFrmInfo.u16Width;
-            frame->height = pstVdecInfo->stFrmInfo.u16Height;
             frame->pts    = frame_buf->stVdecBufInfo.u64Pts;
             frame->format = ssctx->format;
-            //av_log(NULL, AV_LOG_INFO, "vdec input buffer addr : 0x%x\n", &frame_buf->stVdecHandle);
         }
         else
         {
@@ -226,85 +230,9 @@ regetbframe:
                 if ((time_wait - time_start) / AV_TIME_BASE > GET_FRAME_TIME_OUT) {
                     av_freep(&frame_buf);
                     av_frame_unref(frame);
-                    av_log(NULL, AV_LOG_ERROR, "hevc get bframe from vdec time out!\n");
-                    return MI_ERR_VDEC_FAILED;
-                }
-                goto regetbframe;
-            }
-
-            av_freep(&frame_buf);
-            av_frame_unref(frame);
-            return AVERROR(EAGAIN);
-        }
-    }
-
-    return MI_SUCCESS;
-}
-
-// 此函数用于获取不带B帧的图像
-static int ss_hevc_get_frame(SsHevcContext *ssctx, AVFrame *frame)
-{
-    MI_S32 ret;
-    MI_SYS_ChnPort_t  stVdecChnPort;
-    MI_VDEC_ChnStat_t stChnStat;
-    SS_Vdec_BufInfo  *frame_buf;
-    int64_t time_start = 0, time_wait = 0;
-
-    frame->width  = ssctx->width;
-    frame->height = ssctx->height;
-    frame->format = ssctx->format;
-    ret = av_frame_get_buffer(frame, 32);
-    if (ret < 0 || !frame->width || !frame->height)
-    {
-        av_frame_unref(frame);
-        return AVERROR(ENOMEM);
-    }
-
-    if (!(ssctx->avctx->flags &(1 << 8)))
-    {
-        frame_buf = av_mallocz(sizeof(SS_Vdec_BufInfo));
-        if (!frame_buf)
-        {
-            av_log(NULL, AV_LOG_ERROR, "av_mallocz for ss_frame_buf failed\n");
-            av_frame_unref(frame);
-            return AVERROR(ENOMEM);
-        }
-        frame_buf->bType        = false;
-        frame_buf->stVdecHandle = NULL;
-        memset(&frame_buf->stVdecBufInfo, 0x0, sizeof(MI_SYS_BufInfo_t));
-
-        memset(&stVdecChnPort, 0, sizeof(MI_SYS_ChnPort_t));
-        stVdecChnPort.eModId        = E_MI_MODULE_ID_VDEC;
-        stVdecChnPort.u32DevId      = 0;
-        stVdecChnPort.u32ChnId      = VDEC_CHN_ID;
-        stVdecChnPort.u32PortId     = 0;
-        MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 3, 5);
-regetframe:
-        if (MI_SUCCESS == (ret = MI_SYS_ChnOutputPortGetBuf(&stVdecChnPort, &frame_buf->stVdecBufInfo, &frame_buf->stVdecHandle)))
-        {
-            frame->opaque = (SS_Vdec_BufInfo *)frame_buf;
-            frame->width  = frame_buf->stVdecBufInfo.stFrameData.u16Width;
-            frame->height = frame_buf->stVdecBufInfo.stFrameData.u16Height;
-            frame->pts    = frame_buf->stVdecBufInfo.u64Pts;
-            frame->format = ssctx->format;
-            //av_log(NULL, AV_LOG_INFO, "vdec input buffer addr : 0x%x\n", &frame_buf->stVdecHandle);
-        } 
-        else 
-        {
-            av_usleep(5 * 1000);
-
-            MI_VDEC_GetChnStat(0, &stChnStat);
-            if (stChnStat.u32LeftStreamBytes > VDEC_ES_BUF_BUSY) {
-                if (!time_start) {
-                    time_start = av_gettime_relative();
-                }
-                time_wait = av_gettime_relative();
-                if ((time_wait - time_start) / AV_TIME_BASE > GET_FRAME_TIME_OUT) {
-                    av_freep(&frame_buf);
-                    av_frame_unref(frame);
                     av_log(NULL, AV_LOG_ERROR, "hevc get frame from vdec time out!\n");
                     return MI_ERR_VDEC_FAILED;
-                }
+                } 
                 goto regetframe;
             }
 
@@ -316,7 +244,8 @@ regetframe:
 
     return MI_SUCCESS;
 }
-#else
+
+#if 0
 static int ss_hevc_get_bframe(SsHevcContext *ssctx, AVFrame *frame)
 {
     MI_U32 ret, ysize, totalsize;
@@ -891,10 +820,7 @@ static int ss_hevc_decode_frame(AVCodecContext *avctx, void *data,
         else
         {
             *got_frame = 0;
-            if (avctx->flags & (1 << 6))
-                ret = ss_hevc_get_bframe(s, frame);
-            else
-                ret = ss_hevc_get_frame(s, frame);
+            ret = ss_hevc_get_frame(s, frame);
 
             if (MI_SUCCESS != ret)
             {
@@ -945,12 +871,7 @@ static int ss_hevc_receive_frame(AVCodecContext *avctx, AVFrame *frame)
         while (!frame->buf[0])
         {
             got_frame = 0;
-            if (avctx->flags & (1 << 6))
-                ret2 = ss_hevc_get_bframe(s, frame);
-            else
-                ret2 = ss_hevc_get_frame(s, frame);
-
-            if (MI_SUCCESS == ret2) {
+            if (MI_SUCCESS == (ret2 = ss_hevc_get_frame(s, frame))) {
                 got_frame = 1;
                 frame->best_effort_timestamp = frame->pts;
             }
