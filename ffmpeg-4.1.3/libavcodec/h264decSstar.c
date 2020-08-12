@@ -240,7 +240,7 @@ regetframe:
         }
         else
         {
-            av_usleep(5 * 1000);    //等待一段时间让vdec解码,否则上层一旦陷入死循环,导致丢帧
+            av_usleep(10 * 1000);    //等待一段时间让vdec解码,否则上层一旦陷入死循环,导致丢帧
 
             MI_VDEC_GetChnStat(0, &stChnStat);
             if (stChnStat.u32LeftStreamBytes > VDEC_ES_BUF_BUSY) {
@@ -858,7 +858,7 @@ static int ss_h264_decode_frame(AVCodecContext *avctx, void *data,
 
 static int ss_h264_receive_frame(AVCodecContext *avctx, AVFrame *frame)
 {
-    int ret, ret2, got_frame;
+    int ret, ret1, ret2, got_frame;
     SsH264Context        *s = avctx->priv_data; 
     AVCodecInternal   *avci = avctx->internal;
     DecodeSimpleContext *ds = &avci->ds;
@@ -883,12 +883,7 @@ static int ss_h264_receive_frame(AVCodecContext *avctx, AVFrame *frame)
                 ret = ff_decode_get_packet(avctx, avpkt);
                 if (ret >= 0 && avpkt->data) 
                 {
-                    ret = ss_h264_decode_nalu(s, avpkt);
-                    if (ret == MI_ERR_VDEC_FAILED && !got_frame) {
-                        return MI_ERR_VDEC_FAILED;
-                    } else if (ret < 0) {
-                        av_log(avctx, AV_LOG_ERROR, "ss_h264_decode_nalu failed!\n");
-                    }
+                    ret1 = ss_h264_decode_nalu(s, avpkt);
 
                     if (!(avctx->codec->caps_internal & FF_CODEC_CAP_SETS_PKT_DTS))
                         frame->pkt_dts = avpkt->dts;
@@ -919,11 +914,17 @@ static int ss_h264_receive_frame(AVCodecContext *avctx, AVFrame *frame)
 
                     if (got_frame)
                         av_assert0(frame->buf[0]);
+
+                    if (ret1 == MI_ERR_VDEC_FAILED && !got_frame) {
+                        return MI_ERR_VDEC_FAILED;
+                    } else if (ret1 < 0) {
+                        av_log(avctx, AV_LOG_ERROR, "ss_h264_decode_nalu failed!\n");
+                    }
                 }
             }
 
             if (ret2 < 0) {
-                return AVERROR(EAGAIN);
+                return ret2;
             }
         }
     }
