@@ -40,5 +40,5 @@
 --disable-filters \
 --shlibdir=host/dynamic \
 --libdir=host/static \
---extra-cflags="-I./../sstar/include -I./../3rdparty -g -rdynamic" \
+--extra-cflags="-I./../sstar/include -I./../3rdparty -g -rdynamic -funwind-tables -ffunction-sections" \
 --extra-ldflags="-L./../sstar/lib -L./../3rdparty/lib"

@@ -75,6 +75,10 @@ typedef struct SsH264Context {
     int nal_length_size;  ///< Number of bytes used for nal length (1, 2 or 4)
     int start_len;
 
+    uint8_t * pkt_buf;
+    int pkt_size;
+    int64_t pts, dts;
+
     uint8_t * extradata;
     int       max_extradata_size;
     int       extradata_size;

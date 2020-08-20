@@ -66,6 +66,10 @@ typedef struct SsHevcContext {
     int height;
     int format;
 
+    uint8_t * pkt_buf;
+    int pkt_size;
+    int64_t pts, dts;
+
     uint8_t *data;
     int data_size;
     int max_data_size;

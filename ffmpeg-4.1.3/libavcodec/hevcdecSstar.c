@@ -154,7 +154,6 @@ pts_queue_t hevc_pts;
 #define  ENABLE_DUMP_ES     0
 #define  DUMP_PATH          "/mnt/pstream_hevc.es"
 
-pthread_cond_t hevc_thread;
 FILE *hevc_fd;
 /**************************************************************************/
 
@@ -198,7 +197,7 @@ static int ss_hevc_get_frame(SsHevcContext *ssctx, AVFrame *frame)
         stVdecChnPort.u32DevId    = 0;
         stVdecChnPort.u32ChnId    = VDEC_CHN_ID;
         stVdecChnPort.u32PortId   = 0;
-        MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 3, 5);
+        MI_SYS_SetChnOutputPortDepth(&stVdecChnPort, 5, 5);
 regetframe:
         if (MI_SUCCESS == (ret = MI_SYS_ChnOutputPortGetBuf(&stVdecChnPort, &frame_buf->stVdecBufInfo, &frame_buf->stVdecHandle)))
         {
@@ -447,7 +446,7 @@ static MI_U32 ss_hevc_vdec_init(AVCodecContext *avctx)
     return MI_SUCCESS;
 }
 
-static MI_U32 ss_hevc_send_stream(MI_U8 *data, MI_U32 size, int64_t pts)
+static MI_U32 ss_hevc_send_stream(MI_U8 *data, MI_U32 size, int64_t pts, int flag)
 {
     MI_VDEC_VideoStream_t stVdecStream;
     MI_S32 s32Ret;
@@ -458,7 +457,10 @@ static MI_U32 ss_hevc_send_stream(MI_U8 *data, MI_U32 size, int64_t pts)
     stVdecStream.u32Len       = size;
     stVdecStream.u64PTS       = pts;
     stVdecStream.bEndOfFrame  = 1;
-    stVdecStream.bEndOfStream = 0;
+    stVdecStream.bEndOfStream = (flag) ? TRUE : FALSE;
+    if (stVdecStream.bEndOfStream) {
+        av_log(NULL, AV_LOG_INFO, "vdec end of hevc stream flag set!\n");
+    }
 
     //av_log(NULL, AV_LOG_INFO, "size : %d. data : %x,%x,%x,%x,%x,%x,%x,%x.\n", stVdecStream.u32Len, stVdecStream.pu8Addr[0],
     //stVdecStream.pu8Addr[1], stVdecStream.pu8Addr[2], stVdecStream.pu8Addr[3], stVdecStream.pu8Addr[4],
@@ -517,7 +519,6 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
 {
     int i, ret, data_idx;
     const uint8_t start_code[4] = {0,0,0,1}; 
-    uint8_t *extradata_buf;
 
     ret = ss_h2645_packet_split(&s->pkt, avpkt->data, avpkt->size, s->avctx, s->is_nalff,
                                  s->nal_length_size, s->avctx->codec_id, 1);
@@ -529,9 +530,15 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
     }
     //av_log(NULL, AV_LOG_INFO, "avpkt size : %d, pkt.nb_nals : %d\n", avpkt->size, s->pkt.nb_nals);
     /* decode the NAL units */
-    extradata_buf = av_mallocz(avpkt->size + s->max_data_size);
-    if (!extradata_buf)
+    if (s->pkt_buf) {
+        av_freep(&s->pkt_buf);
+    }
+    s->pkt_buf = av_mallocz(avpkt->size + s->max_data_size);
+    if (!s->pkt_buf) {
+        ff_h2645_packet_uninit(&s->pkt);
         return AVERROR(ENOMEM);
+    }
+
     data_idx = 0;
     for (i = 0; i < s->pkt.nb_nals; i++)
     {
@@ -544,7 +551,7 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
                 if (data_idx == 0 && s->find_header)
                 {
                     s->avctx->flags &= ~(1 << 7);
-                    memcpy(extradata_buf, s->data, s->data_size);
+                    memcpy(s->pkt_buf, s->data, s->data_size);
                     data_idx = s->data_size;
                 }
             case HEVC_NAL_VPS:
@@ -570,9 +577,9 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
                 if (!(s->avctx->flags & (1 << 7)) && s->find_header)
                 {
                     //add head to nal data
-                    memcpy(extradata_buf + data_idx, start_code, sizeof(start_code));
-                    memcpy(extradata_buf + data_idx + sizeof(start_code), nal->data, nal->size);
-                    extradata_buf[data_idx + 3] = 1;
+                    memcpy(s->pkt_buf + data_idx, start_code, sizeof(start_code));
+                    memcpy(s->pkt_buf + data_idx + sizeof(start_code), nal->data, nal->size);
+                    s->pkt_buf[data_idx + 3] = 1;
                     data_idx += (nal->size + sizeof(start_code));
                     //av_log(NULL, AV_LOG_INFO, "extra size : %d, nal size : %d, nal data : %x,%x,%x,%x,%x,%x\n", data_idx, nal->size + 4, extradata_buf[data_idx + 2], 
                     //extradata_buf[data_idx + 3], extradata_buf[data_idx + 4], extradata_buf[data_idx + 5], extradata_buf[data_idx + 6], extradata_buf[data_idx + 7]);
@@ -592,13 +599,9 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
             default: break;
         }
     }
-    //send nal data to vdec
-    if (!(s->avctx->flags & (1 << 7)) && s->find_header)
-    {
-        avpkt->pts = ss_hevc_guess_correct_pts(s->avctx, avpkt->pts, avpkt->dts);
-        ret = ss_hevc_send_stream(extradata_buf, data_idx, avpkt->pts);
-    }
-    av_freep(&extradata_buf);
+
+    s->pkt_size = data_idx;
+    s->pts = ss_hevc_guess_correct_pts(s->avctx, avpkt->pts, avpkt->dts);
 
     ff_h2645_packet_uninit(&s->pkt);
 
@@ -639,7 +642,7 @@ static int ss_hevc_parser_nalu(SsHevcContext *s, const uint8_t *buf, int buf_siz
         }
     }
     s->find_header = 1;
-    ss_hevc_send_stream(s->data, s->data_size, 0);
+    ss_hevc_send_stream(s->data, s->data_size, 0, 0);
 done:
     ff_h2645_packet_uninit(&pkt);
     return ret;
@@ -653,6 +656,11 @@ static av_cold int ss_hevc_decode_free(AVCodecContext *avctx)
     if (s->data) {
         av_freep(&s->data);
     }
+
+    if (s->pkt_buf) {
+        av_freep(&s->pkt_buf);
+    }
+
     ff_h2645_packet_uninit(&s->pkt);
     //pts_queue_destroy(&hevc_pts);
     //fclose(hevc_fd);
@@ -803,16 +811,12 @@ static int ss_hevc_decode_frame(AVCodecContext *avctx, void *data,
     AVCodecInternal *avci = avctx->internal;
     AVFrame *frame = avci->buffer_frame;
 
-    struct timeval now;
-    struct timespec outtime;
-    pthread_mutex_t wait_mutex;
-
     //av_log(NULL, AV_LOG_INFO, "get in ss_hevc_decode_frame!\n");
 
     if (true == avctx->debug)
     {
         //end of stream and vdec buf is null
-        if (!avpkt->size && ret < 0)
+        if (!avpkt->size && !avpkt->data)
         {
             av_log(avctx, AV_LOG_INFO, "packet size is 0!!\n");
             return AVERROR_EOF;
@@ -822,25 +826,22 @@ static int ss_hevc_decode_frame(AVCodecContext *avctx, void *data,
             *got_frame = 0;
             ret = ss_hevc_get_frame(s, frame);
 
-            if (MI_SUCCESS != ret)
-            {
-                //av_log(avctx, AV_LOG_ERROR, "ss_h264 fetch frame from buffer failed!\n");
-                // vdec wait for 10ms and continue to send stream
-                pthread_mutex_init(&wait_mutex, NULL);
-                pthread_mutex_lock(&wait_mutex);
-                gettimeofday(&now, NULL);
-                outtime.tv_sec  = now.tv_sec;
-                outtime.tv_nsec = now.tv_usec * 1000 + 10 * 1000 * 1000;
-                pthread_cond_timedwait(&hevc_thread, &wait_mutex, &outtime);
-                pthread_mutex_unlock(&wait_mutex);
-                pthread_mutex_destroy(&wait_mutex);
-            }
-            else
-            {
+            if (MI_SUCCESS != ret) {
                 *got_frame = 1;
                 frame->best_effort_timestamp = frame->pts;
             }
-            // continue to send stream to vdec
+
+            if (s->pkt_buf) {
+                if (!(s->avctx->flags & (1 << 7)) && s->find_header) {
+                    ret = ss_hevc_send_stream(s->pkt_buf, s->pkt_size, s->pts, 0);
+                }
+                av_freep(&s->pkt_buf);
+            }
+            if (ret == MI_ERR_VDEC_FAILED && !(*got_frame)) {
+                return MI_ERR_VDEC_FAILED;
+            }
+
+            // continue to decode nalu and fill stream data to memory
             ret = ss_hevc_decode_nalu(s, avpkt);
             if (ret < 0)
                 av_log(avctx, AV_LOG_ERROR, "ss_hevc_decode_nalu failed!\n");
@@ -882,7 +883,16 @@ static int ss_hevc_receive_frame(AVCodecContext *avctx, AVFrame *frame)
                 ret = ff_decode_get_packet(avctx, avpkt);
                 if (ret >= 0 && avpkt->data)
                 {
-                    ret1 = ss_hevc_decode_nalu(s, avpkt);
+                    if (s->pkt_buf) {
+                        if (!(s->avctx->flags & (1 << 7)) && s->find_header) {
+                            ret1 = ss_hevc_send_stream(s->pkt_buf, s->pkt_size, s->pts, 0);
+                        }
+                        av_freep(&s->pkt_buf);
+                    }
+
+                    if (0 > ss_hevc_decode_nalu(s, avpkt)) {
+                        av_log(avctx, AV_LOG_ERROR, "ss_hevc_decode_nalu failed!\n");
+                    }
 
                     if (!(avctx->codec->caps_internal & FF_CODEC_CAP_SETS_PKT_DTS))
                         frame->pkt_dts = avpkt->dts;
@@ -913,12 +923,17 @@ static int ss_hevc_receive_frame(AVCodecContext *avctx, AVFrame *frame)
 
                     if (got_frame)
                         av_assert0(frame->buf[0]);
-
-                    if (ret1 == MI_ERR_VDEC_FAILED && !got_frame) {
-                        return MI_ERR_VDEC_FAILED;
-                    } else if (ret1 < 0) {
-                        av_log(avctx, AV_LOG_ERROR, "ss_hevc_decode_nalu failed!\n");
+                }else if (avci->draining) {
+                    if (s->pkt_buf) {
+                        if (!(s->avctx->flags & (1 << 7)) && s->find_header) {
+                            ret1 = ss_hevc_send_stream(s->pkt_buf, s->pkt_size, s->pts, 1);
+                        }
+                        av_freep(&s->pkt_buf);
                     }
+                }
+
+                if (ret1 == MI_ERR_VDEC_FAILED && !got_frame) {
+                    return MI_ERR_VDEC_FAILED;
                 }
             }
 
