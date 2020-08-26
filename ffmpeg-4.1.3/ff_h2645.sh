@@ -44,6 +44,6 @@
 --enable-protocol=file \
 --shlibdir=host/dynamic \
 --libdir=host/static \
---extra-cflags="-I./../sstar/include -Os -fPIC" \
---extra-ldflags=-L./../sstar/lib
+--extra-cflags="-I./../sstar/include -Os -fPIC -g" \
+--extra-ldflags="-L./../sstar/lib"
 
