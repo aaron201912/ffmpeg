@@ -453,6 +453,7 @@ static MI_U32 ss_hevc_send_stream(MI_U8 *data, MI_U32 size, int64_t pts, int fla
     MI_VDEC_CHN stVdecChn = VDEC_CHN_ID;
     int64_t time_start = 0, time_wait = 0;
 
+    memset(&stVdecStream, 0, sizeof(MI_VDEC_VideoStream_t));
     stVdecStream.pu8Addr      = data;
     stVdecStream.u32Len       = size;
     stVdecStream.u64PTS       = pts;
@@ -467,7 +468,7 @@ static MI_U32 ss_hevc_send_stream(MI_U8 *data, MI_U32 size, int64_t pts, int fla
     //stVdecStream.pu8Addr[5], stVdecStream.pu8Addr[6], stVdecStream.pu8Addr[7]);
 
     //fwrite(stVdecStream.pu8Addr, stVdecStream.u32Len, 1, hevc_fd);
-    s32Ret = MI_VDEC_SendStream(stVdecChn, &stVdecStream, 30); 
+    s32Ret = MI_VDEC_SendStream(stVdecChn, &stVdecStream, 30);
     while (s32Ret == MI_ERR_VDEC_BUF_FULL) {
         av_usleep(10 * 1000);
         if (!time_start) {

@@ -396,6 +396,7 @@ static MI_S32 ss_h264_send_stream(MI_U8 *data, MI_U32 size, int64_t pts, int fla
     MI_S32 s32Ret;
     int64_t time_start = 0, time_wait = 0;
 
+    memset(&stVdecStream, 0, sizeof(MI_VDEC_VideoStream_t));
     stVdecStream.pu8Addr      = data;
     stVdecStream.u32Len       = size;
     stVdecStream.u64PTS       = pts;
@@ -413,7 +414,7 @@ static MI_S32 ss_h264_send_stream(MI_U8 *data, MI_U32 size, int64_t pts, int fla
     fwrite(stVdecStream.pu8Addr, stVdecStream.u32Len, 1, h264_fd);
     #endif
     //av_log(NULL, AV_LOG_INFO, "[%s %d]send to stream pts : %lld\n",  __FUNCTION__, __LINE__, stVdecStream.u64PTS);
-    s32Ret = MI_VDEC_SendStream(VDEC_CHN_ID, &stVdecStream, 30); 
+    s32Ret = MI_VDEC_SendStream(VDEC_CHN_ID, &stVdecStream, 30);
     while (s32Ret == MI_ERR_VDEC_BUF_FULL) {
         av_usleep(10 * 1000);
         if (!time_start) {
