@@ -29,7 +29,7 @@
 --enable-shared \
 --enable-small \
 --disable-asm \
---enable-gpl \
+--disable-gpl \
 --enable-nonfree \
 --enable-openssl \
 --enable-pthreads \

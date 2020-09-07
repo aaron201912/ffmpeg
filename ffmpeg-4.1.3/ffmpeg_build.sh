@@ -25,7 +25,7 @@
 --target-os=linux \
 --cross-prefix=arm-linux-gnueabihf- \
 --enable-shared \
---enable-gpl \
+--disable-gpl \
 --enable-nonfree \
 --enable-openssl \
 --enable-pthreads \

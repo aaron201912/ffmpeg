@@ -25,7 +25,7 @@
 --cross-prefix=arm-linux-gnueabihf- \
 --enable-shared \
 --enable-static \
---enable-gpl \
+--disable-gpl \
 --enable-nonfree \
 --enable-network \
 --disable-pthreads \
@@ -59,6 +59,6 @@
 --enable-protocol=http \
 --shlibdir=host/dynamic \
 --libdir=host/static \
---extra-cflags="-I./../sstar/include -Os -fPIC" \
---extra-ldflags=-L./../sstar/lib
+--extra-cflags="-I./../sstar/include -Os -fPIC -g" \
+--extra-ldflags="-L./../sstar/lib"
 
