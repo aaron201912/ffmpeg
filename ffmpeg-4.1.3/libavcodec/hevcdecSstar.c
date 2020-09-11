@@ -6,6 +6,8 @@
 
 #include <stdio.h>
 #include <stdbool.h>
+#include <stdlib.h>
+#include <errno.h>
 #include <poll.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -151,10 +153,15 @@ static int pts_queue_destroy(pts_queue_t *q)
 pts_queue_t hevc_pts;
 #endif
 
-#define  ENABLE_DUMP_ES     0
+#define  ENABLE_DUMP_ES     1
 #define  DUMP_PATH          "/mnt/pstream_hevc.es"
 
-FILE *hevc_fd;
+#if ENABLE_DUMP_ES
+FILE *hevc_fd = NULL;
+char *sshevc_dump_path = NULL;
+bool  sshevc_dump_enable = false;
+#endif
+
 /**************************************************************************/
 
 #define  VDEC_ES_BUF_MAX        2 * 1024 * 1024
@@ -467,7 +474,12 @@ static MI_U32 ss_hevc_send_stream(MI_U8 *data, MI_U32 size, int64_t pts, int fla
     //stVdecStream.pu8Addr[1], stVdecStream.pu8Addr[2], stVdecStream.pu8Addr[3], stVdecStream.pu8Addr[4],
     //stVdecStream.pu8Addr[5], stVdecStream.pu8Addr[6], stVdecStream.pu8Addr[7]);
 
-    //fwrite(stVdecStream.pu8Addr, stVdecStream.u32Len, 1, hevc_fd);
+    #if ENABLE_DUMP_ES
+    if (sshevc_dump_enable) {
+        fwrite(stVdecStream.pu8Addr, stVdecStream.u32Len, 1, hevc_fd);
+    }
+    #endif
+
     s32Ret = MI_VDEC_SendStream(stVdecChn, &stVdecStream, 30);
     while (s32Ret == MI_ERR_VDEC_BUF_FULL) {
         av_usleep(10 * 1000);
@@ -664,7 +676,16 @@ static av_cold int ss_hevc_decode_free(AVCodecContext *avctx)
 
     ff_h2645_packet_uninit(&s->pkt);
     //pts_queue_destroy(&hevc_pts);
-    //fclose(hevc_fd);
+
+    #if ENABLE_DUMP_ES
+    if (sshevc_dump_path) {
+        av_freep(&sshevc_dump_path);
+    }
+    if (hevc_fd) {
+        fclose(hevc_fd);
+    }
+    sshevc_dump_enable = false;
+    #endif
 
     STCHECKRESULT(MI_VDEC_StopChn(stVdecChn));
     STCHECKRESULT(MI_VDEC_DestroyChn(stVdecChn));
@@ -775,7 +796,27 @@ static av_cold int ss_hevc_decode_init(AVCodecContext *avctx)
     }
 
     //pts_queue_init(&hevc_pts);
-    //hevc_fd = fopen("/mnt/pstream_hevc.es", "a+");
+
+    #if ENABLE_DUMP_ES
+    char *env = getenv("SSHEVC_DUMP");
+    if (env) {
+        if (!strncmp(env, "1", 1)) {
+            char *path = getenv("SSHEVC_DUMP_PATH");
+            if (path) {
+                sshevc_dump_path = av_strdup(path);
+                av_log(avctx, AV_LOG_INFO, "sshevc dump path = %s\n", sshevc_dump_path);
+                hevc_fd = fopen(sshevc_dump_path, "w+");
+                if (hevc_fd) {
+                    sshevc_dump_enable = true;
+                } else {
+                    perror("sshevc open file error");
+                }
+            } else {
+                av_log(avctx, AV_LOG_ERROR, "sshevc dump path isn't set!\n");
+            }
+        }
+    }
+    #endif
 
     // Init vdec module
     if (MI_SUCCESS != (ret = ss_hevc_vdec_init(avctx)))

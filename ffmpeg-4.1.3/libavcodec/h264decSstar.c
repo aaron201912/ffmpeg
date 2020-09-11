@@ -39,7 +39,7 @@
 #include <unistd.h>
 #include <sched.h>
 #include <sys/types.h>
-
+#include <errno.h>
 
 #include "libavutil/avassert.h"
 #include "libavutil/display.h"
@@ -169,11 +169,13 @@ static int pts_queue_destroy(pts_queue_t *q)
 pts_queue_t h264_pts;
 #endif
 
-#define ENABLE_DUMP_ES      0
+#define ENABLE_DUMP_ES      1
 #define DUMP_PATH           "/mnt/pstream_h264.es"
 
 #if ENABLE_DUMP_ES
-FILE *h264_fd;
+FILE *h264_fd = NULL;
+char *ssh264_dump_path = NULL;
+bool  ssh264_dump_enable = false;
 #endif
 /****************************************************************************************************/
 
@@ -411,7 +413,9 @@ static MI_S32 ss_h264_send_stream(MI_U8 *data, MI_U32 size, int64_t pts, int fla
     //stVdecStream.pu8Addr[5], stVdecStream.pu8Addr[6], stVdecStream.pu8Addr[7]);
 
     #if ENABLE_DUMP_ES
-    fwrite(stVdecStream.pu8Addr, stVdecStream.u32Len, 1, h264_fd);
+    if (ssh264_dump_enable) {
+        fwrite(stVdecStream.pu8Addr, stVdecStream.u32Len, 1, h264_fd);
+    }
     #endif
     //av_log(NULL, AV_LOG_INFO, "[%s %d]send to stream pts : %lld\n",  __FUNCTION__, __LINE__, stVdecStream.u64PTS);
     s32Ret = MI_VDEC_SendStream(VDEC_CHN_ID, &stVdecStream, 30);
@@ -454,7 +458,13 @@ static av_cold int ss_h264_decode_end(AVCodecContext *avctx)
     //pts_queue_destroy(&h264_pts);
 
     #if ENABLE_DUMP_ES
-    fclose(h264_fd);
+    if (ssh264_dump_path) {
+        av_freep(&ssh264_dump_path);
+    }
+    if (h264_fd) {
+        fclose(h264_fd);
+    }
+    ssh264_dump_enable = false;
     #endif
 
     STCHECKRESULT(MI_VDEC_StopChn(VDEC_CHN_ID));
@@ -669,7 +679,24 @@ static av_cold int ss_h264_decode_init(AVCodecContext *avctx)
     //pts_queue_init(&h264_pts);
 
     #if ENABLE_DUMP_ES
-    h264_fd = fopen(DUMP_PATH, "a+");
+    char *env = getenv("SSH264_DUMP");
+    if (env) {
+        if (!strncmp(env, "1", 1)) {
+            char *path = getenv("SSH264_DUMP_PATH");
+            if (path) {
+                ssh264_dump_path = av_strdup(path);
+                av_log(avctx, AV_LOG_INFO, "ssh264 dump path = %s\n", ssh264_dump_path);
+                h264_fd = fopen(ssh264_dump_path, "w+");
+                if (h264_fd) {
+                    ssh264_dump_enable = true;
+                } else {
+                    perror("ssh264 open file error");
+                }
+            } else {
+                av_log(avctx, AV_LOG_ERROR, "ssh264 dump path isn't set!\n");
+            }
+        }
+    }
     #endif
 
     // Init vdec module
