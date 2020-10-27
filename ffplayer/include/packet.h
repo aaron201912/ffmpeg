@@ -1,6 +1,11 @@
 #ifndef __PACKET_H__
 #define __PACKET_H__
 
+#ifdef __cplusplus
+extern "C"{
+#endif // __cplusplus
+
+
 #include "player.h"
 
 int packet_queue_init(packet_queue_t *q);
@@ -11,5 +16,8 @@ void packet_queue_destroy(packet_queue_t *q);
 void packet_queue_abort(packet_queue_t *q);
 void packet_queue_flush(packet_queue_t *q);
 
+#ifdef __cplusplus
+}
+#endif // __cplusplus
 
 #endif

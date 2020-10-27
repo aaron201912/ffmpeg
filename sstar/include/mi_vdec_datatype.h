@@ -1,15 +1,16 @@
-/* Copyright (c) 2018-2019 Sigmastar Technology Corp.
- All rights reserved.
+/* SigmaStar trade secret */
+/* Copyright (c) [2019~2020] SigmaStar Technology.
+All rights reserved.
 
-  Unless otherwise stipulated in writing, any and all information contained
- herein regardless in any format shall remain the sole proprietary of
- Sigmastar Technology Corp. and be kept in strict confidence
- (��Sigmastar Confidential Information��) by the recipient.
- Any unauthorized act including without limitation unauthorized disclosure,
- copying, use, reproduction, sale, distribution, modification, disassembling,
- reverse engineering and compiling of the contents of Sigmastar Confidential
- Information is unlawful and strictly prohibited. Sigmastar hereby reserves the
- rights to any and all damages, losses, costs and expenses resulting therefrom.
+Unless otherwise stipulated in writing, any and all information contained
+herein regardless in any format shall remain the sole proprietary of
+SigmaStar and be kept in strict confidence
+(SigmaStar Confidential Information) by the recipient.
+Any unauthorized act including without limitation unauthorized disclosure,
+copying, use, reproduction, sale, distribution, modification, disassembling,
+reverse engineering and compiling of the contents of SigmaStar Confidential
+Information is unlawful and strictly prohibited. SigmaStar hereby reserves the
+rights to any and all damages, losses, costs and expenses resulting therefrom.
 */
 
 
@@ -159,11 +160,17 @@ typedef struct MI_VDEC_JpegAttr_s
     MI_VDEC_JpegFormat_e    eJpegFormat;
 }MI_VDEC_JpegAttr_t;
 
+typedef struct MI_VDEC_ErrHandlePolicy_s
+{
+    MI_BOOL bUseCusPolicy;          // FALSE: use default; TRUE: use customized value
+    MI_U8 u8ErrMBPercentThreshold;
+} MI_VDEC_ErrHandlePolicy_t;
+
 typedef struct MI_VDEC_VideoAttr_s
 {
     MI_U32  u32RefFrameNum;
+    MI_VDEC_ErrHandlePolicy_t stErrHandlePolicy;
 }MI_VDEC_VideoAttr_t;
-
 
 typedef struct MI_VDEC_ChnAttr_s
 {

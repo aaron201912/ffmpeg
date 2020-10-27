@@ -1,15 +1,16 @@
-/* Copyright (c) 2018-2019 Sigmastar Technology Corp.
- All rights reserved.
+/* SigmaStar trade secret */
+/* Copyright (c) [2019~2020] SigmaStar Technology.
+All rights reserved.
 
-  Unless otherwise stipulated in writing, any and all information contained
- herein regardless in any format shall remain the sole proprietary of
- Sigmastar Technology Corp. and be kept in strict confidence
- (��Sigmastar Confidential Information��) by the recipient.
- Any unauthorized act including without limitation unauthorized disclosure,
- copying, use, reproduction, sale, distribution, modification, disassembling,
- reverse engineering and compiling of the contents of Sigmastar Confidential
- Information is unlawful and strictly prohibited. Sigmastar hereby reserves the
- rights to any and all damages, losses, costs and expenses resulting therefrom.
+Unless otherwise stipulated in writing, any and all information contained
+herein regardless in any format shall remain the sole proprietary of
+SigmaStar and be kept in strict confidence
+(SigmaStar Confidential Information) by the recipient.
+Any unauthorized act including without limitation unauthorized disclosure,
+copying, use, reproduction, sale, distribution, modification, disassembling,
+reverse engineering and compiling of the contents of SigmaStar Confidential
+Information is unlawful and strictly prohibited. SigmaStar hereby reserves the
+rights to any and all damages, losses, costs and expenses resulting therefrom.
 */
 
 
@@ -19,6 +20,15 @@
 #define MI_VDEC_GET_ESBUFFER_DIRECT
 
 #include "mi_vdec_datatype.h"
+
+#define VDEC_MAJOR_VERSION 2
+#define VDEC_SUB_VERSION 7
+#define MACRO_TO_STR(macro) #macro
+#define VDEC_VERSION_STR(major_version,sub_version) ({char *tmp = sub_version/100 ? \
+                                    "mi_vdec_version_" MACRO_TO_STR(major_version)"." MACRO_TO_STR(sub_version) : sub_version/10 ? \
+                                    "mi_vdec_version_" MACRO_TO_STR(major_version)".0" MACRO_TO_STR(sub_version) : \
+                                    "mi_vdec_version_" MACRO_TO_STR(major_version)".00" MACRO_TO_STR(sub_version);tmp;})
+#define MI_VDEC_API_VERSION VDEC_VERSION_STR(VDEC_MAJOR_VERSION,VDEC_SUB_VERSION)
 
 #ifdef __cplusplus
 extern "C" {

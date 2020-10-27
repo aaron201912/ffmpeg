@@ -1,4 +1,4 @@
-﻿#include "player.h"
+#include "player.h"
 #include "packet.h"
 #include "frame.h"
 #include "audio.h"
@@ -19,26 +19,27 @@
 #include <sys/stat.h>
 
 //sdk audio input/outout param
-#define     AUDIO_INPUT_SAMPRATE       48000
-#define     AUDIO_INPUT_CHLAYOUT       AV_CH_LAYOUT_MONO
-#define     AUDIO_INPUT_SAMPFMT        AV_SAMPLE_FMT_S16
+#define AUDIO_INPUT_SAMPRATE        48000
+#define AUDIO_INPUT_CHLAYOUT        AV_CH_LAYOUT_MONO
+#define AUDIO_INPUT_SAMPFMT         AV_SAMPLE_FMT_S16
 
-#define     AUDIO_OUTPUT_SAMPRATE       E_MI_AUDIO_SAMPLE_RATE_48000
-#define     AUDIO_OUTPUT_CHLAYOUT       E_MI_AUDIO_SOUND_MODE_MONO
-#define     AUDIO_OUTPUT_SAMPFMT        E_MI_AUDIO_BIT_WIDTH_16
+#define AUDIO_OUTPUT_SAMPRATE       E_MI_AUDIO_SAMPLE_RATE_48000
+#define AUDIO_OUTPUT_CHLAYOUT       E_MI_AUDIO_SOUND_MODE_MONO
+#define AUDIO_OUTPUT_SAMPFMT        E_MI_AUDIO_BIT_WIDTH_16
 
-#define MI_AUDIO_SAMPLE_PER_FRAME 1024
+#define MI_AUDIO_SAMPLE_PER_FRAME   1024
 
 #define MI_AUDIO_MAX_DATA_SIZE      25000
 
 #define MI_AUDIO_MAX_SAMPLES_PER_FRAME     2048
 #define MI_AUDIO_MAX_FRAME_NUM             6
 
-#define MI_AO_PCM_BUF_SIZE_BYTE      (MI_AUDIO_MAX_SAMPLES_PER_FRAME * MI_AUDIO_MAX_FRAME_NUM * 2 * 4)
+#define MI_AO_PCM_BUF_SIZE_BYTE     (MI_AUDIO_MAX_SAMPLES_PER_FRAME * MI_AUDIO_MAX_FRAME_NUM * 2 * 4)
 
-static int fda;
-static void sdl_audio_callback(void *opaque, uint8_t *stream, int len);
-extern AVPacket flush_pkt;
+
+extern AVPacket a_flush_pkt;
+uint64_t g_audio_chlayout = 0;
+int audio_dev = AUDIO_DEV;
 
 // 从packet_queue中取一个packet，解码生成frame
 static int audio_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt_queue, AVFrame *frame)
@@ -61,17 +62,17 @@ static int audio_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             if (ret >= 0)
             {
                 // 时基转换，从d->avctx->pkt_timebase时基转换到1/frame->sample_rate时基
-                AVRational tb = (AVRational) { 1, frame->sample_rate };
+                AVRational tb = (AVRational) { 1, frame->sample_rate};
                 if (frame->pts != AV_NOPTS_VALUE)
                 {
-                    //printf("frame pts before convert : %d.\n", frame->pts);
+                    //printf("frame pts before convert : %lld.\n", frame->pts);
                     frame->pts = av_rescale_q(frame->pts, p_codec_ctx->pkt_timebase, tb);
                 }
                 else
                 {
                     //av_log(NULL, AV_LOG_WARNING, "frame->pts no\n");
                 }
-
+                //printf("audio convert before pts : %lld\n", frame->pts);
                 return 1;
             }
             else if (ret == AVERROR_EOF)
@@ -91,20 +92,27 @@ static int audio_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
                 continue;
             }
         }
-        //printf("read audio pkt start\n");
         // 1. 取出一个packet。使用pkt对应的serial赋值给d->pkt_serial
         if (packet_queue_get(p_pkt_queue, &pkt, true) < 0)
         {
             printf("audio packet_queue_get fail\n");
             return -1;
         }
-        //if(pkt.data)
-            //printf("read audio pkt end: %x,%x,%x\n",pkt.data[0],pkt.data[1],pkt.data[2]);
         // packet_queue中第一个总是flush_pkt。每次seek操作会插入flush_pkt，更新serial，开启新的播放序列
-        if (pkt.data == flush_pkt.data)
+        if (pkt.data == a_flush_pkt.data)
         {
+            pthread_mutex_lock(&g_myplayer->audio_mutex);
+            if ((g_myplayer->seek_flags & (1 << 5)) && p_codec_ctx->frame_number > 1) {
+                g_myplayer->seek_flags &= ~(1 << 5);
+                frame_queue_flush(&g_myplayer->audio_frm_queue);
+                MI_AO_ClearChnBuf(0, 0);
+            }
+            pthread_mutex_unlock(&g_myplayer->audio_mutex);
+
             // 复位解码器内部状态/刷新内部缓冲区。当seek操作或切换流时应调用此函数。
             avcodec_flush_buffers(p_codec_ctx);
+
+            printf("avcodec_flush_buffers for audio!\n");
         }
         else
         {
@@ -115,13 +123,13 @@ static int audio_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             {
                 av_log(NULL, AV_LOG_ERROR, "receive_frame and send_packet both returned EAGAIN, which is an API violation.\n");
             }
-            av_packet_unref(&pkt);
         }
+        av_packet_unref(&pkt);
     }
 }
 
 // 音频解码线程：从音频packet_queue中取数据，解码后放入音频frame_queue
-static int audio_decode_thread(void *arg)
+static void * audio_decode_thread(void *arg)
 {
     player_stat_t *is = (player_stat_t *)arg;
     AVFrame *p_frame = av_frame_alloc();
@@ -129,52 +137,64 @@ static int audio_decode_thread(void *arg)
 
     int got_frame = 0;
     AVRational tb;
-    int ret = 0;
 
     if (p_frame == NULL)
     {
-        return AVERROR(ENOMEM);
+        return NULL;
     }
 
     while (1)
     {
-        if(is->abort_request)
-        {
+        if(is->abort_request) {
             printf("audio decode thread exit\n");
             break;
         }
+
         got_frame = audio_decode_frame(is->p_acodec_ctx, &is->audio_pkt_queue, p_frame);
         if (got_frame < 0)
         {
             goto the_end;
         }
-        
-        if (got_frame)
+        else if (got_frame > 0)
         {
-            tb = (AVRational) { 1, p_frame->sample_rate };
+            tb = (AVRational) {1, p_frame->sample_rate}; 
+            //if (!(af = frame_queue_peek_writable(&is->audio_frm_queue)))
+            //   goto the_end;
+            frame_queue_t *f = &is->audio_frm_queue;
 
-            if (!(af = frame_queue_peek_writable(&is->audio_frm_queue)))
-                goto the_end;
+            af = &f->queue[f->windex];
 
             af->pts = (p_frame->pts == AV_NOPTS_VALUE) ? NAN : p_frame->pts * av_q2d(tb);
-            
             af->pos = p_frame->pkt_pos;
-            //-af->serial = is->auddec.pkt_serial;
+            //printf("audio convert later pts : %.3f\n", af->pts);
+            //af->serial = is->auddec.pkt_serial;
             // 当前帧包含的(单个声道)采样数/采样率就是当前帧的播放时长
             af->duration = av_q2d((AVRational) { p_frame->nb_samples, p_frame->sample_rate });
-            //printf("audio frame pts : %d, time pts : %f, audio duration : %f.\n", p_frame->pts, af->pts, af->duration);
+            //printf("audio frame pts : %lld, time pts : %f, audio duration : %f.\n", p_frame->pts, af->pts, af->duration);
             // 将frame数据拷入af->frame，af->frame指向音频frame队列尾部
             av_frame_move_ref(af->frame, p_frame);
             // 更新音频frame队列大小及写指针
             frame_queue_push(&is->audio_frm_queue);
-            //no need unref frame?
+            av_frame_unref(p_frame);
 
+            pthread_mutex_lock(&f->mutex);
+            while (f->size >= f->max_size && !f->pktq->abort_request) {
+                pthread_cond_wait(&f->cond, &f->mutex);
+                if (is->seek_flags & (1 << 5)) {
+                    break;
+                }
+            }
+            pthread_mutex_unlock(&f->mutex);
+
+            if (f->pktq->abort_request) {
+                continue;
+            }
         }
     }
 
 the_end:
     av_frame_free(&p_frame);
-    return ret;
+    return NULL;
 }
 
 int open_audio_stream(player_stat_t *is)
@@ -192,9 +212,10 @@ int open_audio_stream(player_stat_t *is)
     p_codec = avcodec_find_decoder(p_codec_par->codec_id);
     if (p_codec == NULL)
     {
-        av_log(NULL, AV_LOG_ERROR, "Cann't find codec!\n");
+        av_log(NULL, AV_LOG_ERROR, "Cann't find audio codec!\n");
         return -1;
     }
+    printf("open audio codec: %s\n",p_codec->name);
 
     // 1.3 构建解码器AVCodecContext
     // 1.3.1 p_codec_ctx初始化：分配结构体，使用p_codec初始化相应成员为默认值
@@ -223,7 +244,13 @@ int open_audio_stream(player_stat_t *is)
     is->p_acodec_ctx = p_codec_ctx;
 
     // 2. 创建视频解码线程
-    CheckFuncResult(pthread_create(&is->audioDecode_tid, NULL, audio_decode_thread, is));
+    prctl(PR_SET_NAME, "audio_decode");
+    ret = pthread_create(&is->audio_decode_tid, NULL, audio_decode_thread, (void *)is);
+    if (ret != 0) {
+        av_log(NULL, AV_LOG_ERROR, "audio_decode_thread create failed!\n");
+        is->audio_decode_tid = 0;
+        return -1;
+    }
 
     return 0;
 }
@@ -236,39 +263,54 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
     int wanted_nb_samples;
     frame_t *af = NULL;
     frame_queue_t *f = &is->audio_frm_queue;
-    
+
+replay:
     if (is->paused)
         return -1;
+
+recheck:
+    while(is->no_pkt_buf && !is->abort_request) {
+        av_usleep(10 * 1000);
+        goto recheck;
+    }
 
     // 若队列头部可读，则由af指向可读帧
     //if (!(af = frame_queue_peek_readable(&is->audio_frm_queue)))
     //    return -1;
-
     pthread_mutex_lock(&f->mutex);
-    while (f->size - f->rindex_shown <= 0 && !f->pktq->abort_request) {
-        printf("wait for audio frame\n");
+    while (f->size - f->rindex_shown <= 0 && !f->pktq->abort_request) 
+    {
+       // printf("wait for audio frame\n");
         if (!is->audio_complete && is->eof && is->audio_pkt_queue.nb_packets == 0)
         {
             is->audio_complete = 1;
-            if (is->audio_complete && is->video_complete)
-                stream_seek(is, is->p_fmt_ctx->start_time, 0, 0);
+            if (is->video_complete && is->audio_complete) {
+                is->play_status = 1;
+            }
+            av_log(NULL, AV_LOG_INFO, "audio play completely!\n");
         } 
         pthread_cond_wait(&f->cond, &f->mutex);
     }
     pthread_mutex_unlock(&f->mutex);
     
     if (f->pktq->abort_request)
-        return NULL;
-    
-    af = &f->queue[(f->rindex + f->rindex_shown) % f->max_size];
+        return AVERROR_EOF;
 
+    af = &f->queue[(f->rindex + f->rindex_shown) % f->max_size];
     frame_queue_next(&is->audio_frm_queue);
+    if (!af->frame->channel_layout && !af->frame->sample_rate && af->frame->format == -1)
+    {
+        printf("invalid audio frame layout sample_rate and format!\n");
+        goto replay;
+    }
+    enum AVSampleFormat sample_fmt = (enum AVSampleFormat)(af->frame->format);
+
     // 根据frame中指定的音频参数获取缓冲区的大小
     data_size = av_samples_get_buffer_size(NULL, af->frame->channels,   // 本行两参数：linesize，声道数
         af->frame->nb_samples,       // 本行一参数：本帧中包含的单个声道中的样本数
-        af->frame->format, 1);       // 本行两参数：采样格式，不对齐
+        sample_fmt, 1);       // 本行两参数：采样格式，不对齐
 
-// 获取声道布局
+    // 获取声道布局
     dec_channel_layout =
         (af->frame->channel_layout && af->frame->channels == av_get_channel_layout_nb_channels(af->frame->channel_layout)) ?
         af->frame->channel_layout : av_get_default_channel_layout(af->frame->channels);
@@ -277,7 +319,7 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
     // 在audio_open()函数中又有“is->audio_src = is->audio_param_tgt”
     // 此处表示：如果frame中的音频参数 == is->audio_src == is->audio_param_tgt，那音频重采样的过程就免了(因此时is->swr_ctr是NULL)
     // 　　　　　否则使用frame(源)和is->audio_param_tgt(目标)中的音频参数来设置is->swr_ctx，并使用frame中的音频参数来赋值is->audio_src
-    if (af->frame->format != is->audio_param_src.fmt ||
+    if (sample_fmt != is->audio_param_src.fmt ||
         dec_channel_layout != is->audio_param_src.channel_layout ||
         af->frame->sample_rate != is->audio_param_src.freq)
     {
@@ -288,13 +330,13 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
         // 使用frame(源)和is->audio_param_tgt(目标)中的音频参数来设置is->audio_swr_ctx
         is->audio_swr_ctx = swr_alloc_set_opts(NULL,
             is->audio_param_tgt.channel_layout, is->audio_param_tgt.fmt, is->audio_param_tgt.freq,
-            dec_channel_layout, af->frame->format, af->frame->sample_rate,
+            dec_channel_layout, sample_fmt, af->frame->sample_rate,
             0, NULL);
         if (!is->audio_swr_ctx || swr_init(is->audio_swr_ctx) < 0)
         {
             av_log(NULL, AV_LOG_ERROR,
                 "Cannot create sample rate converter for conversion of %d Hz %s %d channels to %d Hz %s %d channels!\n",
-                af->frame->sample_rate, av_get_sample_fmt_name(af->frame->format), af->frame->channels,
+                af->frame->sample_rate, av_get_sample_fmt_name(sample_fmt), af->frame->channels,
                 is->audio_param_tgt.freq, av_get_sample_fmt_name(is->audio_param_tgt.fmt), is->audio_param_tgt.channels);
             swr_free(&is->audio_swr_ctx);
             return -1;
@@ -303,8 +345,7 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
         is->audio_param_src.channel_layout = dec_channel_layout;
         is->audio_param_src.channels = af->frame->channels;
         is->audio_param_src.freq = af->frame->sample_rate;
-        is->audio_param_src.fmt = af->frame->format;
-        
+        is->audio_param_src.fmt = sample_fmt;
     }
 
     if (is->audio_swr_ctx)
@@ -329,7 +370,6 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
         av_fast_malloc(&is->audio_frm_rwr, &is->audio_frm_rwr_size, out_size);
         if (!is->audio_frm_rwr)
         {
-            
             return AVERROR(ENOMEM);
         }
         //printf("tgt count: %d,channel: %d,size: %d\n",out_count,is->audio_param_tgt.channels,is->audio_frm_rwr_size);
@@ -340,21 +380,24 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
         if (len2 < 0)
         {
             av_log(NULL, AV_LOG_ERROR, "swr_convert() failed\n");
-            return -1;
+            goto fail;
         }
-        
+
         if (len2 == out_count)
         {
             av_log(NULL, AV_LOG_WARNING, "audio buffer is probably too small\n");
             if (swr_init(is->audio_swr_ctx) < 0)
                 swr_free(&is->audio_swr_ctx);
+            goto fail;
         }
-        
+
         is->p_audio_frm = is->audio_frm_rwr;
-        
+
+        //printf("len2 : %d, out_count : %d, out_size : %d, nb_sample : %d\n", len2, out_count, out_size, wanted_nb_samples);
         // 重采样返回的一帧音频数据大小(以字节为单位)
         resampled_data_size = len2 * is->audio_param_tgt.channels * av_get_bytes_per_sample(is->audio_param_tgt.fmt);
-        
+
+        //printf("resampled_data_size : %d, channels : %d\n", resampled_data_size, is->audio_param_tgt.channels);
     }
     else
     {
@@ -362,8 +405,6 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
         is->p_audio_frm = af->frame->data[0];
         resampled_data_size = data_size;
     }
-
-    audio_clock0 = is->audio_clock;
     //printf("before audio clock: %lf,pts: %lf,nb: %d,samrate: %d\n",is->audio_clock,af->pts,af->frame->nb_samples,af->frame->sample_rate);
     /* update the audio clock with the pts */
     if (!isnan(af->pts))
@@ -376,47 +417,41 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
     }
     //printf("after pts: %lf,clock: %lf\n",af->pts,is->audio_clock);
     is->audio_clock_serial = af->serial;
-    
-#ifdef DEBUG
-    {
-        static double last_clock;
-        printf("audio: delay=%0.3f clock=%0.3f clock0=%0.3f\n",
-            is->audio_clock - last_clock,
-            is->audio_clock, audio_clock0);
-        last_clock = is->audio_clock;
-    }
-#endif
     return resampled_data_size;
+fail:
+    av_freep(&is->audio_frm_rwr);
+    return -1;
 }
 
-static int audio_playing_thread(void *arg)
+static void * audio_playing_thread(void *arg)
 {
     player_stat_t *is = (player_stat_t *)arg;
-    int audio_size, len1,len;
+    int audio_size;
     int pause = 0;
     int last_pause =0;
 
-    
     while(1)
     {
         if(is->abort_request)
         {
-            printf("audio play thread exit\n");
+            //printf("audio play thread exit\n");
             break;
         }
         int64_t audio_callback_time = av_gettime_relative();
-        
+
         audio_size = audio_resample(is, audio_callback_time);
-        if (audio_size < 0)
+        if (audio_size == AVERROR_EOF)
+            break;
+        else if (audio_size == AVERROR_EXIT)
+            continue;
+        else if (audio_size < 0)
         {
             /* if error, just output silence */
-            
             pause = 1;
             if(pause != last_pause)
             {
-
                 last_pause = pause;
-                MI_AO_PauseChn(0,0);
+                MI_AO_PauseChn(AUDIO_DEV, 0);
             }
             is->p_audio_frm = NULL;
             is->audio_frm_size = SDL_AUDIO_MIN_BUFFER_SIZE / is->audio_param_tgt.frame_size * is->audio_param_tgt.frame_size;
@@ -427,7 +462,7 @@ static int audio_playing_thread(void *arg)
             if(pause != last_pause)
             {
                 last_pause = pause;
-                MI_AO_ResumeChn(0,0);
+                MI_AO_ResumeChn(AUDIO_DEV,0);
             }
             is->audio_frm_size = audio_size;
         }
@@ -442,8 +477,12 @@ static int audio_playing_thread(void *arg)
 
             MI_AUDIO_Frame_t stAoSendFrame;
             MI_S32 s32RetSendStatus = 0;
-            MI_AUDIO_DEV AoDevId = 0;
             MI_AO_CHN AoChn = 0;
+            MI_AO_ChnState_t stState;
+
+            MI_AO_QueryChnStat(AUDIO_DEV, AoChn, &stState);
+            is->audio_write_buf_size = stState.u32ChnBusyNum + 1024;
+            //printf("remain audio_write_buf_size = %d\n", is->audio_write_buf_size);
 
             do {
                 if (data_len <= MI_AUDIO_MAX_DATA_SIZE)
@@ -459,14 +498,9 @@ static int audio_playing_thread(void *arg)
                 
                 data_len -= MI_AUDIO_MAX_DATA_SIZE;
                 data_idx += MI_AUDIO_MAX_DATA_SIZE;
-                
-                //read data and send to AO module
-                //stAoSendFrame.u32Len = is->audio_frm_size;
-                //stAoSendFrame.apVirAddr[0] = is->p_audio_frm;
-                //stAoSendFrame.apVirAddr[1] = NULL;
 
                 do{
-                    s32RetSendStatus = MI_AO_SendFrame(AoDevId, AoChn, &stAoSendFrame, 128);
+                    s32RetSendStatus = MI_AO_SendFrame(AUDIO_DEV, AoChn, &stAoSendFrame, 128);
                 }while(s32RetSendStatus == MI_AO_ERR_NOBUF);
 
                 if(s32RetSendStatus != MI_SUCCESS)
@@ -474,98 +508,34 @@ static int audio_playing_thread(void *arg)
                     printf("[Warning]: MI_AO_SendFrame fail, error is 0x%x: \n",s32RetSendStatus);
                 }
             }while(data_len > 0);
-            //frame_queue_next(&is->audio_frm_queue);
         }
-
         // is->audio_write_buf_size是本帧中尚未拷入SDL音频缓冲区的数据量
-        is->audio_write_buf_size = is->audio_frm_size - is->audio_cp_index;
+        //is->audio_write_buf_size = is->audio_frm_size - is->audio_cp_index;
         /* Let's assume the audio driver that is used by SDL has two periods. */
         // 3. 更新时钟
         if (!isnan(is->audio_clock))
         {
+            audio_callback_time = av_gettime_relative();
             // 更新音频时钟，更新时刻：每次往声卡缓冲区拷入数据后
             // 前面audio_decode_frame中更新的is->audio_clock是以音频帧为单位，所以此处第二个参数要减去未拷贝数据量占用的时间
             set_clock_at(&is->audio_clk,
-                is->audio_clock - (double)(is->audio_hw_buf_size) / is->audio_param_tgt.bytes_per_sec,
+                is->audio_clock - (double)(is->audio_write_buf_size) / is->audio_param_tgt.bytes_per_sec,
                 is->audio_clock_serial,
                 audio_callback_time / 1000000.0);
             //printf("audio clk: %lf,curtime: %ld,audio_callback_time: %ld\n",is->audio_clock,is->audio_clock_serial,audio_callback_time);
             //printf("update clk pts: %lf,lud: %lf,dif: %lf\n",is->audio_clk.pts,is->audio_clk.last_updated,is->audio_clk.pts_drift);
+
+            is->audio_write_buf_size = 0;
         }
     }
 
-    return 0;
-}
-int ss_ao_Deinit(void)
-{
-    MI_AUDIO_DEV AoDevId = 0;
-    MI_AO_CHN AoChn = 0;
-
-    /* disable ao channel of */
-    CheckFuncResult(MI_AO_DisableChn(AoDevId, AoChn));
-
-    /* disable ao device */
-    CheckFuncResult(MI_AO_Disable(AoDevId));
-    
-    return 0;
-}
-
-
-int ss_ao_Init(void)
-{
-    MI_AUDIO_Attr_t stSetAttr;
-    MI_AUDIO_Attr_t stGetAttr;
-    MI_AUDIO_DEV AoDevId = 0;
-    MI_AO_CHN AoChn = 0;
-
-    MI_S32 s32SetVolumeDb;
-    MI_S32 s32GetVolumeDb;
-
-    //set Ao Attr struct
-    memset(&stSetAttr, 0, sizeof(MI_AUDIO_Attr_t));
-    stSetAttr.eBitwidth = AUDIO_OUTPUT_SAMPFMT;
-    stSetAttr.eWorkmode = E_MI_AUDIO_MODE_I2S_MASTER;
-    stSetAttr.u32FrmNum = 6;
-    stSetAttr.u32PtNumPerFrm = MI_AUDIO_SAMPLE_PER_FRAME;
-    stSetAttr.u32ChnCnt = 1;
-
-    if(stSetAttr.u32ChnCnt == 2)
-    {
-        stSetAttr.eSoundmode = E_MI_AUDIO_SOUND_MODE_STEREO;
-    }
-    else if(stSetAttr.u32ChnCnt == 1)
-    {
-        stSetAttr.eSoundmode = AUDIO_OUTPUT_CHLAYOUT;
-    }
-
-    stSetAttr.eSamplerate = AUDIO_OUTPUT_SAMPRATE;
-
-    /* set ao public attr*/
-    CheckFuncResult(MI_AO_SetPubAttr(AoDevId, &stSetAttr));
-
-    /* get ao device*/
-    CheckFuncResult(MI_AO_GetPubAttr(AoDevId, &stGetAttr));
-
-    /* enable ao device */
-    CheckFuncResult(MI_AO_Enable(AoDevId));
-
-    /* enable ao channel of device*/
-    CheckFuncResult(MI_AO_EnableChn(AoDevId, AoChn));
-
-
-    /* if test AO Volume */
-    s32SetVolumeDb = -10;
-    CheckFuncResult(MI_AO_SetVolume(AoDevId, s32SetVolumeDb));
-    CheckFuncResult(MI_AO_SetVolume(AoDevId, s32SetVolumeDb));
-    /* get AO volume */
-    CheckFuncResult(MI_AO_GetVolume(AoDevId, &s32GetVolumeDb));
-
-    return SUCCESS;
+    printf("audio play thread exit\n");
+    return NULL;
 }
 
 static int open_audio_playing(void *arg)
 {
-
+    int ret;
     player_stat_t *is = (player_stat_t *)arg;
 
     // 2.2 根据SsPlayer音频参数构建音频重采样参数
@@ -574,10 +544,27 @@ static int open_audio_playing(void *arg)
     // 音频帧解码后得到的frame中的音频格式未必被SDL支持，比如frame可能是planar格式，但SDL2.0并不支持planar格式，
     // 若将解码后的frame直接送入SDL音频缓冲区，声音将无法正常播放。所以需要先将frame重采样(转换格式)为SDL支持的模式，
     // 然后送再写入SDL音频缓冲区
-    
+
+    if (!g_audio_chlayout) {
+        g_audio_chlayout = is->p_audio_stream->codecpar->channel_layout;
+        if (g_audio_chlayout == AV_CH_LAYOUT_STEREO) {
+            g_audio_chlayout = AV_CH_LAYOUT_STEREO; // 如果不是立体声, 默认使用单声道
+        } else {
+            g_audio_chlayout = AV_CH_LAYOUT_MONO;
+        }
+        av_log(NULL, AV_LOG_INFO, "get g_audio_chlayout = %llu\n", g_audio_chlayout);
+    }
+
+    ret = sstar_audio_init(AUDIO_DEV);
+    if (ret < 0) {
+        return -1;
+    }
+    is->enable_audio=  true;
+
     is->audio_param_tgt.fmt = AUDIO_INPUT_SAMPFMT;
     is->audio_param_tgt.freq = AUDIO_INPUT_SAMPRATE;
-    is->audio_param_tgt.channel_layout = AUDIO_INPUT_CHLAYOUT;
+    //is->audio_param_tgt.channel_layout = AUDIO_INPUT_CHLAYOUT;
+    is->audio_param_tgt.channel_layout = g_audio_chlayout;
     
     is->audio_param_tgt.channels = av_get_channel_layout_nb_channels(is->audio_param_tgt.channel_layout);
         
@@ -594,90 +581,106 @@ static int open_audio_playing(void *arg)
     is->audio_hw_buf_size = MI_AO_PCM_BUF_SIZE_BYTE;//is->audio_param_tgt.frame_size;   // SDL音频缓冲区大小
     is->audio_frm_size = 0;
     is->audio_cp_index = 0;
-    
-    CheckFuncResult(pthread_create(&is->audioPlay_tid, NULL, audio_playing_thread, is));
+
+    prctl(PR_SET_NAME, "audio_play");
+    ret = pthread_create(&is->audio_play_tid, NULL, audio_playing_thread, (void *)is);
+    if (ret != 0) {
+        av_log(NULL, AV_LOG_ERROR, "audio_playing_thread create failed!\n");
+        is->audio_play_tid = 0;
+        return -1;
+    }
 
     return 0;
-}
-
-// 音频处理回调函数。读队列获取音频包，解码，播放
-// 此函数被SDL按需调用，此函数不在用户主线程中，因此数据需要保护
-// \param[in]  opaque 用户在注册回调函数时指定的参数
-// \param[out] stream 音频数据缓冲区地址，将解码后的音频数据填入此缓冲区
-// \param[out] len    音频数据缓冲区大小，单位字节
-// 回调函数返回后，stream指向的音频缓冲区将变为无效
-// 双声道采样点的顺序为LRLRLR
-static void sdl_audio_callback(void *opaque, uint8_t *stream, int len)
-{
-    player_stat_t *is = (player_stat_t *)opaque;
-    int audio_size, len1;
-
-    int64_t audio_callback_time = av_gettime_relative();
-
-    while (len > 0) // 输入参数len等于is->audio_hw_buf_size，是audio_open()中申请到的SDL音频缓冲区大小
-    {
-        if (is->audio_cp_index >= (int)is->audio_frm_size)
-        {
-            // 1. 从音频frame队列中取出一个frame，转换为音频设备支持的格式，返回值是重采样音频帧的大小
-            audio_size = audio_resample(is, audio_callback_time);
-            if (audio_size < 0)
-            {
-                /* if error, just output silence */
-                is->p_audio_frm = NULL;
-                is->audio_frm_size = SDL_AUDIO_MIN_BUFFER_SIZE / is->audio_param_tgt.frame_size * is->audio_param_tgt.frame_size;
-            }
-            else
-            {
-                is->audio_frm_size = audio_size;
-            }
-            is->audio_cp_index = 0;
-        }
-        // 引入is->audio_cp_index的作用：防止一帧音频数据大小超过SDL音频缓冲区大小，这样一帧数据需要经过多次拷贝
-        // 用is->audio_cp_index标识重采样帧中已拷入SDL音频缓冲区的数据位置索引，len1表示本次拷贝的数据量
-        len1 = is->audio_frm_size - is->audio_cp_index;
-        if (len1 > len)
-        {
-            len1 = len;
-        }
-        // 2. 将转换后的音频数据拷贝到音频缓冲区stream中，之后的播放就是音频设备驱动程序的工作了
-        if (is->p_audio_frm != NULL)
-        {
-            memcpy(stream, (uint8_t *)is->p_audio_frm + is->audio_cp_index, len1);
-        }
-        else
-        {
-            memset(stream, 0, len1);
-        }
-
-        len -= len1;
-        stream += len1;
-        is->audio_cp_index += len1;
-    }
-    // is->audio_write_buf_size是本帧中尚未拷入SDL音频缓冲区的数据量
-    is->audio_write_buf_size = is->audio_frm_size - is->audio_cp_index;
-    /* Let's assume the audio driver that is used by SDL has two periods. */
-    // 3. 更新时钟
-    if (!isnan(is->audio_clock))
-    {
-        // 更新音频时钟，更新时刻：每次往声卡缓冲区拷入数据后
-        // 前面audio_decode_frame中更新的is->audio_clock是以音频帧为单位，所以此处第二个参数要减去未拷贝数据量占用的时间
-        set_clock_at(&is->audio_clk,
-            is->audio_clock - (double)(2 * is->audio_hw_buf_size + is->audio_write_buf_size) / is->audio_param_tgt.bytes_per_sec,
-            is->audio_clock_serial,
-            audio_callback_time / 1000000.0);
-    }
 }
 
 int open_audio(player_stat_t *is)
 {
-    if (is->audio_idx >= 0) {
-        //init sdk audio
-        CheckFuncResult(ss_ao_Init());
+    int ret;
 
-        open_audio_stream(is);
+    if (is && is->audio_idx >= 0) 
+    {
+        ret = open_audio_stream(is);
+        if (ret < 0)
+            return ret;
 
-        open_audio_playing(is);
+        ret = open_audio_playing(is);
+        if (ret < 0)
+            return ret;
     }
     
     return 0;
 }
+
+int sstar_audio_deinit(void)
+{
+    MI_AUDIO_DEV AoDevId = AUDIO_DEV;
+    MI_AO_CHN AoChn = AUDIO_CHN;
+
+    system("echo 0 > /sys/class/gpio/gpio12/value");
+
+    /* disable ao channel of */
+    CheckFuncResult(MI_AO_DisableChn(AoDevId, AoChn));
+
+    /* disable ao device */
+    CheckFuncResult(MI_AO_Disable(AoDevId));
+
+    g_audio_chlayout = 0;
+    printf("reset g_audio_chlayout [%llu]\n", g_audio_chlayout);
+
+    return MI_SUCCESS;
+}
+
+int sstar_audio_init(int nAoDevId)
+{
+    MI_AUDIO_Attr_t stSetAttr;
+    MI_AUDIO_Attr_t stGetAttr;
+    MI_AUDIO_DEV AoDevId = nAoDevId;
+    MI_AO_CHN AoChn = AUDIO_CHN;
+
+    MI_S32 s32SetVolumeDb;
+    MI_S32 s32GetVolumeDb;
+
+    system("echo 1 > /sys/class/gpio/gpio12/value");
+
+    //set Ao Attr struct
+    memset(&stSetAttr, 0, sizeof(MI_AUDIO_Attr_t));
+    stSetAttr.eBitwidth = E_MI_AUDIO_BIT_WIDTH_16;
+    stSetAttr.eWorkmode = E_MI_AUDIO_MODE_I2S_MASTER;
+    stSetAttr.u32FrmNum = 6;
+    stSetAttr.u32PtNumPerFrm = MI_AUDIO_SAMPLE_PER_FRAME;
+
+    if (g_audio_chlayout & AV_CH_LAYOUT_STEREO) {
+        stSetAttr.u32ChnCnt = 2;
+        stSetAttr.eSoundmode = E_MI_AUDIO_SOUND_MODE_STEREO;
+    } else {
+        stSetAttr.u32ChnCnt = 1;
+        stSetAttr.eSoundmode = E_MI_AUDIO_SOUND_MODE_MONO;
+    }
+
+    stSetAttr.eSamplerate = E_MI_AUDIO_SAMPLE_RATE_48000;
+
+    /* set ao public attr*/
+    CheckFuncResult(MI_AO_SetPubAttr(AoDevId, &stSetAttr));
+
+    /* get ao device*/
+    CheckFuncResult(MI_AO_GetPubAttr(AoDevId, &stGetAttr));
+
+    /* enable ao device */
+    CheckFuncResult(MI_AO_Enable(AoDevId));
+
+    /* enable ao channel of device*/
+    CheckFuncResult(MI_AO_EnableChn(AoDevId, AoChn));
+
+    /* if test AO Volume */
+    s32SetVolumeDb = MIN_ADJUST_AO_VOLUME;
+    CheckFuncResult(MI_AO_SetVolume(AoDevId, s32SetVolumeDb));
+
+    /* get AO volume */
+    CheckFuncResult(MI_AO_GetVolume(AoDevId, &s32GetVolumeDb));
+
+    printf("my_player enable audio[%d] done!\n", AoDevId);
+
+    return MI_SUCCESS;
+}
+
+

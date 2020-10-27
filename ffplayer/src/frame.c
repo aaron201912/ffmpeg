@@ -1,8 +1,34 @@
-﻿#include "frame.h"
+#include "frame.h"
 #include "player.h"
+
+void frame_queue_putbuf(AVFrame *frame)
+{
+    if (frame->width > 0 && frame->opaque) {
+        SS_Vdec_BufInfo *stVdecBuf = (SS_Vdec_BufInfo *)frame->opaque;
+        if (MI_SUCCESS != MI_SYS_ChnOutputPortPutBuf(stVdecBuf->stVdecHandle)) {
+            printf("frame_queue_putbuf failed!\n");
+        }
+        av_freep(&frame->opaque);
+    }
+}
+
+void frame_queue_free_mmu(frame_t *vp)
+{
+    if (vp->vir_addr && vp->phy_addr) {
+        //MI_SYS_FlushInvCache(vp->vir_addr, vp->buf_size);
+        MI_SYS_Munmap(vp->vir_addr, vp->buf_size);
+        MI_SYS_MMA_Free(vp->phy_addr);
+        vp->vir_addr = NULL;
+        vp->phy_addr = 0;
+    }
+}
 
 void frame_queue_unref_item(frame_t *vp)
 {
+    frame_queue_free_mmu(vp);
+
+    frame_queue_putbuf(vp->frame);
+
     av_frame_unref(vp->frame);
 }
 
@@ -35,6 +61,25 @@ void frame_queue_destory(frame_queue_t *f)
     }
     pthread_mutex_destroy(&f->mutex);
     pthread_cond_destroy(&f->cond);
+}
+
+void frame_queue_flush(frame_queue_t *f)
+{
+    //printf("queue valid size : %d, rindex : %d\n", f->size, f->rindex);
+    pthread_mutex_lock(&f->mutex);
+    for (; f->size > 0; f->size --)
+    {
+        frame_t *vp = &f->queue[(f->rindex ++) % f->max_size];
+        frame_queue_unref_item(vp);
+        if (f->rindex >= f->max_size)
+            f->rindex = 0;
+    }
+    f->rindex = 0;
+    f->rindex_shown = 0;
+    f->windex = 0;
+    f->size   = 0;
+    pthread_cond_signal(&f->cond);
+    pthread_mutex_unlock(&f->mutex);
 }
 
 void frame_queue_signal(frame_queue_t *f)

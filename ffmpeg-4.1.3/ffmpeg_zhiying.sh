@@ -1,3 +1,4 @@
+#!/bin/bash
 ./configure \
 --prefix=host \
 --disable-ffmpeg \
@@ -213,6 +214,6 @@
 --enable-protocol=rtmp \
 --shlibdir=host/dynamic \
 --libdir=host/static \
---extra-cflags="-I./../sstar/include -I./../3rdparty -funwind-tables -ffunction-sections -g -rdynamic" \
+--extra-cflags="-I./../sstar/include -I./../3rdparty/include -funwind-tables -ffunction-sections -g -rdynamic" \
 --extra-ldflags="-L./../sstar/lib -L./../3rdparty/lib"
 

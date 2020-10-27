@@ -1,4 +1,5 @@
-﻿#include "packet.h"
+#include "packet.h"
+#include "player.h"
 
 int packet_queue_init(packet_queue_t *q)
 {
@@ -17,15 +18,15 @@ int packet_queue_put(packet_queue_t *q, AVPacket *pkt)
 {
     AVPacketList *pkt_list;
     
-    if (av_packet_make_refcounted(pkt) < 0)
+    /*if (av_packet_make_refcounted(pkt) < 0)
     {
         printf("[pkt] is not refrence counted\n");
         return -1;
-    }
+    }*/
     
     pthread_mutex_lock(&q->mutex);
     
-    pkt_list = av_malloc(sizeof(AVPacketList));
+    pkt_list = (AVPacketList *)av_malloc(sizeof(AVPacketList));
     
     if (!pkt_list)
     {
@@ -45,12 +46,6 @@ int packet_queue_put(packet_queue_t *q, AVPacket *pkt)
     }
     q->last_pkt = pkt_list;
     q->nb_packets++;
-#if 0    
-    if(pkt->stream_index == 0)
-        printf("put video pkt queue nb: %d\n",q->nb_packets);
-    else
-        printf("put audio pkt queue nb: %d\n",q->nb_packets);
-#endif
 
     q->size += pkt_list->pkt.size + sizeof(*pkt_list);
     
@@ -88,14 +83,8 @@ int packet_queue_get(packet_queue_t *q, AVPacket *pkt, int block)
             q->size -= p_pkt_node->pkt.size + sizeof(*p_pkt_node);
             *pkt = p_pkt_node->pkt;
             av_free(p_pkt_node);
-            #if 0
-            if(pkt->stream_index == 0)
-                printf("get video pkt queue nb: %d\n",q->nb_packets);
-            else
-                printf("get audio pkt queue nb: %d\n",q->nb_packets);
-            #endif
             ret = 1;
-            pthread_cond_signal(&q->cond);
+
             break;
         }
         else if (!block)            // 队列空且阻塞标志无效，则立即退出
@@ -105,7 +94,7 @@ int packet_queue_get(packet_queue_t *q, AVPacket *pkt, int block)
         }
         else                        // 队列空且阻塞标志有效，则等待
         {
-            printf("no pkt wait pktnb: %d\n",q->nb_packets);
+            //printf("\033[33;2mno pkt wait pktnb: %d\033[0m\n",q->nb_packets);
             pthread_cond_wait(&q->cond, &q->mutex);
         }
     }

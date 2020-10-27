@@ -1,11 +1,17 @@
-﻿#ifndef __PLAYER_H__
+#ifndef __PLAYER_H__
 #define __PLAYER_H__
+
+#ifdef __cplusplus
+extern "C"{
+#endif // __cplusplus
+
 
 #include <stdio.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <pthread.h>
-
+#include <sys/time.h>
+#include <sys/prctl.h>
 
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -14,23 +20,30 @@
 #include <libavutil/frame.h>
 #include <libavutil/time.h>
 #include <libavutil/imgutils.h>
+#include <libavutil/samplefmt.h>
+#include <libavutil/avassert.h>
+#include <libavutil/log.h>
+#include <libavutil/opt.h>
 
 #include "mi_common.h"
-#include "mi_common_datatype.h"
 #include "mi_sys.h"
-#include "mi_sys_datatype.h"
+#include "mi_disp.h"
+#include "mi_divp.h"
+#include "mi_vdec.h"
+#include "mi_gfx.h"
+#include "mi_ao.h"
+#include "mi_vdec_extra.h"
 
 
-#define     SUCCESS     0
-#define     FAIL        1
+#define     SUCCESS         0
+#define     FAIL            1
 
 #define CheckFuncResult(result)\
     if (result != SUCCESS)\
     {\
         printf("[%s %d]exec function failed\n", __FUNCTION__, __LINE__);\
-        return FAIL;\
+        return -1;\
     }\
-
 
 /* no AV sync correction is done if below the minimum AV sync threshold */
 #define AV_SYNC_THRESHOLD_MIN 0.04
@@ -41,14 +54,18 @@
 /* no AV correction is done if too big error */
 #define AV_NOSYNC_THRESHOLD 10.0
 
+#define SAMPLE_CORRECTION_PERCENT_MAX 10
+#define AUDIO_DIFF_AVG_NB   20
 /* polls for possible required screen refresh at least this often, should be less than 1/fps */
 #define REFRESH_RATE 0.01
 
 #define SDL_AUDIO_BUFFER_SIZE 1024
 #define MAX_AUDIO_FRAME_SIZE 192000
 
-#define MAX_QUEUE_SIZE (15 * 1024 * 1024)
-#define MIN_FRAMES 15
+#define MIN_QUEUE_SIZE      (50 * 1024)
+#define MAX_QUEUE_SIZE      (6 * 1024 * 1024)
+#define MIN_VIDEO_FRAMES    30
+#define MIN_AUDIO_FRAMES    30
 
 /* Minimum SDL audio buffer size, in samples. */
 #define SDL_AUDIO_MIN_BUFFER_SIZE 512
@@ -113,6 +130,9 @@ typedef struct {
     AVRational sar;
     int uploaded;
     int flip_v;
+    uint8_t *vir_addr;
+    unsigned long long phy_addr;
+    int buf_size;
 }   frame_t;
 
 typedef struct {
@@ -129,8 +149,18 @@ typedef struct {
 }   frame_queue_t;
 
 typedef struct {
+    int audio_only;
+    int video_only;
+    MI_DISP_RotateMode_e rotate_attr;
+    int audio_dev;
+} player_opts_t;
+
+typedef struct {
     char *filename;
+    AVDictionary *p_dict;
     AVFormatContext *p_fmt_ctx;
+    AVInputFormat *p_iformat;
+    AVIOContext * p_avio_ctx;
     AVStream *p_audio_stream;
     AVStream *p_video_stream;
     AVCodecContext *p_acodec_ctx;
@@ -138,7 +168,6 @@ typedef struct {
 
     int audio_idx;
     int video_idx;
-    //sdl_video_t sdl_video;
 
     play_clock_t audio_clk;                   // 音频时钟
     play_clock_t video_clk;                   // 视频时钟
@@ -153,7 +182,6 @@ typedef struct {
     struct SwsContext *img_convert_ctx;
     struct SwrContext *audio_swr_ctx;
     AVFrame *p_frm_yuv;
-    AVFrame *pF; //patch for malloc(): memory corruption
 
     audio_param_t audio_param_src;
     audio_param_t audio_param_tgt;
@@ -165,6 +193,10 @@ typedef struct {
     int audio_cp_index;                 // 当前音频帧中已拷入SDL音频缓冲区的位置索引(指向第一个待拷贝字节)
     int audio_write_buf_size;           // 当前音频帧中尚未拷入SDL音频缓冲区的数据量，audio_frm_size = audio_cp_index + audio_write_buf_size
     double audio_clock;
+    double audio_diff_cum;
+    double audio_diff_avg_coef;
+    double audio_diff_threshold;
+    int audio_diff_avg_count;
     int audio_clock_serial;
     
     int abort_request;
@@ -172,7 +204,7 @@ typedef struct {
     int last_paused;
     int read_pause_return;
     int step;
-    int eof;
+    int eof, no_pkt_buf;
     int audio_complete, video_complete;
     int seek_req;
     int seek_flags;
@@ -180,23 +212,52 @@ typedef struct {
     int64_t seek_pos;
     int64_t seek_rel;
 
-    pthread_cond_t continue_read_thread;
-    pthread_t read_tid;           // demux解复用线程
-    
-    pthread_t audioDecode_tid;  //audio解码线程
-    pthread_t audioPlay_tid;    //audio播放线程
-    pthread_t videoDecode_tid;  //video解码线程
-    pthread_t videoPlay_tid;    //video播放线程
+    unsigned long long phy_addr;
+    uint8_t *vir_addr;
+    int buf_size;
+    int display_mode;
+    int src_width, src_height;  // 保存视频原宽高
+    int dst_width, dst_height;  // 保存视频旋转后的宽高
+    int out_width, out_height;  // 保存视频最终显示的宽高
+    int in_width, in_height;    // 保存外部输入的显示宽高
+    int pos_x, pos_y;
+    bool flush, start_play, enable_video, enable_audio;
 
-    int decoder_type;           //解码方式选择软解/硬解
+    pthread_cond_t continue_read_thread;
+    pthread_t read_tid;          //demux解复用线程
+    
+    pthread_t audio_decode_tid;  //audio解码线程
+    pthread_t audio_play_tid;    //audio播放线程
+    pthread_t video_decode_tid;  //video解码线程
+    pthread_t video_play_tid;    //video播放线程
+
+    int decoder_type, play_status;
+    bool demux_status, time_out;
+
+    struct timeval start, now;
+    struct timeval tim_open, tim_play;
+    struct timeval buf_start, buf_end;
+    pthread_mutex_t audio_mutex, video_mutex;
+    player_opts_t opts;
 }   player_stat_t;
 
-int player_running(const char *p_input_file, char *type);
+extern player_stat_t *g_myplayer;
+
+int    player_running(const char *p_input_file, char *type);
 double get_clock(play_clock_t *c);
-void set_clock_at(play_clock_t *c, double pts, int serial, double time);
-void set_clock(play_clock_t *c, double pts, int serial);
-void stream_toggle_pause(player_stat_t *is);
-void stream_seek(player_stat_t *is, int64_t pos, int64_t rel, int seek_by_bytes);
+void   set_clock_at(play_clock_t *c, double pts, int serial, double time);
+void   set_clock(play_clock_t *c, double pts, int serial);
+void   stream_toggle_pause(player_stat_t *is);
+void   stream_seek(player_stat_t *is, int64_t pos, int64_t rel, int seek_by_bytes);
+double get_master_clock(player_stat_t *is);
+void   toggle_pause(player_stat_t *is);
+player_stat_t *player_init(const char *p_input_file);
+int    player_deinit(player_stat_t *is);
+int    open_video(player_stat_t *is);
+
+#ifdef __cplusplus
+}
+#endif // __cplusplu
 
 
 #endif
