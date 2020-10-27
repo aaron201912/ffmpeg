@@ -6170,6 +6170,8 @@ typedef struct AVh2645HeadInfo {
     int max_bytes_per_pic_denom;    // hevc vui : max_bytes_per_pic_denom must less than 16
     int frame_cropping_flag;        // h264 cropping flag
     int conformance_window_flag;   // hevc cropping flag
+    int coded_width;
+    int coded_height;
 }AVH2645HeadInfo;
 
 #endif /* AVCODEC_AVCODEC_H */

@@ -964,6 +964,8 @@ int ff_hevc_parse_sps(HEVCSPS *sps, GetBitContext *gb, unsigned int *sps_id,
     if (avctx->opaque) {
         AVH2645HeadInfo *sps_info = (AVH2645HeadInfo *)avctx->opaque;
         sps_info->conformance_window_flag = conformance_window_flag;
+        sps_info->coded_width  = sps->width;
+        sps_info->coded_height = sps->height;
     }
 
     sps->bit_depth   = get_ue_golomb_long(gb) + 8;

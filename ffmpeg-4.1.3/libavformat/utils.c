@@ -673,6 +673,22 @@ FF_ENABLE_DEPRECATION_WARNINGS
     for (i = 0; i < s->nb_streams; i++)
         s->streams[i]->internal->orig_codec_id = s->streams[i]->codecpar->codec_id;
 
+    int64_t max_resolution = INT_MAX;
+    AVDictionaryEntry *opt_tmp = NULL;
+    opt_tmp = av_dict_get(tmp, "max_resolution", NULL, AV_DICT_MATCH_CASE);
+    if (opt_tmp) {
+        max_resolution = atoi(opt_tmp->value);
+        av_log(s, AV_LOG_DEBUG, "[%s %d]set video max_resolution [%lld]\n", __FILE__, __LINE__, max_resolution);
+        for (i = 0; i < s->nb_streams; i ++) {
+            AVStream *st = s->streams[i];
+            if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && st->codecpar->width * st->codecpar->height > max_resolution) {
+                av_log(s, AV_LOG_ERROR, "[%s %d]video w/h [%d %d] over max_resolution\n", __FILE__, __LINE__, st->codecpar->width, st->codecpar->height);
+                ret = AVERROR_UNKNOWN;
+                goto fail;
+            }
+        }
+    }
+
     if (options) {
         av_dict_free(options);
         *options = tmp;
@@ -3592,7 +3608,8 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
     int64_t max_stream_analyze_duration;
     int64_t max_subtitle_analyze_duration;
     int64_t probesize = ic->probesize;
-    int eof_reached = 0, find_extra_info = 0;
+    int eof_reached = 0;
+    int64_t max_resolution = INT_MAX;
     int *missing_streams = av_opt_ptr(ic->iformat->priv_class, ic->priv_data, "missing_streams");
 
     flush_codecs = probesize > 0;
@@ -3629,8 +3646,7 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
                 avctx->time_base = st->time_base;
         }
 
-        if ((st->codecpar->codec_id == AV_CODEC_ID_H264 || st->codecpar->codec_id == AV_CODEC_ID_HEVC)
-            && avctx->codec_type == AVMEDIA_TYPE_VIDEO && !avctx->opaque && !find_extra_info) {
+        if (!avctx->opaque && st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
             avctx->opaque = (AVH2645HeadInfo *)av_malloc(sizeof(AVH2645HeadInfo));
             if (avctx->opaque) {
                 AVH2645HeadInfo *head_info = (AVH2645HeadInfo *)avctx->opaque;
@@ -3638,6 +3654,8 @@ int avformat_find_stream_info(AVFormatContext *ic, AVDictionary **options)
                 head_info->max_bytes_per_pic_denom = 0;
                 head_info->frame_cropping_flag = 0;
                 head_info->conformance_window_flag = 0;
+                head_info->coded_width  = 0;
+                head_info->coded_height = 0;
             }
         }
 
@@ -3704,17 +3722,15 @@ FF_ENABLE_DEPRECATION_WARNINGS
             av_dict_free(&thread_opt);
 
         //jeffrey.wu add
-        if (avctx->codec_type == AVMEDIA_TYPE_VIDEO && avctx->opaque) {
+        if (avctx->opaque && st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
             AVH2645HeadInfo *head_info = (AVH2645HeadInfo *)avctx->opaque;
             if (!head_info->frame_mbs_only_flag) {
                 av_log(ic, AV_LOG_WARNING, "[%s %d]sps.frame_mbs_only_flag isn't 1\n",__FUNCTION__, __LINE__);
                 ret = AVERROR_EXIT;
-                find_extra_info = 1;
             }
             if (head_info->max_bytes_per_pic_denom > 16) {
                 av_log(ic, AV_LOG_WARNING, "[%s %d]vps.max_bytes_per_pic_denom is greater than 16\n",__FUNCTION__, __LINE__);
                 ret = AVERROR_EXIT;
-                find_extra_info = 1;
             }
             if (ic->opaque) {
                 AVH2645HeadInfo *my_info = (AVH2645HeadInfo *)ic->opaque;
@@ -3722,8 +3738,18 @@ FF_ENABLE_DEPRECATION_WARNINGS
                 my_info->max_bytes_per_pic_denom = head_info->max_bytes_per_pic_denom;
                 my_info->frame_cropping_flag = head_info->frame_cropping_flag;
                 my_info->conformance_window_flag = head_info->conformance_window_flag;
-                if (my_info->conformance_window_flag || my_info->frame_cropping_flag) {
-                    find_extra_info = 1;
+            }
+            if (options) {
+                AVDictionaryEntry *opt_tmp = NULL;
+                opt_tmp = av_dict_get(options[i], "max_resolution", NULL, AV_DICT_MATCH_CASE);
+                if (opt_tmp) {
+                    max_resolution = atoi(opt_tmp->value);
+                    av_log(ic, AV_LOG_INFO, "[%s %d]set video max_resolution [%lld]\n", __FILE__, __LINE__, max_resolution);
+                    av_log(ic, AV_LOG_DEBUG, "video w/h [%d %d], sps w/h [%d %d]\n", st->codecpar->width, st->codecpar->height, head_info->coded_width, head_info->coded_height);
+                    if (st->codecpar->width * st->codecpar->height > max_resolution) {
+                        av_log(ic, AV_LOG_ERROR, "[%s %d]video w/h [%d %d] over max_resolution!\n", __FILE__, __LINE__, st->codecpar->width, st->codecpar->height);
+                        ret = AVERROR_EXIT;
+                    }
                 }
             }
             av_freep(&avctx->opaque);
@@ -3824,6 +3850,25 @@ FF_ENABLE_DEPRECATION_WARNINGS
             break;
         }
 
+        for (i = 0; i < ic->nb_streams; i ++) {
+            st = ic->streams[i];
+            avctx = st->internal->avctx;
+            if (!avctx->opaque && (st->codecpar->codec_id == AV_CODEC_ID_H264 || st->codecpar->codec_id == AV_CODEC_ID_HEVC) &&
+                 st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
+            {
+                avctx->opaque = (AVH2645HeadInfo *)av_malloc(sizeof(AVH2645HeadInfo));
+                if (avctx->opaque) {
+                    AVH2645HeadInfo *head_info = (AVH2645HeadInfo *)avctx->opaque;
+                    head_info->frame_mbs_only_flag = 1;
+                    head_info->max_bytes_per_pic_denom = 0;
+                    head_info->frame_cropping_flag = 0;
+                    head_info->conformance_window_flag = 0;
+                    head_info->coded_width  = 0;
+                    head_info->coded_height = 0;
+                }
+            }
+        }
+
         /* NOTE: A new stream can be added there if no header in file
          * (AVFMTCTX_NOHEADER). */
         ret = read_frame_internal(ic, &pkt1);
@@ -3858,15 +3903,13 @@ FF_ENABLE_DEPRECATION_WARNINGS
             st->internal->avctx_inited = 1;
         }
 
-        if ((st->codecpar->codec_id == AV_CODEC_ID_H264 || st->codecpar->codec_id == AV_CODEC_ID_HEVC)
-            && avctx->codec_type == AVMEDIA_TYPE_VIDEO && !avctx->opaque && !find_extra_info) {
-            avctx->opaque = (AVH2645HeadInfo *)av_malloc(sizeof(AVH2645HeadInfo));
-            if (avctx->opaque) {
-                AVH2645HeadInfo *head_info = (AVH2645HeadInfo *)avctx->opaque;
-                head_info->frame_mbs_only_flag = 1;
-                head_info->max_bytes_per_pic_denom = 0;
-                head_info->frame_cropping_flag = 0;
-                head_info->conformance_window_flag = 0;
+        if (avctx->opaque && st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+            AVH2645HeadInfo *sps_info = (AVH2645HeadInfo *)avctx->opaque;
+            if (max_resolution != INT_MAX && sps_info->coded_width * sps_info->coded_height > max_resolution) {
+                av_log(ic, AV_LOG_ERROR, "[%s %d]video w/h [%d %d] over max_resolution!\n", __FILE__, __LINE__, sps_info->coded_width, sps_info->coded_height);
+                av_freep(&avctx->opaque);
+                ret = AVERROR_UNKNOWN;
+                goto find_stream_info_err;
             }
         }
 
@@ -3976,31 +4019,34 @@ FF_ENABLE_DEPRECATION_WARNINGS
         count++;
 
         //jeffrey.wu add
-        if (avctx->codec_type == AVMEDIA_TYPE_VIDEO && avctx->opaque) {
-            AVH2645HeadInfo *head_info = (AVH2645HeadInfo *)avctx->opaque;
-            if (!head_info->frame_mbs_only_flag) {
-                av_log(ic, AV_LOG_WARNING, "[%s %d]sps.frame_mbs_only_flag isn't 1\n",__FUNCTION__, __LINE__);
-                ret = AVERROR_EXIT;
-                find_extra_info = 1;
-            }
-            if (head_info->max_bytes_per_pic_denom > 16) {
-                av_log(ic, AV_LOG_WARNING, "[%s %d]vps.max_bytes_per_pic_denom is greater than 16\n",__FUNCTION__, __LINE__);
-                ret = AVERROR_EXIT;
-                find_extra_info = 1;
-            }
-            if (ic->opaque) {
-                AVH2645HeadInfo *my_info = (AVH2645HeadInfo *)ic->opaque;
-                my_info->frame_mbs_only_flag = head_info->frame_mbs_only_flag;
-                my_info->max_bytes_per_pic_denom = head_info->max_bytes_per_pic_denom;
-                my_info->frame_cropping_flag = head_info->frame_cropping_flag;
-                my_info->conformance_window_flag = head_info->conformance_window_flag;
-                if (my_info->frame_cropping_flag || my_info->conformance_window_flag) {
-                    find_extra_info = 1;
+        for (i = 0; i < ic->nb_streams; i ++) {
+            st = ic->streams[i];
+            avctx = st->internal->avctx;
+            if (avctx->opaque && st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+                AVH2645HeadInfo *head_info = (AVH2645HeadInfo *)avctx->opaque;
+                if (!head_info->frame_mbs_only_flag) {
+                    av_log(ic, AV_LOG_WARNING, "[%s %d]sps.frame_mbs_only_flag isn't 1\n",__FUNCTION__, __LINE__);
+                    ret = AVERROR_EXIT;
                 }
-            }
-            av_freep(&avctx->opaque);
-            if (ret == AVERROR_EXIT) {
-                goto find_stream_info_err;
+                if (head_info->max_bytes_per_pic_denom > 16) {
+                    av_log(ic, AV_LOG_WARNING, "[%s %d]vps.max_bytes_per_pic_denom is greater than 16\n",__FUNCTION__, __LINE__);
+                    ret = AVERROR_EXIT;
+                }
+                if (ic->opaque) {
+                    AVH2645HeadInfo *my_info = (AVH2645HeadInfo *)ic->opaque;
+                    my_info->frame_mbs_only_flag = head_info->frame_mbs_only_flag;
+                    my_info->max_bytes_per_pic_denom = head_info->max_bytes_per_pic_denom;
+                    my_info->frame_cropping_flag = head_info->frame_cropping_flag;
+                    my_info->conformance_window_flag = head_info->conformance_window_flag;
+                }
+                if (max_resolution != INT_MAX && head_info->coded_width * head_info->coded_height > max_resolution) {
+                    av_log(ic, AV_LOG_ERROR, "[%s %d]video w/h [%d %d] over max_resolution!\n", __FILE__, __LINE__, head_info->coded_width, head_info->coded_height);
+                    ret = AVERROR_EXIT;
+                }
+                av_freep(&avctx->opaque);
+                if (ret == AVERROR_EXIT) {
+                    goto find_stream_info_err;
+                }
             }
         }
     }
@@ -4254,6 +4300,11 @@ find_stream_info_err:
         av_freep(&ic->streams[i]->info);
         av_bsf_free(&ic->streams[i]->internal->extract_extradata.bsf);
         av_packet_free(&ic->streams[i]->internal->extract_extradata.pkt);
+
+        avctx = st->internal->avctx;
+        if (avctx->opaque && st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+            av_freep(&avctx->opaque);
+        }
     }
     if (ic->pb)
         av_log(ic, AV_LOG_DEBUG, "After avformat_find_stream_info() pos: %"PRId64" bytes read:%"PRId64" seeks:%d frames:%d\n",
