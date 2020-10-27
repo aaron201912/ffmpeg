@@ -542,6 +542,8 @@ int avformat_open_input(AVFormatContext **ps, const char *filename,
     AVDictionary *tmp = NULL;
     ID3v2ExtraMeta *id3v2_extra_meta = NULL;
 
+    avlog_init_info();
+
     if (!s && !(s = avformat_alloc_context()))
         return AVERROR(ENOMEM);
     if (!s->av_class) {
@@ -1567,6 +1569,8 @@ static int64_t ts_to_samples(AVStream *st, int64_t ts)
     return av_rescale(ts, st->time_base.num * st->codecpar->sample_rate, st->time_base.den);
 }
 
+int audio_pkt_size, audio_pkt_get;
+int video_pkt_size, video_pkt_get;
 static int read_frame_internal(AVFormatContext *s, AVPacket *pkt)
 {
     int ret = 0, i, got_packet = 0;
@@ -1595,6 +1599,18 @@ static int read_frame_internal(AVFormatContext *s, AVPacket *pkt)
         }
         ret = 0;
         st  = s->streams[cur_pkt.stream_index];
+
+        if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+            video_pkt_size += cur_pkt.size;
+            video_pkt_get  += 1;
+            avlog_set_info("video_pkt_size", video_pkt_size, 0);
+            avlog_set_info("video_pkt_get", video_pkt_get, 1);
+        } else if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+            audio_pkt_size += cur_pkt.size;
+            audio_pkt_get  += 1;
+            avlog_set_info("audio_pkt_size", audio_pkt_size, 4);
+            avlog_set_info("audio_pkt_get", audio_pkt_get, 5);
+        }
 
         /* update context if required */
         if (st->internal->need_context_update) {
@@ -4532,6 +4548,8 @@ void avformat_close_input(AVFormatContext **ps)
     *ps = NULL;
 
     avio_close(pb);
+
+    avlog_deinit_info();
 }
 
 AVStream *avformat_new_stream(AVFormatContext *s, const AVCodec *c)

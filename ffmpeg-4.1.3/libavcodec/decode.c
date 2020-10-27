@@ -37,6 +37,7 @@
 #include "libavutil/internal.h"
 #include "libavutil/intmath.h"
 #include "libavutil/opt.h"
+#include "libavutil/log.h"
 
 #include "avcodec.h"
 #include "bytestream.h"
@@ -707,6 +708,15 @@ int attribute_align_arg avcodec_send_packet(AVCodecContext *avctx, const AVPacke
             return ret;
     }
 
+    if (avctx->codec_type == AVMEDIA_TYPE_VIDEO) {
+        avlog_set_info("video_pkt_count", (avctx->slices + 1), 2);
+    }
+    else if (avctx->codec_type == AVMEDIA_TYPE_AUDIO) {
+        avlog_set_info("audio_pkt_count", (avctx->slices + 1), 6);
+    }
+
+    avctx->slices ++;
+
     return 0;
 }
 
@@ -761,6 +771,10 @@ int attribute_align_arg avcodec_receive_frame(AVCodecContext *avctx, AVFrame *fr
             av_frame_unref(frame);
             return ret;
         }
+        avlog_set_info("video_frm_count", (avctx->frame_number + 1), 3);
+    }
+    else if (avctx->codec_type == AVMEDIA_TYPE_AUDIO) {
+        avlog_set_info("audio_frm_count", (avctx->frame_number + 1), 7);
     }
 
     avctx->frame_number++;

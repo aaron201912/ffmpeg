@@ -41,6 +41,12 @@
 #include "log.h"
 #include "thread.h"
 
+#include <fcntl.h>
+#include <stdbool.h>
+#include <errno.h>
+
+#include "libavutil/time.h"
+
 static AVMutex mutex = AV_MUTEX_INITIALIZER;
 
 #define LINE_SZ 1024
@@ -433,3 +439,122 @@ void avpriv_report_missing_feature(void *avc, const char *msg, ...)
     missing_feature_sample(0, avc, msg, argument_list);
     va_end(argument_list);
 }
+
+/***************************************************************************************/
+AVLogContext *av_logctx = NULL;
+pthread_t avlog_tid;
+static bool b_exit = false;
+static int debug_fd = -1;
+static char *ff_debug_path = NULL;
+
+static void *avlog_proc_thread(void *args)
+{
+    b_exit = false;
+    while (!b_exit)
+    {
+        av_usleep(50 * 1000);
+        avlog_dump_info();
+    }
+
+    return NULL;
+}
+
+AVLogContext * avlog_init_info(void)
+{
+    char *env = getenv("FFMPEG_DEBUG");
+    if (!env) {
+        return NULL;
+    }
+
+    ff_debug_path = av_strdup(env);
+    if (-1 == debug_fd) {
+        debug_fd = open(ff_debug_path, O_CREAT | O_WRONLY, 0666);
+        if (-1 == debug_fd) {
+            av_log(NULL, AV_LOG_ERROR, "open %s failed!\n", ff_debug_path);
+            perror("error code");
+            return NULL;
+        }
+    }
+
+    if (!av_logctx && !(av_logctx = av_mallocz(sizeof(AVLogContext)))) {
+        close(debug_fd);
+        debug_fd = -1;
+        return NULL;
+    }
+    memset(av_logctx, 0x0, sizeof(AVLogContext));
+
+    int ret = pthread_create(&avlog_tid, NULL, avlog_proc_thread, NULL);
+    if (ret != 0) {
+        av_log(NULL, AV_LOG_ERROR, "pthread_create avlog failed\n");
+        av_freep(&av_logctx);
+        close(debug_fd);
+        debug_fd = -1;
+        return NULL;
+    }
+
+    return av_logctx;
+}
+
+int avlog_deinit_info(void)
+{
+    if (!av_logctx)
+        return -1;
+
+    b_exit = true;
+    pthread_join(avlog_tid, NULL);
+
+    while (av_logctx->count--) {
+        av_freep(&av_logctx->elems[av_logctx->count].key);
+    }
+    av_freep(&av_logctx);
+
+    av_freep(&ff_debug_path);
+
+    close(debug_fd);
+    debug_fd = -1;
+
+    return 0;
+}
+
+int avlog_set_info(const char *key, int value, int index)
+{
+    AVLogInfo *tmp = NULL;
+
+    if (!av_logctx || index >= AVLOG_INDEX || index < 0) {
+        return -1;
+    }
+
+    tmp = &av_logctx->elems[index];
+    if (!tmp->key) {
+        tmp->key = av_strdup(key);
+        if (tmp->key) {
+            tmp->value = value;
+            av_logctx->count ++;
+        }
+    } else {
+        tmp->value = value;
+    }
+
+    return 0;
+}
+
+int avlog_dump_info(void)
+{
+    char sprint_buf[1024] = {0};
+    int num;
+
+    if (!av_logctx)
+        return -1;
+
+    num  = sprintf(sprint_buf, "\n*************************** ffmpeg debug info ***************************\n");
+    num += sprintf(sprint_buf + num, "\t\t%-16s%-16s%-16s%-16s\n", "PacketSize", "PacketGet", "PacketSend", "FrameNum");
+    num += sprintf(sprint_buf + num, "%s\t\t%-16d%-16d%-16d%-16d\n", "Video", av_logctx->elems[0].value, av_logctx->elems[1].value, av_logctx->elems[2].value, av_logctx->elems[3].value);
+    num += sprintf(sprint_buf + num, "%s\t\t%-16d%-16d%-16d%-16d\n", "Audio", av_logctx->elems[4].value, av_logctx->elems[5].value, av_logctx->elems[6].value, av_logctx->elems[7].value);
+    num += sprintf(sprint_buf + num, "*************************** end of debug info ***************************\n");
+
+    write(debug_fd, sprint_buf, num);
+    lseek(debug_fd, 0L, SEEK_SET);
+
+    return 0;
+}
+

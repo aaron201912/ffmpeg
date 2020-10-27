@@ -355,6 +355,26 @@ int av_log_format_line2(void *ptr, int level, const char *fmt, va_list vl,
 void av_log_set_flags(int arg);
 int av_log_get_flags(void);
 
+/************************************************************************/
+#define AVLOG_INDEX     16
+#define AV_DEBUG_PATH   "/appconfigs/ffmpeg_debug"
+
+typedef struct AVLogInfo {
+    char *key;
+    int  value;
+} AVLogInfo;
+
+typedef struct AVLogContext {
+    AVLogInfo elems[AVLOG_INDEX];
+    int  count;
+} AVLogContext;
+
+AVLogContext * avlog_init_info(void);
+int avlog_deinit_info(void);
+int avlog_set_info(const char *key, int value, int index);
+int avlog_dump_info(void);
+
+
 /**
  * @}
  */
