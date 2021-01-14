@@ -38,8 +38,10 @@
 --disable-outdevs \
 --disable-devices \
 --disable-filters \
+--disable-decoder=ssh264 \
+--disable-decoder=sshevc \
 --shlibdir=host/dynamic \
 --libdir=host/static \
 --pkg-config=pkg-config \
---extra-cflags="-I./../sstar/include -I./../3rdparty/include -g -rdynamic -funwind-tables -ffunction-sections" \
---extra-ldflags="-L./../sstar/lib -L./../3rdparty/lib/8.2.1"
+--extra-cflags="-I./../3rdparty/include -g -rdynamic -funwind-tables -ffunction-sections" \
+--extra-ldflags="-L./../3rdparty/lib/9.1.0"
