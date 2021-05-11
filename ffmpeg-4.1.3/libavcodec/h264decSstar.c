@@ -178,9 +178,13 @@ char *ssh264_dump_path = NULL;
 bool  ssh264_dump_enable = false;
 #endif
 /****************************************************************************************************/
-
+#ifdef SUPPORT_4K
+#define  VDEC_ES_BUF_MAX        6 * 1024 * 1024
+#define  VDEC_ES_BUF_BUSY       5 * 1024 * 768
+#else
 #define  VDEC_ES_BUF_MAX        2 * 1024 * 1024
 #define  VDEC_ES_BUF_BUSY       2 * 1024 * 768
+#endif
 #define  GET_FRAME_TIME_OUT     3
 
 static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
@@ -622,6 +626,7 @@ static MI_U32 ss_h264_vdec_init(AVCodecContext *avctx)
 
     STCHECKRESULT(MI_VDEC_CreateChn(stVdecChn, &stVdecChnAttr));
     STCHECKRESULT(MI_VDEC_StartChn(stVdecChn));
+    av_log(avctx, AV_LOG_INFO, "h264 vdec set es buf size: %d\n", VDEC_ES_BUF_MAX);
 
     stWidth  = (avctx->flags  & 0xFFFF);
     stHeight = (avctx->flags2 & 0xFFFF);
