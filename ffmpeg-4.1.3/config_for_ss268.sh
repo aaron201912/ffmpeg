@@ -40,10 +40,8 @@
 --disable-filters \
 --disable-decoder=ssh264 \
 --disable-decoder=sshevc \
---disable-decoder=ssh264_ss268 \
---disable-decoder=sshevc_ss268 \
 --shlibdir=host/dynamic \
 --libdir=host/static \
 --pkg-config=pkg-config \
---extra-cflags="-I./../3rdparty/include -g -rdynamic -funwind-tables -ffunction-sections" \
---extra-ldflags="-L./../3rdparty/lib/9.1.0"
+--extra-cflags="-I./../sstar_ss268/include -I./../3rdparty/include -g -rdynamic -funwind-tables -ffunction-sections" \
+--extra-ldflags="-L./../sstar_ss268/lib -L./../3rdparty/lib/9.1.0"

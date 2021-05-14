@@ -207,7 +207,11 @@ static void stream_component_close(player_stat_t *is, int stream_index)
         if (is->vir_addr && is->phy_addr) {
             MI_SYS_FlushInvCache(is->vir_addr, is->buf_size);
             MI_SYS_Munmap(is->vir_addr, is->buf_size);
-            MI_SYS_MMA_Free(is->phy_addr);
+		#ifdef CHIP_IS_SS268	
+            MI_SYS_MMA_Free(0,is->phy_addr);
+		#else
+            MI_SYS_MMA_Free(is->phy_addr);		
+		#endif
         }
         printf("8.MI_SYS_Munmap and MI_SYS_MMA_Free!\n");
         break;

@@ -10,9 +10,11 @@
 #include <sys/types.h>
 #include <sys/time.h>
 #include <sys/stat.h>
-
+#ifdef CHIP_IS_SS268
+#include "ss268_panel.h"
+#else
 #include "sd20xpanel.h"
-
+#endif
 #include "player.h"
 #include "audio.h"
 #include "video.h"
@@ -298,6 +300,8 @@ int sstar_player_set_rotate(int rotate)
 
 int sstar_player_set_volumn(int volumn)
 {
+    MI_AO_CHN AoChn = AUDIO_CHN;
+
     pthread_mutex_lock(&player_mutex);
     if (ssplayer == NULL) {
         av_log(NULL, AV_LOG_ERROR, "sstar_player_set_volumn failed!\n");
@@ -320,8 +324,13 @@ int sstar_player_set_volumn(int volumn)
         memset(&stAoState, 0, sizeof(MI_AO_ChnState_t));
         if (MI_SUCCESS == MI_AO_QueryChnStat(AUDIO_DEV, AUDIO_CHN, &stAoState))
         {
+#ifdef CHIP_IS_SS268
+            MI_AO_SetVolume(AUDIO_DEV, AoChn, vol, E_MI_AO_GAIN_FADING_16_SAMPLE);
+            MI_AO_SetMute(AUDIO_DEV, AoChn, g_mute);
+#else
             MI_AO_SetVolume(AUDIO_DEV, vol);
             MI_AO_SetMute(AUDIO_DEV, g_mute);
+#endif
         }
     }
 
@@ -332,6 +341,8 @@ int sstar_player_set_volumn(int volumn)
 
 int sstar_player_set_mute(bool mute)
 {
+    MI_AO_CHN AoChn = AUDIO_CHN;
+
     if (ssplayer == NULL) {
         av_log(NULL, AV_LOG_ERROR,"sstar_player_set_mute failed!\n");
         return -1;
@@ -339,7 +350,11 @@ int sstar_player_set_mute(bool mute)
 
     if (ssplayer->audio_idx >= 0) {
         g_mute = mute;
+#ifdef CHIP_IS_SS268
+        MI_AO_SetMute(AUDIO_DEV, AoChn, mute);
+#else
         MI_AO_SetMute(AUDIO_DEV, mute);
+#endif
     }
 
     return 0;
@@ -412,6 +427,11 @@ int main(int argc, char *argv[])
 
     signal(SIGINT, signal_handler_fun);
 
+#ifdef CHIP_IS_SS268
+	ss_sys_init();
+    ST_Screen_Init();
+	ss_getpanel_wh(&width, &height);
+#else
     sd20x_sys_init();
 
     #ifdef SUPPORT_HDMI
@@ -420,9 +440,9 @@ int main(int argc, char *argv[])
     sd20x_panel_init(E_MI_DISP_INTF_LCD, 0);
     #endif
 
-    printf("try playing %s ...\n", argv[1]);
-
     ssd20x_getpanel_wh(&width, &height);
+#endif
+    printf("try playing %s ...\n", argv[1]);
 
     //sstar_player_setopts("video_only", "1", 0);
     //sstar_player_setopts("audio_only", "1", 0);
@@ -506,14 +526,17 @@ int main(int argc, char *argv[])
     }
 exit:
     sstar_player_close();
-
+#if CHIP_IS_SS268
+    ST_Screen_DeInit();
+    ss_sys_deinit();
+#else
     #ifdef SUPPORT_HDMI
     sd20x_panel_deinit(E_MI_DISP_INTF_HDMI);
     #else
     sd20x_panel_deinit(E_MI_DISP_INTF_LCD);
     #endif
     sd20x_sys_deinit();
-
+#endif
     return 0; 
 }
 

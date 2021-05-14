@@ -287,6 +287,8 @@ extern AVCodec ff_svq1_decoder;
 extern AVCodec ff_svq3_decoder;
 extern AVCodec ff_ssh264_decoder;
 extern AVCodec ff_sshevc_decoder;
+extern AVCodec ff_ssh264_ss268_decoder;
+extern AVCodec ff_sshevc_ss268_decoder;
 extern AVCodec ff_targa_encoder;
 extern AVCodec ff_targa_decoder;
 extern AVCodec ff_targa_y216_decoder;

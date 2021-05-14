@@ -45,7 +45,11 @@ static int alloc_for_frame(frame_t *vp, AVFrame *frame)
     //av_log(NULL, AV_LOG_WARNING, "malloc for frame = %d\n", vp->buf_size);
 
     //ret = MI_SYS_MMA_Alloc((MI_U8 *)"MMU_MMA", vp->buf_size, &vp->phy_addr);
+#ifdef CHIP_IS_SS268
+    ret = MI_SYS_MMA_Alloc(0, (MI_U8 *)"#frame", vp->buf_size, &vp->phy_addr);
+#else
     ret = MI_SYS_MMA_Alloc((MI_U8 *)"#frame", vp->buf_size, &vp->phy_addr);
+#endif
     if (ret != MI_SUCCESS) {
         av_log(NULL, AV_LOG_ERROR, "MI_SYS_MMA_Alloc Falied!\n");
         return -1;
@@ -405,8 +409,10 @@ static int video_load_picture(player_stat_t *is, AVFrame *frame)
             stBufConf.stFrameCfg.u16Width   = is->p_frm_yuv->width;
         }
         stBufConf.u32Flags              = MI_SYS_MAP_VA;
+#ifdef CHIP_IS_SS268
+#else
         stBufConf.stFrameCfg.stFrameBufExtraConf.u16BufHAlignment = 16;
-
+#endif
         if (MI_SUCCESS == MI_SYS_ChnInputPortGetBuf(&stInputChnPort, &stBufConf, &stBufInfo, &bufHandle, 0))
         {
             // flush需要时间分辨率大于720P就不执行该操作但是会导致图像拉丝
@@ -444,6 +450,19 @@ static int video_load_picture(player_stat_t *is, AVFrame *frame)
                 stBufInfo.bEndOfStream              = FALSE;
 
                 int length = is->p_frm_yuv->width * is->p_frm_yuv->height;
+			#ifdef CHIP_IS_SS268
+                for (int index = 0; index < stBufInfo.stFrameData.u16Height; index ++)
+                {
+                    MI_SYS_MemcpyPa(ST_DEFAULT_SOC_ID, stBufInfo.stFrameData.phyAddr[0] + index * stBufInfo.stFrameData.u32Stride[0], 
+                                    is->phy_addr + index * is->p_frm_yuv->width, is->p_frm_yuv->width);
+                }
+                for (int index = 0; index < stBufInfo.stFrameData.u16Height / 2; index ++)
+                {
+                    MI_SYS_MemcpyPa(ST_DEFAULT_SOC_ID, stBufInfo.stFrameData.phyAddr[1] + index * stBufInfo.stFrameData.u32Stride[1], 
+                                    is->phy_addr + length + index * is->p_frm_yuv->width, is->p_frm_yuv->width);
+                }
+
+			#else
                 for (int index = 0; index < stBufInfo.stFrameData.u16Height; index ++)
                 {
                     MI_SYS_MemcpyPa(stBufInfo.stFrameData.phyAddr[0] + index * stBufInfo.stFrameData.u32Stride[0], 
@@ -454,6 +473,7 @@ static int video_load_picture(player_stat_t *is, AVFrame *frame)
                     MI_SYS_MemcpyPa(stBufInfo.stFrameData.phyAddr[1] + index * stBufInfo.stFrameData.u32Stride[1], 
                                     is->phy_addr + length + index * is->p_frm_yuv->width, is->p_frm_yuv->width);
                 }
+			#endif
             }
 
             MI_SYS_ChnInputPortPutBuf(bufHandle, &stBufInfo, FALSE);
@@ -895,7 +915,11 @@ static int open_video_playing(void *arg)
         //}
 
         //ret = MI_SYS_MMA_Alloc((MI_U8 *)"MMU_MMA", is->buf_size, &is->phy_addr);
+#ifdef CHIP_IS_SS268
+        ret = MI_SYS_MMA_Alloc(0, (MI_U8 *)"#yuv420p", is->buf_size, &is->phy_addr);
+#else
         ret = MI_SYS_MMA_Alloc((MI_U8 *)"#yuv420p", is->buf_size, &is->phy_addr);
+#endif
         if (ret != MI_SUCCESS) {
             av_log(NULL, AV_LOG_ERROR, "MI_SYS_MMA_Alloc Falied!\n");
             return -1;
@@ -978,12 +1002,20 @@ static int open_video_stream(player_stat_t *is)
     switch(p_codec_par->codec_id) 
     {
         case AV_CODEC_ID_H264 : 
+#ifdef CHIP_IS_SS268
+            p_codec = avcodec_find_decoder_by_name("ssh264_ss268");
+#else
             p_codec = avcodec_find_decoder_by_name("ssh264"); 
+#endif
             is->decoder_type = HARD_DECODING;
             break;
 
         case AV_CODEC_ID_HEVC : 
+#ifdef CHIP_IS_SS268
+            p_codec = avcodec_find_decoder_by_name("sshevc_ss268"); 
+#else
             p_codec = avcodec_find_decoder_by_name("sshevc"); 
+#endif
             is->decoder_type = HARD_DECODING;
             break;
 
@@ -1144,6 +1176,8 @@ int video_flush_buffer(frame_queue_t *f)
 
 int sstar_display_set(player_stat_t *is)
 {
+#ifdef CHIP_IS_SS268
+#else
     MI_DISP_RotateConfig_t stRotateConfig;
 
     if (!is) {
@@ -1312,11 +1346,13 @@ int sstar_display_set(player_stat_t *is)
     }
 
     MI_DISP_SetVideoLayerRotateMode(DISP_LAYER, &stRotateConfig);
-
+#endif
     return MI_SUCCESS;
 }
 int sstar_display_unset(player_stat_t *is)
 {
+#ifdef CHIP_IS_SS268
+#else
     if (is->decoder_type == SOFT_DECODING) {
         MI_SYS_ChnPort_t stDispChnPort;
         MI_SYS_ChnPort_t stDivpChnPort;
@@ -1367,6 +1403,6 @@ int sstar_display_unset(player_stat_t *is)
     MI_DISP_ClearInputPortBuffer(DISP_LAYER, DISP_INPUTPORT, TRUE);
     MI_DISP_HideInputPort(DISP_LAYER, DISP_INPUTPORT);
     MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
-
+#endif
     return 0;
 }

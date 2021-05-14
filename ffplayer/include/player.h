@@ -28,12 +28,21 @@ extern "C"{
 #include "mi_common.h"
 #include "mi_sys.h"
 #include "mi_disp.h"
+#ifdef CHIP_IS_SS268
+#else
 #include "mi_divp.h"
+#endif
 #include "mi_vdec.h"
 #include "mi_gfx.h"
 #include "mi_ao.h"
 #include "mi_vdec_extra.h"
 
+#ifdef ST_DEFAULT_SOC_ID
+#undef ST_DEFAULT_SOC_ID
+#define ST_DEFAULT_SOC_ID 0
+#else
+#define ST_DEFAULT_SOC_ID 0
+#endif
 
 #define     SUCCESS         0
 #define     FAIL            1

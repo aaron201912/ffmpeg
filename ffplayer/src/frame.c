@@ -17,7 +17,11 @@ void frame_queue_free_mmu(frame_t *vp)
     if (vp->vir_addr && vp->phy_addr) {
         //MI_SYS_FlushInvCache(vp->vir_addr, vp->buf_size);
         MI_SYS_Munmap(vp->vir_addr, vp->buf_size);
+#ifdef CHIP_IS_SS268		
+        MI_SYS_MMA_Free(0, vp->phy_addr);
+#else
         MI_SYS_MMA_Free(vp->phy_addr);
+#endif
         vp->vir_addr = NULL;
         vp->phy_addr = 0;
     }
