@@ -38,6 +38,8 @@
 --disable-outdevs \
 --disable-devices \
 --disable-filters \
+--disable-decoder=ssh264_ss268 \
+--disable-decoder=sshevc_ss268 \
 --shlibdir=host/dynamic \
 --libdir=host/static \
 --pkg-config=pkg-config \

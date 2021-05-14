@@ -7,13 +7,27 @@ AR  = $(CROSS_COMPILE)ar
 # config hdmi or panel display
 CONFIG_SUPPORT_HDMI = 
 
+CONFIG_CHIP := SS268
+
 COM_FLAGS = -Wall -O2 -fPIC -mcpu=cortex-a9 -mfpu=neon-fp16 -mfloat-abi=hard -mthumb-interwork -marm -g -funwind-tables -ffunction-sections -rdynamic
 C_FLAGS   = $(COM_FLAGS) -std=c11
 CPP_FLAGS = $(COM_FLAGS) -std=c++11 
 
-INCLUDES  = -I. -I$(CURRENT_PATH)/../include -I$(CURRENT_PATH)/../../ffmpeg-4.1.3/host/include -I$(CURRENT_PATH)/../../sstar/include
-LIB_PATH  = -L. -L$(CURRENT_PATH)/../../ffmpeg-4.1.3/host/dynamic -L$(CURRENT_PATH)/../../sstar/lib -L$(CURRENT_PATH)/../../3rdparty/lib
+ifeq ($(CONFIG_CHIP),SS268)
+C_FLAGS   += -DCHIP_IS_SS268
+CPP_FLAGS += -DCHIP_IS_SS268
+else ifeq ($(CONFIG_CHIP), SSD20X)
+C_FLAGS   += -DCHIP_IS_SSD20X
+CPP_FLAGS += -DCHIP_IS_SSD20X
+endif
 
+ifeq ($(CONFIG_CHIP),SS268)
+INCLUDES  = -I. -I$(CURRENT_PATH)/../include -I$(CURRENT_PATH)/../../ffmpeg-4.1.3/host/include -I$(CURRENT_PATH)/../../sstar_ss268/include
+LIB_PATH  = -L. -L$(CURRENT_PATH)/../../ffmpeg-4.1.3/host/dynamic -L$(CURRENT_PATH)/../../sstar_ss268/lib -L$(CURRENT_PATH)/../../3rdparty/lib/9.1.0
+else ifeq ($(CONFIG_CHIP), SSD20X)
+INCLUDES  = -I. -I$(CURRENT_PATH)/../include -I$(CURRENT_PATH)/../../ffmpeg-4.1.3/host/include -I$(CURRENT_PATH)/../../sstar/include
+LIB_PATH  = -L. -L$(CURRENT_PATH)/../../ffmpeg-4.1.3/host/dynamic -L$(CURRENT_PATH)/../../sstar/lib -L$(CURRENT_PATH)/../../3rdparty/lib/9.1.0
+endif
 TARGET_NAME  = ssplayer
 
 CPP_SRCS  =  $(wildcard $(CURRENT_PATH)/*.cpp)
@@ -25,6 +39,9 @@ CPP_OBJS  = $(patsubst %.cpp, %.cpp.o, $(CPP_SRCS))
 C_OBJS    = $(patsubst %.c, %.c.o, $(C_SRCS))
 
 LIB_NAME  = -lavformat -lavcodec -lavutil -lswscale -lswresample
+ifeq ($(CONFIG_CHIP),SS268)
+LIB_NAME += -lcam_os_wrapper
+endif
 LIB_NAME += -lmi_vdec -lmi_divp -lmi_disp -lmi_ao -lmi_gfx -lmi_sys -lmi_common
 LIB_NAME += -lssl -lcrypto
 #LIB_NAME += -lxml2

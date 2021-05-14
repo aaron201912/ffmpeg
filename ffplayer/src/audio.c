@@ -487,11 +487,19 @@ static void * audio_playing_thread(void *arg)
             do {
                 if (data_len <= MI_AUDIO_MAX_DATA_SIZE)
                 {
-                    stAoSendFrame.u32Len = data_len;
+					#ifdef CHIP_IS_SS268
+                    stAoSendFrame.u32Len[0] = data_len;
+					#else
+					stAoSendFrame.u32Len = data_len;
+					#endif
                 }
                 else
                 {
-                    stAoSendFrame.u32Len = MI_AUDIO_MAX_DATA_SIZE; 
+					#ifdef CHIP_IS_SS268
+                    stAoSendFrame.u32Len[0] = MI_AUDIO_MAX_DATA_SIZE;
+					#else
+					stAoSendFrame.u32Len = MI_AUDIO_MAX_DATA_SIZE;
+					#endif
                 }
                 stAoSendFrame.apVirAddr[0] = &is->p_audio_frm[data_idx];
                 stAoSendFrame.apVirAddr[1] = NULL;  
@@ -650,7 +658,11 @@ int sstar_audio_init(int nAoDevId)
     stSetAttr.u32PtNumPerFrm = MI_AUDIO_SAMPLE_PER_FRAME;
 
     if (g_audio_chlayout & AV_CH_LAYOUT_STEREO) {
-        stSetAttr.u32ChnCnt = 2;
+#ifdef CHIP_IS_SS268	
+        stSetAttr.u32ChnCnt = 1;
+#else
+		stSetAttr.u32ChnCnt = 2;
+#endif
         stSetAttr.eSoundmode = E_MI_AUDIO_SOUND_MODE_STEREO;
     } else {
         stSetAttr.u32ChnCnt = 1;
@@ -671,13 +683,21 @@ int sstar_audio_init(int nAoDevId)
     /* enable ao channel of device*/
     CheckFuncResult(MI_AO_EnableChn(AoDevId, AoChn));
 
+#ifdef CHIP_IS_SS268	
+    /* if test AO Volume */
+    s32SetVolumeDb = MIN_ADJUST_AO_VOLUME;
+    CheckFuncResult(MI_AO_SetVolume(AoDevId, AoChn, s32SetVolumeDb, E_MI_AO_GAIN_FADING_16_SAMPLE));
+
+    /* get AO volume */
+    CheckFuncResult(MI_AO_GetVolume(AoDevId, AoChn, &s32GetVolumeDb));
+#else
     /* if test AO Volume */
     s32SetVolumeDb = MIN_ADJUST_AO_VOLUME;
     CheckFuncResult(MI_AO_SetVolume(AoDevId, s32SetVolumeDb));
 
     /* get AO volume */
     CheckFuncResult(MI_AO_GetVolume(AoDevId, &s32GetVolumeDb));
-
+#endif
     printf("my_player enable audio[%d] done!\n", AoDevId);
 
     return MI_SUCCESS;

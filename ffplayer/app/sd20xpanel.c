@@ -1,5 +1,6 @@
 #include <string.h>
 #include <stdio.h>
+#ifdef CHIP_IS_SSD20X
 #include "sd20xpanel.h"
 
 #define MAKE_YUYV_VALUE(y,u,v)  ((y) << 24) | ((u) << 16) | ((y) << 8) | (v)
@@ -231,5 +232,5 @@ int sd20x_sys_deinit(void)
     MI_SYS_Exit();
     return MI_SUCCESS;
 }
-
+#endif
 
