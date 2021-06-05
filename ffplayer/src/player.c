@@ -27,11 +27,9 @@
 #include "video.h"
 #include "audio.h"
 
-AVPacket a_flush_pkt, v_flush_pkt;
+AVPacket a_flush_pkt, v_flush_pkt, v_extra_pkt;
 static int av_sync_type = AV_SYNC_AUDIO_MASTER;
 //static int av_sync_type = AV_SYNC_VIDEO_MASTER;
-player_stat_t *g_myplayer = NULL;
-
 
 static int get_master_sync_type(player_stat_t *is) {
     if (is->av_sync_type == AV_SYNC_VIDEO_MASTER) {
@@ -146,6 +144,11 @@ static void audio_decoder_abort(player_stat_t *is)
     packet_queue_flush(&is->audio_pkt_queue);
     printf("3.audio packet_queue_flush exit!\n");
 
+    if (is->enable_audio && is->functions.audio_deinit) {
+        is->functions.audio_deinit(is);
+        av_log(NULL, AV_LOG_INFO, "mm_audio_deinit done!\n");
+    }
+
     avcodec_free_context(&is->p_acodec_ctx);
     printf("4.audio avcodec_free_context exit!\n");
 }
@@ -169,6 +172,11 @@ static void video_decoder_abort(player_stat_t *is)
 
     packet_queue_flush(&is->video_pkt_queue);
     printf("4.video packet_queue_flush free!\n");
+
+    if (is->enable_video && is->functions.video_deinit) {
+        is->functions.video_deinit(is);
+        av_log(NULL, AV_LOG_INFO, "mm_video_deinit done!\n");
+    }
 
     avcodec_free_context(&is->p_vcodec_ctx);
     printf("5.video avcodec_free_context exit!\n");
@@ -204,16 +212,10 @@ static void stream_component_close(player_stat_t *is, int stream_index)
         if (is->p_frm_yuv)
             av_frame_free(&is->p_frm_yuv);
         printf("7.av_frame_free p_frm_yuv!\n");
-        if (is->vir_addr && is->phy_addr) {
-            MI_SYS_FlushInvCache(is->vir_addr, is->buf_size);
-            MI_SYS_Munmap(is->vir_addr, is->buf_size);
-		#ifdef CHIP_IS_SS268	
-            MI_SYS_MMA_Free(0,is->phy_addr);
-		#else
-            MI_SYS_MMA_Free(is->phy_addr);		
-		#endif
+        if (is->vir_addr && is->phy_addr && is->functions.sys_free) {
+            is->functions.sys_free(is->vir_addr, is->phy_addr, is->buf_size);
         }
-        printf("8.MI_SYS_Munmap and MI_SYS_MMA_Free!\n");
+        printf("8.sys_ummap and sys_free!\n");
         break;
 
     default:
@@ -252,8 +254,8 @@ void stream_toggle_pause(player_stat_t *is)
 
 void toggle_pause(player_stat_t *is)
 {
-    stream_toggle_pause(is);
     is->step = 0;
+    stream_toggle_pause(is);
 }
 
 void stream_seek(player_stat_t *is, int64_t pos, int64_t rel, int seek_by_bytes)
@@ -280,7 +282,6 @@ player_stat_t *player_init(const char *p_input_file)
     else {
         memset(is, 0x00, sizeof(player_stat_t));
     }
-    g_myplayer = is;
     is->audio_complete = 1;
     is->video_complete = 1;
     is->audio_idx = -1;
@@ -308,8 +309,10 @@ player_stat_t *player_init(const char *p_input_file)
 
     av_init_packet(&a_flush_pkt);
     av_init_packet(&v_flush_pkt);
+    av_init_packet(&v_extra_pkt);
     a_flush_pkt.data = (uint8_t *)&a_flush_pkt;
     v_flush_pkt.data = (uint8_t *)&v_flush_pkt;
+    v_extra_pkt.data = (uint8_t *)&v_extra_pkt;
 
     packet_queue_put(&is->video_pkt_queue, &v_flush_pkt);
     packet_queue_put(&is->audio_pkt_queue, &a_flush_pkt);
@@ -403,8 +406,6 @@ int player_deinit(player_stat_t *is)
 
     av_freep(&is);
     av_log(NULL, AV_LOG_WARNING, "9.av_free player_stat_t finish\n");
-
-    g_myplayer = NULL;
 
     return 0;
 }

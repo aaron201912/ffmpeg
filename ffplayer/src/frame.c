@@ -3,25 +3,15 @@
 
 void frame_queue_putbuf(AVFrame *frame)
 {
-    if (frame->width > 0 && frame->opaque) {
-        SS_Vdec_BufInfo *stVdecBuf = (SS_Vdec_BufInfo *)frame->opaque;
-        if (MI_SUCCESS != MI_SYS_ChnOutputPortPutBuf(stVdecBuf->stVdecHandle)) {
-            printf("frame_queue_putbuf failed!\n");
-        }
-        av_freep(&frame->opaque);
+    if (frame->width > 0 && frame->opaque && g_mmplayer) {
+        g_mmplayer->functions.video_putbuf(frame);
     }
 }
 
 void frame_queue_free_mmu(frame_t *vp)
 {
-    if (vp->vir_addr && vp->phy_addr) {
-        //MI_SYS_FlushInvCache(vp->vir_addr, vp->buf_size);
-        MI_SYS_Munmap(vp->vir_addr, vp->buf_size);
-#ifdef CHIP_IS_SS268		
-        MI_SYS_MMA_Free(0, vp->phy_addr);
-#else
-        MI_SYS_MMA_Free(vp->phy_addr);
-#endif
+    if (vp->vir_addr && vp->phy_addr && g_mmplayer) {
+        g_mmplayer->functions.sys_free(vp->vir_addr, vp->phy_addr, vp->buf_size);
         vp->vir_addr = NULL;
         vp->phy_addr = 0;
     }
@@ -40,10 +30,10 @@ int frame_queue_init(frame_queue_t *f, packet_queue_t *pktq, int max_size, int k
 {
     int i;
     memset(f, 0, sizeof(frame_queue_t));
-    
-    CheckFuncResult(pthread_mutex_init(&f->mutex, NULL));
-    CheckFuncResult(pthread_cond_init(&f->cond,NULL));
-    
+
+    pthread_mutex_init(&f->mutex, NULL);
+    pthread_cond_init(&f->cond,NULL);
+
     f->pktq = pktq;
     f->max_size = FFMIN(max_size, FRAME_QUEUE_SIZE);
     f->keep_last = !!keep_last;

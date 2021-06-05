@@ -83,6 +83,7 @@ typedef struct SsHevcContext {
                             ///< as a format defined in 14496-15
     int nal_length_size;    ///< Number of bytes used for nal length (1, 2 or 4)
     int64_t time_sec, time_wait;
+    struct pollfd pfd;
 } SsHevcContext;
 
 

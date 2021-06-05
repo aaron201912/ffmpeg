@@ -16,3 +16,8 @@
 
     2. ffmpeg如果需要支持硬解4K视频, 则在config_for_ssd20x.sh的编译选项中增加如下参数：
     --extra-cflags="-I./../sstar/include -I./../3rdparty/include -g -rdynamic -funwind-tables -ffunction-sections -DSUPPORT_4K"
+
+## Demo Note
+    1. ffmpeg/app文件下的demo介绍调用ffmpeg接口串接简单播放音视频流程
+    2. ffmpeg/ffplayer文件夹的demo实现比较完整播放器功能
+    3. ffmpeg/ui_app文件夹已暂停维护

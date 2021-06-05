@@ -4,13 +4,12 @@
 #include "player.h"
 #include <sys/time.h>
 
-extern AVPacket a_flush_pkt, v_flush_pkt;
+extern AVPacket a_flush_pkt, v_flush_pkt, v_extra_pkt;
 static int genpts = 0;
-static int seek_by_bytes = -1;
+static struct timeval read_now, read_start, read_timeout;
+static AVDictionary *format_opts, *codec_opts;
 
-AVDictionary *format_opts, *codec_opts;
-
-#define PLAYER_STRT_TIMEOUT  10  //单位秒
+#define PLAYER_READ_TIMEOUT  10  //单位秒
 
 AVDictionary **setup_find_stream_info_opts(AVFormatContext *s,
                                            AVDictionary *codec_opts)
@@ -33,13 +32,13 @@ static int decode_interrupt_cb(void *ctx)
     player_stat_t *is = (player_stat_t *)ctx;
     bool flag;
 
-    gettimeofday(&is->now, NULL);
-    flag = (is->now.tv_sec - is->start.tv_sec > PLAYER_STRT_TIMEOUT) ? true : false;
+    gettimeofday(&read_now, NULL);
+    flag = (read_now.tv_sec - read_start.tv_sec > PLAYER_READ_TIMEOUT) ? true : false;
     if (flag) {
         is->time_out = true;
         av_log(NULL, AV_LOG_ERROR, "timeout of reading packet from network!\n");
     }
-    return flag;
+    return flag || is->abort_request;
 }
 
 /*static int stream_has_enough_packets(AVStream *st, int stream_id, packet_queue_t *queue, player_stat_t *is)
@@ -63,24 +62,21 @@ static int decode_interrupt_cb(void *ctx)
 static void step_to_next_frame(player_stat_t *is)
 {
     /* if the stream is paused unpause it, then step */
+    is->step = 1;
     if (is->paused) {
         stream_toggle_pause(is);
         av_log(NULL, AV_LOG_WARNING, "seeking after puase!\n");
     }
-    is->step = 1;
 }
 
 /* this thread gets the stream from the disk or the network */
 static void * demux_thread(void *arg)
 {
     player_stat_t *is = (player_stat_t *)arg;
-    //AVFormatContext *p_fmt_ctx = is->p_fmt_ctx;
-    int ret;
-    //AVPacket pkt1, *pkt = &pkt1;
+    int ret, extra_packet_count = 0;
 
     struct timeval now;
     struct timespec outtime;
-
     pthread_mutex_t wait_mutex;
 
     //AVPacket *pkt = av_packet_alloc();
@@ -97,7 +93,7 @@ static void * demux_thread(void *arg)
     // 4. 解复用处理
     while (1)
     {
-        if (is->abort_request)
+        if (is->abort_request || is->play_status > AV_PLAY_PAUSE)
         {
             printf("demux thread exit\n");
             break;
@@ -115,7 +111,7 @@ static void * demux_thread(void *arg)
             }
         }
 
-        if (is->seek_req) {
+        if (is->seek_req && !is->eof) {
             int64_t seek_target = is->seek_pos;
             int64_t seek_min    = is->seek_rel > 0 ? seek_target - is->seek_rel + 2: INT64_MIN;
             int64_t seek_max    = is->seek_rel < 0 ? seek_target - is->seek_rel - 2: INT64_MAX;
@@ -136,6 +132,8 @@ static void * demux_thread(void *arg)
                     is->seek_flags |= (1 << 5);
                     packet_queue_flush(&is->audio_pkt_queue);
                     packet_queue_put(&is->audio_pkt_queue, &a_flush_pkt);
+                    //frame_queue_flush(&is->audio_frm_queue);
+                    //pthread_cond_signal(&is->audio_frm_queue.cond);
                     pthread_mutex_unlock(&is->audio_mutex);
                 }
  
@@ -144,8 +142,9 @@ static void * demux_thread(void *arg)
                     is->seek_flags |= (1 << 6);
                     packet_queue_flush(&is->video_pkt_queue);
                     packet_queue_put(&is->video_pkt_queue, &v_flush_pkt);
+                    //frame_queue_flush(&is->video_frm_queue);
+                    //pthread_cond_signal(&is->video_frm_queue.cond);
                     pthread_mutex_unlock(&is->video_mutex);
-                    //is->p_vcodec_ctx->flags |= (d1 << 7);
                 }
                 /*if (is->seek_flags & AVSEEK_FLAG_BYTE) {
                    set_clock(&is->extclk, NAN, 0);
@@ -179,7 +178,7 @@ static void * demux_thread(void *arg)
                 double diff = get_clock(&is->audio_clk) - get_clock(&is->video_clk);
                 if (!isnan(diff) && diff > AV_NOSYNC_THRESHOLD) {
                     printf("video lags audio for too long!\n");
-                    is->play_status = -3;
+                    is->play_status = AV_NOSYNC;
                 }
                 //printf("wait video queue avalible pktnb: %d\n",is->video_pkt_queue.nb_packets);
                 //printf("wait audio queue avalible pktnb: %d\n",is->audio_pkt_queue.nb_packets);
@@ -194,7 +193,7 @@ static void * demux_thread(void *arg)
         }
 
         // 4.1 从输入文件中读取一个packet
-        gettimeofday(&is->start, NULL);
+        gettimeofday(&read_start, NULL);
         ret = av_read_frame(is->p_fmt_ctx, pkt);
         if (ret < 0)
         {
@@ -212,18 +211,20 @@ static void * demux_thread(void *arg)
                 }
 
                 is->eof = (is->time_out) ? 0 : 1;
-                //av_log(is->p_fmt_ctx, AV_LOG_INFO, "read packet over!\n");
-                av_log(NULL, AV_LOG_ERROR, "ret : %d, feof : %d\n", ret, avio_feof(is->p_fmt_ctx->pb));
+                av_log(NULL, AV_LOG_ERROR, "read packet over! ret : %d, feof : %d\n", ret, avio_feof(is->p_fmt_ctx->pb));
             } else {
                 // 针对硬解码, 需要多送几张null包, 唤醒解码线程从vdec取出最后几张frame
-                if (is->video_idx >= 0 && !is->paused && is->eof && !is->video_pkt_queue.size && !is->video_complete && is->decoder_type) {
-                    packet_queue_put_nullpacket(&is->video_pkt_queue, is->video_idx);
+                if (is->video_idx >= 0 && !is->paused && is->eof && extra_packet_count < 10 && !is->video_complete && is->decoder_type) {
+                    //packet_queue_put_nullpacket(&is->video_pkt_queue, is->video_idx);
+                    packet_queue_put(&is->video_pkt_queue, &v_extra_pkt);
+                    extra_packet_count ++;
                 }
             }
 
             if (is->time_out) {
                 av_log(NULL, AV_LOG_ERROR, "av_read_frame time out!\n");
                 is->time_out = false;
+                is->play_status = AV_READ_TIMEOUT;
             }
 
             pthread_mutex_lock(&wait_mutex);
@@ -243,22 +244,21 @@ static void * demux_thread(void *arg)
                 && is->audio_pkt_queue.size + is->video_pkt_queue.size < MIN_QUEUE_SIZE) {
                 av_log(NULL, AV_LOG_WARNING, "no packets wait for buffer!\n");
                 is->no_pkt_buf = 1;
-                gettimeofday(&is->buf_start, NULL);
+                gettimeofday(&read_timeout, NULL);
             } else {
-                gettimeofday(&is->buf_end, NULL);
-                if (is->buf_end.tv_sec - is->buf_start.tv_sec > PLAYER_STRT_TIMEOUT) {
+                if (read_start.tv_sec - read_timeout.tv_sec >= PLAYER_READ_TIMEOUT) {
                     is->no_pkt_buf = 0;
                 }
             }
         }
 
         // 4.3 根据当前packet类型(音频、视频、字幕)，将其存入对应的packet队列
-        if (pkt->stream_index == is->audio_idx && !is->opts.video_only)
+        if (pkt->stream_index == is->audio_idx && !g_opts.video_only)
         {
             packet_queue_put(&is->audio_pkt_queue, pkt);
             //printf("put audio pkt end, size = %d\n", is->audio_pkt_queue.nb_packets);
         }
-        else if (pkt->stream_index == is->video_idx && !is->opts.audio_only)
+        else if (pkt->stream_index == is->video_idx && !g_opts.audio_only)
         {
             packet_queue_put(&is->video_pkt_queue, pkt);
             //printf("put video pkt end, size = %d\n", is->video_pkt_queue.nb_packets);
@@ -279,9 +279,9 @@ static int demux_init(player_stat_t *is)
     AVFormatContext *p_fmt_ctx = NULL;
     int err, i, ret;
     int a_idx, v_idx;
-
     int st_index[AVMEDIA_TYPE_NB];
-    
+    AVH2645HeadInfo *head_info = NULL;
+
     avformat_network_init();
 
     memset(st_index, -1, sizeof(st_index));
@@ -302,27 +302,30 @@ static int demux_init(player_stat_t *is)
     // 1.1 打开视频文件：读取文件头，将文件格式信息存储在"fmt context"中
 
     av_dict_set(&format_opts, "scan_all_pmts", "1", AV_DICT_DONT_OVERWRITE);
-    av_dict_set(&format_opts, "max_resolution", "921600", 0);
+    if (g_opts.resolution)
+        av_dict_set(&format_opts, "max_resolution", g_opts.resolution, 0);
+    else
+        av_dict_set(&format_opts, "max_resolution", "2088960", 0);//1920x1088
     //av_dict_set(&format_opts, "max_delay", "10000000", 0);//设置超时10秒
     //av_dict_set(&format_opts, "probesize", "102400", 0);  //探测长度设置为100K
-    p_fmt_ctx->probesize = 100 * 1024;
-    p_fmt_ctx->format_probesize = 100 * 1024;
-    p_fmt_ctx->max_analyze_duration = 7 * AV_TIME_BASE;
-    gettimeofday(&is->start, NULL);
+    //p_fmt_ctx->probesize = 100 * 1024;
+    //p_fmt_ctx->format_probesize = 100 * 1024;
+    //p_fmt_ctx->max_analyze_duration = 7 * AV_TIME_BASE;
+    gettimeofday(&read_start, NULL);
     err = avformat_open_input(&p_fmt_ctx, is->filename, NULL, &format_opts);
     if (err < 0)
     {
         if (is->time_out) {
             av_log(NULL, AV_LOG_ERROR, "avformat_open_input time out!\n");
             is->time_out = false;
-            is->play_status = -4;
+            is->play_status = AV_READ_TIMEOUT;
         } else {
             if (err == -101) {
                 av_log(NULL, AV_LOG_ERROR, "network can't reachable!\n");
-                is->play_status = err;
+                is->play_status = AV_NO_NETWORK;
             } else {
                 printf("avformat_open_input(%s) failed %d\n",is->filename,err);
-                is->play_status = -1;
+                is->play_status = AV_INVALID_FILE;
             }
         }
         ret = err;
@@ -353,10 +356,15 @@ static int demux_init(player_stat_t *is)
 
     for (i = 0; i < orig_nb_streams;i ++) {
         if (p_fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
-            av_dict_set(&opts[i], "max_resolution", "921600", 0);
+        {
+            if (g_opts.resolution)
+                av_dict_set(&format_opts, "max_resolution", g_opts.resolution, 0);
+            else
+                av_dict_set(&format_opts, "max_resolution", "2088960", 0);//1920x1088
+        }
     }
 
-    gettimeofday(&is->start, NULL);
+    gettimeofday(&read_start, NULL);
     err = avformat_find_stream_info(p_fmt_ctx, opts);
 
     for (i = 0; i < orig_nb_streams; i ++)
@@ -370,7 +378,7 @@ static int demux_init(player_stat_t *is)
         if (is->time_out) {
             av_log(NULL, AV_LOG_ERROR, "avformat_open_input time out!\n");
             is->time_out = false;
-            is->play_status = -4;
+            is->play_status = AV_READ_TIMEOUT;
         }
         printf("avformat_find_stream_info() failed %d\n", err);
         ret = err;
@@ -380,19 +388,19 @@ static int demux_init(player_stat_t *is)
     if (p_fmt_ctx->pb)
         p_fmt_ctx->pb->eof_reached = 0; // FIXME hack, ffplay maybe should not use avio_feof() to test for the end
 
-    if (seek_by_bytes < 0)
-        seek_by_bytes = !!(p_fmt_ctx->iformat->flags & AVFMT_TS_DISCONT) && strcmp("ogg", p_fmt_ctx->iformat->name);
+    is->seek_by_bytes = !!(p_fmt_ctx->iformat->flags & AVFMT_TS_DISCONT) && strcmp("ogg", p_fmt_ctx->iformat->name);
 
     av_log(NULL, AV_LOG_INFO, "avformat demuxer name : %s\n", p_fmt_ctx->iformat->name);
     is->no_pkt_buf = 0;
-    av_log(NULL, AV_LOG_ERROR, "avio buffer size = %d, probesize = %lld\n", p_fmt_ctx->pb->buffer_size, p_fmt_ctx->probesize);
+    av_log(NULL, AV_LOG_INFO, "avio buffer size = %d, probesize = %lld\n", p_fmt_ctx->pb->buffer_size, p_fmt_ctx->probesize);
 
     if (p_fmt_ctx->opaque) {
-        AVH2645HeadInfo *head_info = (AVH2645HeadInfo *)p_fmt_ctx->opaque;
+        head_info = (AVH2645HeadInfo *)p_fmt_ctx->opaque;
         printf("frame_mbs_only_flag = %d\n", head_info->frame_mbs_only_flag);
         printf("max_bytes_per_pic_denom = %d\n", head_info->max_bytes_per_pic_denom);
         printf("frame_cropping_flag = %d\n", head_info->frame_cropping_flag);
         printf("conformance_window_flag = %d\n", head_info->conformance_window_flag);
+        printf("video codec w/h = [%d %d]\n", head_info->coded_width, head_info->coded_height);
     }
 
     st_index[AVMEDIA_TYPE_VIDEO] = av_find_best_stream(p_fmt_ctx,
@@ -425,6 +433,17 @@ static int demux_init(player_stat_t *is)
     printf("start time : %.3f, total time of input file : %0.3f\n", p_fmt_ctx->start_time * av_q2d(AV_TIME_BASE_Q), totle_seconds);
     av_dump_format(p_fmt_ctx, 0, is->filename, 0);
 
+    //根据设置的参数选择播放声音或视频
+    if (g_opts.audio_only) {
+        v_idx = -1;
+        is->av_sync_type = AV_SYNC_AUDIO_MASTER;
+    }
+
+    if (g_opts.video_only) {
+        a_idx = -1;
+        is->av_sync_type = AV_SYNC_VIDEO_MASTER;
+    }
+
     if (a_idx >= 0) {
         is->p_audio_stream = p_fmt_ctx->streams[a_idx];
         is->audio_complete = 0;
@@ -455,9 +474,13 @@ static int demux_init(player_stat_t *is)
 
 fail:
     av_dict_free(&is->p_dict);
+    if (p_fmt_ctx->opaque)
+    {
+        av_freep(&p_fmt_ctx->opaque);
+    }
     if (p_fmt_ctx != NULL)
     {
-       avformat_close_input(&p_fmt_ctx);
+        avformat_close_input(&p_fmt_ctx);
     }
     avformat_network_deinit();
     return ret;

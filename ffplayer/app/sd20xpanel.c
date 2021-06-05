@@ -125,7 +125,7 @@ int sd20x_panel_init(MI_DISP_Interface_e eType, HDMI_Out_e outMode)
             stDispPubAttr.eIntfSync                 = E_MI_DISP_OUTPUT_720P60;
         } else {
             stDispPubAttr.eIntfSync                 = E_MI_DISP_OUTPUT_1080P60;
-            }
+        }
         MI_DISP_SetPubAttr(0, &stDispPubAttr);
         MI_DISP_Enable(0);
         MI_DISP_BindVideoLayer(0, 0);
@@ -232,5 +232,6 @@ int sd20x_sys_deinit(void)
     MI_SYS_Exit();
     return MI_SUCCESS;
 }
+
 #endif
 

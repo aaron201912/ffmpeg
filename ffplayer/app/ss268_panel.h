@@ -1,5 +1,5 @@
-#ifndef __SD20XPANEL_H__
-#define __SD20XPANEL_H__
+#ifndef __SS268PANEL_H__
+#define __SS268PANEL_H__
 
 #include "mi_common.h"
 #include "mi_sys.h"
@@ -26,12 +26,20 @@
 
 #endif
 
-int ST_Screen_Init(void);
-int ST_Screen_DeInit(void);
-void ss_getpanel_wh(int *width, int *height);
+typedef enum
+{
+    E_MI_HDMI_OUT_1080P = 0,
+    E_MI_HDMI_OUT_4K,
+    E_MI_HDMI_OUT_720P,
+    E_MI_HDMI_OUT_MAX,
+} HDMI_Out_e;
 
-int ss_sys_init(void);
-int ss_sys_deinit(void);
+int ss268_screen_init(void);
+int ss268_screen_deinit(void);
+void ss268_getpanel_wh(int *width, int *height);
+
+int ss268_sys_init(void);
+int ss268_sys_deinit(void);
 
 
 #endif

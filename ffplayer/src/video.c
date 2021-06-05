@@ -2,7 +2,6 @@
 #include "packet.h"
 #include "frame.h"
 #include "player.h"
-#include "blitutil.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -20,18 +19,14 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
+extern AVPacket v_flush_pkt, v_extra_pkt;
 
-typedef struct {
-    Surface src;
-    RECT dst;
-    MI_PHY phy_addr[3];
-    int direction;
-} gfx_param_t;
-
-extern AVPacket v_flush_pkt;
-
-struct timeval time_start, time_end;
-int64_t time0, time1;
+static struct timeval time_start, time_end;
+static int64_t time0, time1;
+static int screen_width, screen_height;
+static int sar_16_9_width, sar_16_9_height;
+static int sar_4_3_width, sar_4_3_height;
+static int origin_width, origin_height;
 
 static int alloc_for_frame(frame_t *vp, AVFrame *frame)
 {
@@ -43,21 +38,10 @@ static int alloc_for_frame(frame_t *vp, AVFrame *frame)
         return -1;
     }
     //av_log(NULL, AV_LOG_WARNING, "malloc for frame = %d\n", vp->buf_size);
-
-    //ret = MI_SYS_MMA_Alloc((MI_U8 *)"MMU_MMA", vp->buf_size, &vp->phy_addr);
-#ifdef CHIP_IS_SS268
-    ret = MI_SYS_MMA_Alloc(0, (MI_U8 *)"#frame", vp->buf_size, &vp->phy_addr);
-#else
-    ret = MI_SYS_MMA_Alloc((MI_U8 *)"#frame", vp->buf_size, &vp->phy_addr);
-#endif
-    if (ret != MI_SUCCESS) {
-        av_log(NULL, AV_LOG_ERROR, "MI_SYS_MMA_Alloc Falied!\n");
-        return -1;
-    }
-
-    ret = MI_SYS_Mmap(vp->phy_addr, vp->buf_size, (void **)&vp->vir_addr, TRUE);
-    if (ret != MI_SUCCESS) {
-        av_log(NULL, AV_LOG_ERROR, "MI_SYS_Mmap Falied!\n");
+    ret = g_mmplayer->functions.sys_malloc("#frame", (void **)&vp->vir_addr, (void *)&vp->phy_addr, vp->buf_size);
+    if (ret != 0)
+    {
+        av_log(NULL, AV_LOG_ERROR, "mm_sys_malloc failed!\n");
         return -1;
     }
 
@@ -112,15 +96,20 @@ static int queue_picture(player_stat_t *is, AVFrame *src_frame, double pts, doub
     //printf("second frame->buf[0] addr : %p, vdec buf addr : %p\n", src_frame->buf[0], src_frame->opaque);
 
     // 将AVFrame拷入队列相应位置
-    if (is->decoder_type == SOFT_DECODING)
+    if (is->decoder_type == AV_SOFT_DECODING)
     {
-        //av_frame_move_ref(vp->frame, src_frame);
-
         //gettimeofday(&trans_start, NULL);
-        int ret = alloc_for_frame(vp, src_frame);
-        if (ret < 0) {
-            av_log(NULL, AV_LOG_ERROR, "alloc_for_frame failed!\n");
-            return 0;
+        if (is->functions.sys_malloc)
+        {
+            int ret = alloc_for_frame(vp, src_frame);
+            if (ret < 0) {
+                av_log(NULL, AV_LOG_ERROR, "alloc_for_frame failed!\n");
+                return 0;
+            }
+        }
+        else
+        {
+            av_frame_move_ref(vp->frame, src_frame);
         }
         //gettimeofday(&trans_end, NULL);
         //time0 = ((int64_t)trans_end.tv_sec * 1000000 + trans_end.tv_usec) - ((int64_t)trans_start.tv_sec * 1000000 + trans_start.tv_usec);
@@ -161,10 +150,10 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
         while (1)
         {
             //printf("get in video_decode_frame!\n");
-            //if(p_pkt_queue->abort_request)
-            //{
-            //    return -1;
-            //}
+            if(p_pkt_queue->abort_request)
+            {
+                return -1;
+            }
             // 3. 从解码器接收frame
             // 3.1 一个视频packet含一个视频frame
             //     解码器缓存一定数量的packet后，才有解码后的frame输出
@@ -186,8 +175,13 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
                 }
                 else
                 {
-                    av_log(NULL, AV_LOG_ERROR, "video avcodec_receive_frame(): other errors\n");
-                    continue;
+                    if (g_mmplayer->play_status != AV_VCODEC_ERROR)
+                    {
+                        av_log(NULL, AV_LOG_ERROR, "video avcodec_receive_frame(): other errors\n");
+                        g_mmplayer->play_status = AV_VCODEC_ERROR;
+                    }
+                    av_usleep(10 * 1000);
+                    return -1;
                 }
             }
             else
@@ -206,17 +200,23 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             return -1;
         }
 
-        if (pkt.data == v_flush_pkt.data)
+        // 如果是空的packet,只取frame不再送packet
+        if (pkt.data == v_extra_pkt.data) {
+            //printf("not send null packet to decoder\n");
+            av_usleep(10 * 1000);
+        }
+        else if (pkt.data == v_flush_pkt.data)
         {
-            pthread_mutex_lock(&g_myplayer->video_mutex);
-            if ((g_myplayer->seek_flags & (1 << 6)) && p_codec_ctx->frame_number > 1) {
-                g_myplayer->seek_flags &= ~(1 << 6);
-                //frame_queue_flush(&g_myplayer->video_frm_queue);
+            pthread_mutex_lock(&g_mmplayer->video_mutex);
+            if ((g_mmplayer->seek_flags & (1 << 6)) && p_codec_ctx->frame_number > 1) {
+                g_mmplayer->seek_flags &= ~(1 << 6);
             }
-            pthread_mutex_unlock(&g_myplayer->video_mutex);
+            pthread_mutex_unlock(&g_mmplayer->video_mutex);
 
             // 复位解码器内部状态/刷新内部缓冲区。
+            p_codec_ctx->flags |= (1 << 7);
             avcodec_flush_buffers(p_codec_ctx);
+            p_codec_ctx->flags &= ~(1 << 7);
 
             av_log(NULL, AV_LOG_INFO, "avcodec_flush_buffers for video!\n");
         }
@@ -232,17 +232,19 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             // 2. 将packet发送给解码器
             //    发送packet的顺序是按dts递增的顺序，如IPBBPBB
             //    pkt.pos变量可以标识当前packet在视频文件中的地址偏移
-            //printf("send packet to decoder!\n");
-            //printf("pkt pos: %lld\n",pkt.pos);
+            //printf("avcodec_send_packet!\n");
             ret = avcodec_send_packet(p_codec_ctx, &pkt);
             if (ret == AVERROR(EAGAIN))
             {
                 av_log(NULL, AV_LOG_ERROR, "receive_frame and send_packet both returned EAGAIN, which is an API violation.\n");
             }
-            else if (ret == MI_ERR_VDEC_FAILED)
+            else if (ret == AVERROR_UNKNOWN)
             {
-                av_log(NULL, AV_LOG_ERROR, "vdec occur fatal error in decoding!\n");
-                g_myplayer->play_status = -1;
+                if (g_mmplayer->play_status != AV_VCODEC_ERROR)
+                {
+                    av_log(NULL, AV_LOG_ERROR, "vdec occur fatal error in decoding!\n");
+                    g_mmplayer->play_status = AV_VCODEC_ERROR;
+                }
             }
         }
         av_packet_unref(&pkt);
@@ -293,8 +295,6 @@ static double compute_target_delay(double delay, player_stat_t *is)
     return delay;
 }
 
-
-#if 0
 static double vp_duration(player_stat_t *is, frame_t *vp, frame_t *nextvp) {
     if (vp->serial == nextvp->serial)
     {
@@ -307,324 +307,11 @@ static double vp_duration(player_stat_t *is, frame_t *vp, frame_t *nextvp) {
         return 0.0;
     }
 }
-#endif
 
 static void update_video_pts(player_stat_t *is, double pts, int64_t pos, int serial) {
     /* update current video pts */
-    set_clock(&is->video_clk, pts, serial);            // 更新vidclock
-    //-sync_clock_to_slave(&is->extclk, &is->vidclk);  // 将extclock同步到vidclock
-}
-
-static void sstar_video_rotate(gfx_param_t *gfx_info, MI_PHY yAddr, MI_PHY uvAddr)
-{
-    Surface srcY, dstY;
-    Surface srcUV, dstUV;
-    RECT r;
-    srcY.eGFXcolorFmt   = E_MI_GFX_FMT_I8;
-    srcY.h              = gfx_info->src.h;
-    srcY.phy_addr       = gfx_info->phy_addr[0];
-    srcY.pitch          = gfx_info->src.pitch;
-    srcY.w              = gfx_info->src.w;
-    srcY.BytesPerPixel  = 1;
-
-    dstY.eGFXcolorFmt   = E_MI_GFX_FMT_I8;
-    dstY.h              = srcY.w;
-    dstY.phy_addr       = yAddr;
-    dstY.pitch          = ALIGN_UP(srcY.h, 16);
-    dstY.w              = srcY.h;
-    dstY.BytesPerPixel  = 1;
-    r.left   = gfx_info->dst.left;
-    r.top    = gfx_info->dst.top;
-    r.bottom = gfx_info->dst.bottom;
-    r.right  = gfx_info->dst.right;
-    if (gfx_info->direction == E_MI_DISP_ROTATE_90) {
-        SstarBlitCW(&srcY, &dstY, &r);
-    }
-    else if (gfx_info->direction == E_MI_DISP_ROTATE_270) {
-        SstarBlitCCW(&srcY, &dstY, &r);
-    }
-
-    srcUV.eGFXcolorFmt  = E_MI_GFX_FMT_ARGB4444;
-    srcUV.h             = gfx_info->src.h / 2;
-    srcUV.phy_addr      = gfx_info->phy_addr[1];
-    srcUV.pitch         = gfx_info->src.pitch;
-    srcUV.w             = gfx_info->src.w / 2;
-    srcUV.BytesPerPixel = 2;
-
-    dstUV.eGFXcolorFmt  = E_MI_GFX_FMT_ARGB4444;
-    dstUV.h             = srcUV.w;
-    dstUV.phy_addr      = uvAddr;
-    dstUV.pitch         = ALIGN_UP(srcY.h, 16);
-    dstUV.w             = srcUV.h;
-    dstUV.BytesPerPixel = 2;
-    r.left   = gfx_info->dst.left;
-    r.top    = gfx_info->dst.top;
-    r.bottom = gfx_info->dst.bottom / 2;
-    r.right  = gfx_info->dst.right / 2;
-    if (gfx_info->direction == E_MI_DISP_ROTATE_90) {
-        SstarBlitCW(&srcUV, &dstUV, &r);
-    }
-    else if (gfx_info->direction == E_MI_DISP_ROTATE_270) {
-        SstarBlitCCW(&srcUV, &dstUV, &r);
-    }
-}
-
-static int video_load_picture(player_stat_t *is, AVFrame *frame)
-{
-    if (is->decoder_type == SOFT_DECODING) {
-        MI_SYS_ChnPort_t  stInputChnPort;
-        memset(&stInputChnPort, 0, sizeof(MI_SYS_ChnPort_t));
-        stInputChnPort.eModId     = E_MI_MODULE_ID_DIVP;
-        stInputChnPort.u32ChnId   = 0;
-        stInputChnPort.u32DevId   = 0;
-        stInputChnPort.u32PortId  = 0;
-
-        //gettimeofday(&time_start, NULL);
-        // YUV格式统一转换成NV12
-        sws_scale(is->img_convert_ctx,                  // sws context
-                  (const uint8_t *const *)frame->data,  // src slice
-                  frame->linesize,                      // src stride
-                  0,                                    // src slice y
-                  is->p_vcodec_ctx->height,             // src slice height
-                  is->p_frm_yuv->data,                  // dst planes
-                  is->p_frm_yuv->linesize               // dst strides
-                  );
-        //gettimeofday(&time_end, NULL);
-        //time0 = ((int64_t)time_end.tv_sec * 1000000 + time_end.tv_usec) - ((int64_t)time_start.tv_sec * 1000000 + time_start.tv_usec);
-
-        //int length = is->p_frm_yuv->width * is->p_frm_yuv->height * 3 / 2;
-        //fwrite(is->p_frm_yuv->data[0], length, 1, dump_fp);
-
-        MI_SYS_BufConf_t stBufConf;
-        MI_SYS_BufInfo_t stBufInfo;
-        MI_SYS_BUF_HANDLE bufHandle;
-        memset(&stBufConf, 0, sizeof(MI_SYS_BufConf_t));
-        stBufConf.eBufType              = E_MI_SYS_BUFDATA_FRAME;
-        stBufConf.stFrameCfg.eFormat    = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
-        if (is->display_mode != E_MI_DISP_ROTATE_NONE) {
-            stBufConf.stFrameCfg.u16Height  = is->p_frm_yuv->width;
-            stBufConf.stFrameCfg.u16Width   = is->p_frm_yuv->height;
-        } else {
-            stBufConf.stFrameCfg.u16Height  = is->p_frm_yuv->height;
-            stBufConf.stFrameCfg.u16Width   = is->p_frm_yuv->width;
-        }
-        stBufConf.u32Flags              = MI_SYS_MAP_VA;
-#ifdef CHIP_IS_SS268
-#else
-        stBufConf.stFrameCfg.stFrameBufExtraConf.u16BufHAlignment = 16;
-#endif
-        if (MI_SUCCESS == MI_SYS_ChnInputPortGetBuf(&stInputChnPort, &stBufConf, &stBufInfo, &bufHandle, 0))
-        {
-            // flush需要时间分辨率大于720P就不执行该操作但是会导致图像拉丝
-            if (is->p_frm_yuv->width * is->p_frm_yuv->height < 1024 * 600 || is->flush) {
-                MI_SYS_FlushInvCache(is->vir_addr, is->buf_size);
-            }
-
-            // GFX旋转图片
-            if (is->display_mode != E_MI_DISP_ROTATE_NONE) {
-                //gettimeofday(&time_start, NULL);
-                gfx_param_t gfx_info;
-                gfx_info.direction   = is->display_mode;
-                gfx_info.phy_addr[0] = is->phy_addr;
-                gfx_info.phy_addr[1] = is->phy_addr + is->p_vcodec_ctx->width * is->p_vcodec_ctx->height;
-                gfx_info.src.pitch = is->p_vcodec_ctx->width;
-                gfx_info.src.w = is->p_vcodec_ctx->width;
-                gfx_info.src.h = is->p_vcodec_ctx->height;
-                gfx_info.dst.left   = 0;
-                gfx_info.dst.top    = 0;
-                gfx_info.dst.right  = is->p_vcodec_ctx->width;
-                gfx_info.dst.bottom = is->p_vcodec_ctx->height;
-
-                sstar_video_rotate(&gfx_info, stBufInfo.stFrameData.phyAddr[0], stBufInfo.stFrameData.phyAddr[1]);
-                //sstar_video_rotate(is, stBufInfo.stFrameData.phyAddr[0], stBufInfo.stFrameData.phyAddr[1]);
-
-                //gettimeofday(&time_end, NULL);
-
-                //int length = stBufInfo.stFrameData.u16Height * stBufInfo.stFrameData.u32Stride[0] * 3 / 2;
-                //fwrite(stBufInfo.stFrameData.pVirAddr[0], length, 1, dump_fp);
-                //printf("stBufInfo width and height : [%d %d]\n", stBufInfo.stFrameData.u32Stride[0], stBufInfo.stFrameData.u16Height);
-            } else {
-                stBufInfo.stFrameData.eCompressMode = E_MI_SYS_COMPRESS_MODE_NONE;
-                stBufInfo.stFrameData.eFieldType    = E_MI_SYS_FIELDTYPE_NONE;
-                stBufInfo.stFrameData.eTileMode     = E_MI_SYS_FRAME_TILE_MODE_NONE;
-                stBufInfo.bEndOfStream              = FALSE;
-
-                int length = is->p_frm_yuv->width * is->p_frm_yuv->height;
-			#ifdef CHIP_IS_SS268
-                for (int index = 0; index < stBufInfo.stFrameData.u16Height; index ++)
-                {
-                    MI_SYS_MemcpyPa(ST_DEFAULT_SOC_ID, stBufInfo.stFrameData.phyAddr[0] + index * stBufInfo.stFrameData.u32Stride[0], 
-                                    is->phy_addr + index * is->p_frm_yuv->width, is->p_frm_yuv->width);
-                }
-                for (int index = 0; index < stBufInfo.stFrameData.u16Height / 2; index ++)
-                {
-                    MI_SYS_MemcpyPa(ST_DEFAULT_SOC_ID, stBufInfo.stFrameData.phyAddr[1] + index * stBufInfo.stFrameData.u32Stride[1], 
-                                    is->phy_addr + length + index * is->p_frm_yuv->width, is->p_frm_yuv->width);
-                }
-
-			#else
-                for (int index = 0; index < stBufInfo.stFrameData.u16Height; index ++)
-                {
-                    MI_SYS_MemcpyPa(stBufInfo.stFrameData.phyAddr[0] + index * stBufInfo.stFrameData.u32Stride[0], 
-                                    is->phy_addr + index * is->p_frm_yuv->width, is->p_frm_yuv->width);
-                }
-                for (int index = 0; index < stBufInfo.stFrameData.u16Height / 2; index ++)
-                {
-                    MI_SYS_MemcpyPa(stBufInfo.stFrameData.phyAddr[1] + index * stBufInfo.stFrameData.u32Stride[1], 
-                                    is->phy_addr + length + index * is->p_frm_yuv->width, is->p_frm_yuv->width);
-                }
-			#endif
-            }
-
-            MI_SYS_ChnInputPortPutBuf(bufHandle, &stBufInfo, FALSE);
-        }
-
-        //time1 = ((int64_t)time_end.tv_sec * 1000000 + time_end.tv_usec) - ((int64_t)time_start.tv_sec * 1000000 + time_start.tv_usec);
-        //printf("time of sws_scale : %lldus, time of rotate : %lldus\n", time0, time1);
-    }
-    else if (is->decoder_type == HARD_DECODING) {
-#if USE_DIVP_MODULE
-        MI_SYS_ChnPort_t  stInputChnPort;
-        memset(&stInputChnPort, 0, sizeof(MI_SYS_ChnPort_t));
-        stInputChnPort.eModId     = E_MI_MODULE_ID_DIVP;
-        stInputChnPort.u32ChnId   = 0;
-        stInputChnPort.u32DevId   = 0;
-        stInputChnPort.u32PortId  = 0;
-
-        SS_Vdec_BufInfo *stVdecBuf = (SS_Vdec_BufInfo *)frame->opaque;
-
-        MI_SYS_BufConf_t stBufConf;
-        MI_SYS_BufInfo_t stBufInfo;
-        MI_SYS_BUF_HANDLE bufHandle;
-        memset(&stBufConf, 0, sizeof(MI_SYS_BufConf_t));
-        stBufConf.eBufType              = E_MI_SYS_BUFDATA_FRAME;
-        stBufConf.stFrameCfg.eFormat    = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
-        if (is->display_mode != E_MI_DISP_ROTATE_NONE) {
-            stBufConf.stFrameCfg.u16Height  = ALIGN_BACK(is->p_vcodec_ctx->width , 32);
-            stBufConf.stFrameCfg.u16Width   = ALIGN_BACK(is->p_vcodec_ctx->height, 32);
-        } else {
-            stBufConf.stFrameCfg.u16Height  = ALIGN_BACK(is->p_vcodec_ctx->height, 32);
-            stBufConf.stFrameCfg.u16Width   = ALIGN_BACK(is->p_vcodec_ctx->width , 32);
-        }
-        stBufConf.u32Flags              = MI_SYS_MAP_VA;
-        stBufConf.stFrameCfg.stFrameBufExtraConf.u16BufHAlignment = 16;
-
-        if (MI_SUCCESS == MI_SYS_ChnInputPortGetBuf(&stInputChnPort, &stBufConf, &stBufInfo, &bufHandle, 0))
-        {
-            stBufInfo.stFrameData.eCompressMode = E_MI_SYS_COMPRESS_MODE_NONE;
-            stBufInfo.stFrameData.eFieldType    = E_MI_SYS_FIELDTYPE_NONE;
-            stBufInfo.stFrameData.eTileMode     = E_MI_SYS_FRAME_TILE_MODE_NONE;
-            stBufInfo.bEndOfStream              = FALSE;
-
-            if (is->display_mode != E_MI_DISP_ROTATE_NONE) {
-                gfx_param_t gfx_info;
-                if (stVdecBuf->bType) {
-                    mi_vdec_DispFrame_t *pstVdecInfo = (mi_vdec_DispFrame_t *)stVdecBuf->stVdecBufInfo.stMetaData.pVirAddr;
-
-                    gfx_info.direction   = is->display_mode;
-                    gfx_info.phy_addr[0] = pstVdecInfo->stFrmInfo.phyLumaAddr;
-                    gfx_info.phy_addr[1] = pstVdecInfo->stFrmInfo.phyChromaAddr;
-                    gfx_info.src.pitch = pstVdecInfo->stFrmInfo.u16Stride;
-                    gfx_info.src.w = pstVdecInfo->stFrmInfo.u16Width;
-                    gfx_info.src.h = pstVdecInfo->stFrmInfo.u16Height;
-                    gfx_info.dst.left   = pstVdecInfo->stDispInfo.u16CropLeft;
-                    gfx_info.dst.top    = pstVdecInfo->stDispInfo.u16CropTop;
-                    gfx_info.dst.right  = pstVdecInfo->stDispInfo.u16CropRight;
-                    gfx_info.dst.bottom = pstVdecInfo->stDispInfo.u16CropBottom;
-
-                    if (is->display_mode == E_MI_DISP_ROTATE_90) {
-                        stBufInfo.stFrameData.stContentCropWindow.u16X = pstVdecInfo->stFrmInfo.u16Height - pstVdecInfo->stDispInfo.u16CropBottom - pstVdecInfo->stDispInfo.u16CropTop;
-                        stBufInfo.stFrameData.stContentCropWindow.u16Y = pstVdecInfo->stDispInfo.u16CropLeft;
-                        stBufInfo.stFrameData.stContentCropWindow.u16Width  = pstVdecInfo->stDispInfo.u16CropBottom;
-                        stBufInfo.stFrameData.stContentCropWindow.u16Height = pstVdecInfo->stDispInfo.u16CropRight;
-                    }
-                    else if (is->display_mode == E_MI_DISP_ROTATE_270) {
-                        stBufInfo.stFrameData.stContentCropWindow.u16X = pstVdecInfo->stDispInfo.u16CropTop;
-                        stBufInfo.stFrameData.stContentCropWindow.u16Y = pstVdecInfo->stFrmInfo.u16Width - pstVdecInfo->stDispInfo.u16CropRight - pstVdecInfo->stDispInfo.u16CropLeft;
-                        stBufInfo.stFrameData.stContentCropWindow.u16Width  = pstVdecInfo->stDispInfo.u16CropBottom;
-                        stBufInfo.stFrameData.stContentCropWindow.u16Height = pstVdecInfo->stDispInfo.u16CropRight;
-                    }
-                } else {
-                    gfx_info.direction   = is->display_mode;
-                    gfx_info.phy_addr[0] = stVdecBuf->stVdecBufInfo.stFrameData.phyAddr[0];
-                    gfx_info.phy_addr[1] = stVdecBuf->stVdecBufInfo.stFrameData.phyAddr[1];
-                    gfx_info.src.pitch = stVdecBuf->stVdecBufInfo.stFrameData.u32Stride[0];
-                    gfx_info.src.w = stVdecBuf->stVdecBufInfo.stFrameData.u16Width;
-                    gfx_info.src.h = stVdecBuf->stVdecBufInfo.stFrameData.u16Height;
-                    gfx_info.dst.left   = stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16X;
-                    gfx_info.dst.top    = stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16Y;
-                    gfx_info.dst.right  = stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16Width;
-                    gfx_info.dst.bottom = stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16Height;
-
-                    if (is->display_mode == E_MI_DISP_ROTATE_90) {
-                        stBufInfo.stFrameData.stContentCropWindow.u16X = stVdecBuf->stVdecBufInfo.stFrameData.u16Height - stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16Height - stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16Y;
-                        stBufInfo.stFrameData.stContentCropWindow.u16Y = stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16X;
-                        stBufInfo.stFrameData.stContentCropWindow.u16Width  = stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16Height;
-                        stBufInfo.stFrameData.stContentCropWindow.u16Height = stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16Width;
-                    }
-                    else if (is->display_mode == E_MI_DISP_ROTATE_270) {
-                        stBufInfo.stFrameData.stContentCropWindow.u16X = stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16Y;
-                        stBufInfo.stFrameData.stContentCropWindow.u16Y = stVdecBuf->stVdecBufInfo.stFrameData.u16Width - stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16Width - stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16X;
-                        stBufInfo.stFrameData.stContentCropWindow.u16Width  = stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16Height;
-                        stBufInfo.stFrameData.stContentCropWindow.u16Height = stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16Width;
-                    }
-                }
-
-                sstar_video_rotate(&gfx_info, stBufInfo.stFrameData.phyAddr[0], stBufInfo.stFrameData.phyAddr[1]);
-            }else {
-                if (stVdecBuf->bType) {
-                    mi_vdec_DispFrame_t *pstVdecInfo = (mi_vdec_DispFrame_t *)stVdecBuf->stVdecBufInfo.stMetaData.pVirAddr;
-                    for (int index = 0; index < stBufInfo.stFrameData.u16Height; index ++)
-                    {
-                        MI_SYS_MemcpyPa(stBufInfo.stFrameData.phyAddr[0] + index * stBufInfo.stFrameData.u32Stride[0],
-                                        pstVdecInfo->stFrmInfo.phyLumaAddr + index * pstVdecInfo->stFrmInfo.u16Stride,
-                                        pstVdecInfo->stFrmInfo.u16Width);
-                    }
-                    for (int index = 0; index < stBufInfo.stFrameData.u16Height / 2; index ++)
-                    {
-                        MI_SYS_MemcpyPa(stBufInfo.stFrameData.phyAddr[1] + index * stBufInfo.stFrameData.u32Stride[1],
-                                        pstVdecInfo->stFrmInfo.phyChromaAddr + index * pstVdecInfo->stFrmInfo.u16Stride,
-                                        pstVdecInfo->stFrmInfo.u16Width);
-                    }
-                } else {
-                    for (int index = 0; index < stBufInfo.stFrameData.u16Height; index ++)
-                    {
-                        MI_SYS_MemcpyPa(stBufInfo.stFrameData.phyAddr[0] + index * stBufInfo.stFrameData.u32Stride[0],
-                                        stVdecBuf->stVdecBufInfo.stFrameData.phyAddr[0] + index * stVdecBuf->stVdecBufInfo.stFrameData.u32Stride[0],
-                                        stVdecBuf->stVdecBufInfo.stFrameData.u16Width);
-                    }
-                    for (int index = 0; index < stBufInfo.stFrameData.u16Height / 2; index ++)
-                    {
-                        MI_SYS_MemcpyPa(stBufInfo.stFrameData.phyAddr[1] + index * stBufInfo.stFrameData.u32Stride[1],
-                                        stVdecBuf->stVdecBufInfo.stFrameData.phyAddr[1] + index * stVdecBuf->stVdecBufInfo.stFrameData.u32Stride[1],
-                                        stVdecBuf->stVdecBufInfo.stFrameData.u16Width);
-                    }
-                }
-            }
-
-            MI_SYS_ChnInputPortPutBuf(bufHandle, &stBufInfo, FALSE);
-        }
-
-        frame_queue_putbuf(frame);
-#else
-        MI_SYS_ChnPort_t  stInputChnPort;
-        memset(&stInputChnPort, 0, sizeof(MI_SYS_ChnPort_t));
-        stInputChnPort.eModId                    = E_MI_MODULE_ID_DISP;
-        stInputChnPort.u32ChnId                  = 0;
-        stInputChnPort.u32DevId                  = 0;
-        stInputChnPort.u32PortId                 = 0;
-
-        av_assert0(frame->opaque);
-        SS_Vdec_BufInfo *stVdecBuf = (SS_Vdec_BufInfo *)frame->opaque; 
-
-        if (MI_SUCCESS != MI_SYS_ChnPortInjectBuf(stVdecBuf->stVdecHandle, &stInputChnPort))
-            av_log(NULL, AV_LOG_ERROR, "MI_SYS_ChnPortInjectBuf failed!\n");
-
-        av_freep(&frame->opaque);
-#endif
-    }
-
-    return 0;
+    set_clock(&is->video_clk, pts, serial);           // 更新vidclock
+    //sync_clock_to_slave(&is->extclk, &is->vidclk);  // 将extclock同步到vidclock
 }
 
 static void video_display(player_stat_t *is)
@@ -640,7 +327,14 @@ static void video_display(player_stat_t *is)
         return;
     }
 
-    video_load_picture(is, vp->frame);
+    if (is->functions.video_play)
+    {
+        is->functions.video_play(is, vp->frame);
+    }
+    else
+    {
+        av_log(NULL, AV_LOG_ERROR, "mm_video_play is't set!\n");
+    }
 
     //gettimeofday(&time_end, NULL);
     //time0 = ((int64_t)time_end.tv_sec * 1000000 + time_end.tv_usec) - ((int64_t)time_start.tv_sec * 1000000 + time_start.tv_usec);
@@ -663,23 +357,23 @@ static int video_refresh(void *opaque, double *remaining_time, double duration)
 retry:
     // 暂停处理：不停播放上一帧图像
     if (is->paused)
-        return 0;
-recheck:
-    while(is->no_pkt_buf && !is->abort_request) {
+        return AV_PLAY_PAUSE;
+
+    if (is->no_pkt_buf || is->play_status > AV_PLAY_PAUSE) {
         av_usleep(10 * 1000);
-        goto recheck;
+        return 0;
     }
 
     //printf("f->size = %d, f->rindex_shown = %d\n",is->video_frm_queue.size, is->video_frm_queue.rindex_shown);
     if (frame_queue_nb_remaining(&is->video_frm_queue) <= 0)  // 所有帧已显示
     {    
-        // nothing to do, no picture to display in the queue
+        //nothing to do, no picture to display in the queue
         //printf("already last frame: %d\n",is->video_frm_queue.size);
-        if (!is->video_complete && is->eof && is->video_pkt_queue.nb_packets == 0 && is->start_play)
+        if (!is->video_complete && is->eof && !is->video_pkt_queue.nb_packets && is->start_play)
         {
             is->video_complete = 1;
             if (is->video_complete && is->audio_complete) {
-                is->play_status = 1;
+                is->play_status = AV_PLAY_COMPLETE;
             }
             av_log(NULL, AV_LOG_INFO, "video play completely, total/left frame = [%d %d]!\n", is->p_vcodec_ctx->frame_number, is->video_frm_queue.size);
         } else {
@@ -751,6 +445,7 @@ recheck:
 
     if (is->step && !is->paused) {
         stream_toggle_pause(is);
+        av_log(NULL, AV_LOG_INFO, "stream_toggle_pause!\n");
     }
 
     video_display(is);                      // 取出当前帧vp(若有丢帧是nextvp)进行播放
@@ -759,11 +454,91 @@ recheck:
         is->start_play = true;
         gettimeofday(&is->tim_play, NULL);
         uint64_t time = (is->tim_play.tv_sec - is->tim_open.tv_sec) * 1000000 + (is->tim_play.tv_usec - is->tim_open.tv_usec);
-        av_log(NULL, AV_LOG_INFO, "myplayer display first pic time [%llu]us\n", time);
+        av_log(NULL, AV_LOG_INFO, "player display first picture [%llu]us\n", time);
     }
 
     return 0;
 }
+
+static int set_video_size(player_stat_t *is, AVCodecParameters *codecpar)
+{
+    double video_ratio = 1.0 * codecpar->width / codecpar->width;
+    double panel_ratio = 1.0 * is->in_width / is->in_height;
+
+    if (panel_ratio > 1.78) {
+        sar_16_9_width  = ALIGN_UP(is->in_height * 16 / 9, 2);
+        sar_16_9_height = is->in_height;
+    } else {
+        sar_16_9_width  = is->in_width;
+        sar_16_9_height = ALIGN_UP(is->in_width * 9 / 16, 2);
+    }
+
+    if (panel_ratio > 1.34) {
+        sar_4_3_width  = ALIGN_UP(is->in_height * 4 / 3, 2);
+        sar_4_3_height = is->in_height;
+    } else {
+        sar_4_3_width  = is->in_width;
+        sar_4_3_height = ALIGN_UP(is->in_width * 3 / 4, 2);
+    }
+
+    if (panel_ratio / video_ratio > 1.0) {
+        origin_height = FFMIN(codecpar->height, is->in_height);
+        origin_width  = FFMIN(ALIGN_UP(origin_height * codecpar->width / codecpar->height, 2), is->in_width);
+    } else {
+        origin_width  = FFMIN(codecpar->width, is->in_width);
+        origin_height = FFMIN(ALIGN_UP(origin_width * codecpar->height / codecpar->width, 2), is->in_height);
+    }
+
+    screen_width  = is->in_width;
+    screen_height = is->in_height;
+
+    switch (g_opts.video_ratio)
+    {
+        case AV_ORIGIN_MODE : {
+            is->out_width  = origin_width;
+            is->out_height = origin_height;
+            is->src_width  = FFMIN(origin_width , codecpar->width);
+            is->src_height = FFMIN(origin_height, codecpar->height);
+        }
+        break;
+
+        case AV_SAR_4_3_MODE : {
+            is->out_width  = sar_4_3_width;
+            is->out_height = sar_4_3_height;
+            is->src_width  = FFMIN(sar_4_3_width , codecpar->width);
+            is->src_height = FFMIN(sar_4_3_height, codecpar->height);
+        }
+        break;
+
+        case AV_SAR_16_9_MODE : {
+            is->out_width  = sar_16_9_width;
+            is->out_height = sar_16_9_height;
+            is->src_width  = FFMIN(sar_16_9_width , codecpar->width);
+            is->src_height = FFMIN(sar_16_9_height, codecpar->height);
+        }
+        break;
+
+        case AV_SCREEN_MODE :
+        default : {
+            is->out_width  = screen_width;
+            is->out_height = screen_height;
+            is->src_width  = FFMIN(screen_width , codecpar->width);
+            is->src_height = FFMIN(screen_height, codecpar->height);
+        }
+        break;
+    }
+
+    av_log(NULL, AV_LOG_INFO, "origin w/h=[%d %d], screen w/h=[%d %d], sar4:3 w/h=[%d %d], sar16:9 w/h=[%d %d]\n",
+    origin_width, origin_height, screen_width, screen_height, sar_4_3_width, sar_4_3_height, sar_16_9_width, sar_16_9_height);
+
+    if (is->out_width <= 0 || is->out_height <= 0) {
+        av_log(NULL, AV_LOG_ERROR, "set video sar width and height error!\n");
+        return -1;
+    }
+
+    return 0;
+}
+
 
 // 将视频包解码得到视频帧，然后写入picture队列
 static void * video_decode_thread(void *arg)
@@ -795,7 +570,7 @@ static void * video_decode_thread(void *arg)
         got_picture = video_decode_frame(is->p_vcodec_ctx, &is->video_pkt_queue, p_frame);
         if (got_picture < 0)
         {
-            printf("video got pic fail\n");
+            printf("video get picture failed!\n");
             goto exit;
         } 
         else if (got_picture > 0)
@@ -874,14 +649,23 @@ static int open_video_playing(void *arg)
     int dst_width, dst_height;
     const AVPixFmtDescriptor *desc;
 
-    ret = sstar_display_set(is);
-    if (ret < 0) {
-        av_log(NULL, AV_LOG_ERROR, "sstar_display_set failed!\n");
-        return ret;
+    if (is->functions.video_init)
+    {
+        ret = is->functions.video_init(is);
+        if (ret != 0)
+        {
+            av_log(NULL, AV_LOG_ERROR, "mm_video_init failed!\n");
+            return ret;
+        }
+    }
+    else
+    {
+        av_log(NULL, AV_LOG_ERROR, "mm_video_init isn't set!\n");
+        return -1;
     }
     is->enable_video = true;
 
-    if (is->decoder_type == SOFT_DECODING)
+    if (is->decoder_type == AV_SOFT_DECODING)
     {
         is->p_frm_yuv = av_frame_alloc();
         if (is->p_frm_yuv == NULL)
@@ -907,28 +691,23 @@ static int open_video_playing(void *arg)
         av_log(NULL, AV_LOG_INFO, "alloc size: %d,width: %d,height: %d\n", is->buf_size, dst_width, dst_height);
 
         // buffer将作为p_frm_yuv的视频数据缓冲区
-        //is->vir_addr = (uint8_t *)av_malloc(is->buf_size);
-        //if (buffer == NULL)
-        //{
-        //    printf("av_malloc() for buffer failed\n");
-        //    return -1;
-        //}
-
-        //ret = MI_SYS_MMA_Alloc((MI_U8 *)"MMU_MMA", is->buf_size, &is->phy_addr);
-#ifdef CHIP_IS_SS268
-        ret = MI_SYS_MMA_Alloc(0, (MI_U8 *)"#yuv420p", is->buf_size, &is->phy_addr);
-#else
-        ret = MI_SYS_MMA_Alloc((MI_U8 *)"#yuv420p", is->buf_size, &is->phy_addr);
-#endif
-        if (ret != MI_SUCCESS) {
-            av_log(NULL, AV_LOG_ERROR, "MI_SYS_MMA_Alloc Falied!\n");
-            return -1;
+        if (is->functions.sys_malloc)
+        {
+            ret = is->functions.sys_malloc("#yuv420p", (void **)&is->vir_addr, (void *)&is->phy_addr, is->buf_size);
+            if (ret != 0)
+            {
+                av_log(NULL, AV_LOG_ERROR, "mm_sys_malloc failed!\n");
+                return -1;
+            }
         }
-
-        ret = MI_SYS_Mmap(is->phy_addr, is->buf_size, (void **)&is->vir_addr, TRUE);
-        if (ret != MI_SUCCESS) {
-            av_log(NULL, AV_LOG_ERROR, "MI_SYS_Mmap Falied!\n");
-            return -1;
+        else
+        {
+            is->vir_addr = (uint8_t *)av_malloc(is->buf_size);
+            if (!is->vir_addr)
+            {
+                av_log(NULL, AV_LOG_ERROR, "av_malloc() for buffer failed\n");
+                return -1;
+            }
         }
 
         // 使用给定参数设定p_frm_yuv->data和p_frm_yuv->linesize
@@ -955,7 +734,7 @@ static int open_video_playing(void *arg)
         //     如果解码后得到图像的能被SDL支持，则不必进行图像转换
         //     这里为了编码简便，统一转换为SDL支持的格式AV_PIX_FMT_YUV420P==>SDL_PIXELFORMAT_IYUV
         desc = av_pix_fmt_desc_get(is->p_vcodec_ctx->pix_fmt);
-        printf("video prefix format : %s.\n", desc->name);
+        av_log(NULL, AV_LOG_INFO, "video prefix format : %s.\n", desc->name);
 
         is->img_convert_ctx = sws_getContext(is->p_vcodec_ctx->width,   // src width
                                              is->p_vcodec_ctx->height,  // src height
@@ -1001,33 +780,37 @@ static int open_video_stream(player_stat_t *is)
     // 1.2 获取解码器
     switch(p_codec_par->codec_id) 
     {
-        case AV_CODEC_ID_H264 : 
+        case AV_CODEC_ID_H264 :
 #ifdef CHIP_IS_SS268
             p_codec = avcodec_find_decoder_by_name("ssh264_ss268");
 #else
-            p_codec = avcodec_find_decoder_by_name("ssh264"); 
+            p_codec = avcodec_find_decoder_by_name("ssh264");
 #endif
-            is->decoder_type = HARD_DECODING;
+            is->decoder_type = AV_HARD_DECODING;
             break;
 
-        case AV_CODEC_ID_HEVC : 
+        case AV_CODEC_ID_HEVC :
 #ifdef CHIP_IS_SS268
-            p_codec = avcodec_find_decoder_by_name("sshevc_ss268"); 
+            p_codec = avcodec_find_decoder_by_name("sshevc_ss268");
 #else
-            p_codec = avcodec_find_decoder_by_name("sshevc"); 
+            p_codec = avcodec_find_decoder_by_name("sshevc");
 #endif
-            is->decoder_type = HARD_DECODING;
+            is->decoder_type = AV_HARD_DECODING;
             break;
 
-        default : 
-            p_codec = avcodec_find_decoder(p_codec_par->codec_id); 
-            is->decoder_type = SOFT_DECODING;
+        default :
+#ifdef CHIP_IS_SS268
+            p_codec = NULL;
+#else
+            p_codec = avcodec_find_decoder(p_codec_par->codec_id);
+#endif
+            is->decoder_type = AV_SOFT_DECODING;
             break;
     }
     //p_codec = avcodec_find_decoder(p_codec_par->codec_id); 
     if (p_codec == NULL)
     {
-        av_log(NULL, AV_LOG_ERROR, "Cann't find video codec!\n");
+        av_log(NULL, AV_LOG_ERROR, "cann't find video codec!\n");
         return -1;
     }
     av_log(NULL, AV_LOG_INFO, "open video codec: %s\n", p_codec->name);
@@ -1060,56 +843,42 @@ static int open_video_stream(player_stat_t *is)
         return -1;
     }
 
-    if (is->decoder_type == HARD_DECODING) {
-#if USE_DIVP_MODULE
-        is->out_width  = is->in_width;
-        is->out_height = is->in_height;
-        if (is->display_mode != E_MI_DISP_ROTATE_NONE) {
-            is->src_width  = FFMIN(is->out_width , p_codec_par->height);
-            is->src_height = FFMIN(is->out_height, p_codec_par->width);
-        } else {
-            is->src_width  = FFMIN(is->out_width , p_codec_par->width);
-            is->src_height = FFMIN(is->out_height, p_codec_par->height);
-        }
-        p_codec_ctx->flags  = ALIGN_BACK(p_codec_par->width , 32);
-        p_codec_ctx->flags2 = ALIGN_BACK(p_codec_par->height, 32);
-#else
-        if (is->display_mode != E_MI_DISP_ROTATE_NONE) {
-            p_codec_ctx->flags  = FFMIN(ALIGN_BACK(is->in_height, 32), ALIGN_BACK(p_codec_par->width , 32));
-            p_codec_ctx->flags2 = FFMIN(ALIGN_BACK(is->in_width , 32), ALIGN_BACK(p_codec_par->height, 32));
-            is->out_width  = is->in_width;
-            is->out_height = is->in_height;
-            is->src_width  = FFMIN(is->out_height, p_codec_par->width);
-            is->src_height = FFMIN(is->out_width , p_codec_par->height);
-            // 使用disp旋转时需要开启tilemode
-            p_codec_ctx->flags |= (1 << 17);
-            av_log(NULL, AV_LOG_WARNING, "set rotate attribute!\n");
-        } else {
-            // 硬解时选择VDEC缩小画面,传入宽高,由于VDEC只能缩小这里对宽高进行判断
-            p_codec_ctx->flags  = FFMIN(ALIGN_BACK(is->in_width , 32), ALIGN_BACK(p_codec_par->width , 32));
-            p_codec_ctx->flags2 = FFMIN(ALIGN_BACK(is->in_height, 32), ALIGN_BACK(p_codec_par->height, 32));
-            is->out_width  = is->in_width;
-            is->out_height = is->in_height;
-            is->src_width  = FFMIN(is->out_width , p_codec_par->width);
-            is->src_height = FFMIN(is->out_height, p_codec_par->height);
-        }
-#endif
-        av_log(NULL, AV_LOG_INFO, "vdec out w/h = [%d %d], display x/y/w/h = [%d %d %d %d]\n", 
-        (p_codec_ctx->flags & 0xFFFF), (p_codec_ctx->flags2 & 0xFFFF), is->pos_x, is->pos_y, is->out_width, is->out_height);
+    ret = set_video_size(is, p_codec_par);
+    if (ret < 0)
+    {
+        av_log(NULL, AV_LOG_ERROR, "set_video_size error!\n");
+        return -1;
     }
-    else {
-        
-        is->out_width  = is->in_width;
-        is->out_height = is->in_height;
-        if (is->display_mode != E_MI_DISP_ROTATE_NONE) {
-            is->src_width  = FFMIN(is->out_width , p_codec_par->height);
-            is->src_height = FFMIN(is->out_height, p_codec_par->width);
-        } else {
-            is->src_width  = FFMIN(is->out_width , p_codec_par->width);
-            is->src_height = FFMIN(is->out_height, p_codec_par->height);
-        }
-        av_log(NULL, AV_LOG_INFO, "scaler src w/h = [%d %d], dst x/y/w/h = [%d %d %d %d]\n", is->src_width, is->src_height, is->pos_x, is->pos_y, is->out_width, is->out_height);
+
+    is->src_width  = FFMIN(is->src_width , 1920);
+    is->src_height = FFMIN(is->src_height, 1080);
+
+    if (is->decoder_type == AV_HARD_DECODING)
+    {
+        p_codec_ctx->flags  = is->src_width;
+        p_codec_ctx->flags2 = is->src_height;
+        av_log(NULL, AV_LOG_INFO, "set vdec out w/h = [%d %d]\n", (p_codec_ctx->flags & 0xFFFF), (p_codec_ctx->flags2 & 0xFFFF));
     }
+
+    if (is->display_mode != AV_ROTATE_180 && is->display_mode != AV_ROTATE_NONE)
+    {
+        int tmp_value;
+        is->dst_width  = is->src_height;
+        is->dst_height = is->src_width;
+        tmp_value = is->out_width;
+        is->out_width  = is->out_height;
+        is->out_height = tmp_value;
+        is->pos_x = FFMAX(0, (is->in_height - is->out_width)/ 2);
+        is->pos_y = FFMAX(0, (is->in_width - is->out_height)/ 2);
+    }
+    else
+    {
+        is->dst_width  = is->src_width;
+        is->dst_height = is->src_height;
+        is->pos_x = FFMAX(0, (is->in_width - is->out_width)/ 2);
+        is->pos_y = FFMAX(0, (is->in_height - is->out_height)/ 2);
+    }
+    av_log(NULL, AV_LOG_INFO, "scaler src w/h = [%d %d], dst x/y/w/h = [%d %d %d %d]\n", is->src_width, is->src_height, is->pos_x, is->pos_y, is->out_width, is->out_height);
 
     // 1.3.3 p_codec_ctx初始化：使用p_codec初始化p_codec_ctx，初始化完成
     ret = avcodec_open2(p_codec_ctx, p_codec, NULL);
@@ -1125,7 +894,7 @@ static int open_video_stream(player_stat_t *is)
     //printf("bistream width : %d, height : %d\n", is->p_vcodec_ctx->coded_width,is->p_vcodec_ctx->coded_height);
 
     // 2. 创建视频解码线程
-    prctl(PR_SET_NAME, "video_decode_tid");
+    prctl(PR_SET_NAME, "video_decode");
     ret = pthread_create(&is->video_decode_tid, NULL, video_decode_thread, (void *)is);
     if (ret != 0) {
         av_log(NULL, AV_LOG_ERROR, "video_decode_thread create failed!\n");
@@ -1174,235 +943,3 @@ int video_flush_buffer(frame_queue_t *f)
     return ret;
 }
 
-int sstar_display_set(player_stat_t *is)
-{
-#ifdef CHIP_IS_SS268
-#else
-    MI_DISP_RotateConfig_t stRotateConfig;
-
-    if (!is) {
-        av_log(NULL, AV_LOG_ERROR, "sstar_display_set failed!\n");
-        return -1;
-    }
-
-    av_log(NULL, AV_LOG_WARNING, "display w/h = [%d %d], src w/h = [%d %d]!\n", is->out_width, is->out_height, is->src_width, is->src_height);
-    MI_DISP_DisableInputPort(0, 0);
-    memset(&stRotateConfig, 0, sizeof(MI_DISP_RotateConfig_t));
-
-    if (is->decoder_type == SOFT_DECODING)
-    {
-        MI_SYS_ChnPort_t stDivpChnPort;
-        MI_DIVP_ChnAttr_t stDivpChnAttr;
-        MI_DIVP_OutputPortAttr_t stOutputPortAttr;
-        MI_DISP_InputPortAttr_t stInputPortAttr;
-        MI_SYS_ChnPort_t stDispChnPort;
-
-        MI_GFX_Open();
-
-        memset(&stInputPortAttr, 0, sizeof(MI_DISP_InputPortAttr_t));
-        MI_DISP_GetInputPortAttr(0, 0, &stInputPortAttr);
-        stInputPortAttr.u16SrcWidth         = ALIGN_BACK(is->src_width , 32);
-        stInputPortAttr.u16SrcHeight        = ALIGN_BACK(is->src_height, 32);
-        stInputPortAttr.stDispWin.u16X      = is->pos_x;
-        stInputPortAttr.stDispWin.u16Y      = is->pos_y;
-        stInputPortAttr.stDispWin.u16Width  = is->out_width;
-        stInputPortAttr.stDispWin.u16Height = is->out_height;
-
-        memset(&stDivpChnAttr, 0, sizeof(MI_DIVP_ChnAttr_t));
-        stDivpChnAttr.bHorMirror            = FALSE;
-        stDivpChnAttr.bVerMirror            = FALSE;
-        stDivpChnAttr.eDiType               = E_MI_DIVP_DI_TYPE_OFF;
-        stDivpChnAttr.eRotateType           = E_MI_SYS_ROTATE_NONE;
-        stDivpChnAttr.eTnrLevel             = E_MI_DIVP_TNR_LEVEL_OFF;
-        stDivpChnAttr.stCropRect.u16X       = 0;
-        stDivpChnAttr.stCropRect.u16Y       = 0;
-        stDivpChnAttr.stCropRect.u16Width   = 0;
-        stDivpChnAttr.stCropRect.u16Height  = 0;
-        stDivpChnAttr.u32MaxWidth           = 1920;
-        stDivpChnAttr.u32MaxHeight          = 1080;
-
-        MI_DIVP_CreateChn(0, &stDivpChnAttr);
-        MI_DIVP_SetChnAttr(0, &stDivpChnAttr);
-
-        memset(&stOutputPortAttr, 0, sizeof(MI_DIVP_OutputPortAttr_t));
-        stOutputPortAttr.eCompMode          = E_MI_SYS_COMPRESS_MODE_NONE;
-        stOutputPortAttr.ePixelFormat       = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
-        stOutputPortAttr.u32Width           = ALIGN_BACK(is->src_width , 32);
-        stOutputPortAttr.u32Height          = ALIGN_BACK(is->src_height, 32);
-        MI_DIVP_SetOutputPortAttr(0, &stOutputPortAttr);
-        MI_DIVP_StartChn(0);
-
-        MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
-        MI_DISP_SetInputPortAttr(DISP_LAYER, DISP_INPUTPORT, &stInputPortAttr);
-        MI_DISP_EnableInputPort(DISP_LAYER, DISP_INPUTPORT);
-        MI_DISP_SetInputPortSyncMode(DISP_LAYER, DISP_INPUTPORT, E_MI_DISP_SYNC_MODE_FREE_RUN);
-        MI_DISP_ShowInputPort(DISP_LAYER, DISP_INPUTPORT);
-
-        memset(&stDispChnPort, 0, sizeof(MI_SYS_ChnPort_t));
-        stDispChnPort.eModId                = E_MI_MODULE_ID_DISP;
-        stDispChnPort.u32DevId              = 0;
-        stDispChnPort.u32ChnId              = 0;
-        stDispChnPort.u32PortId             = DISP_INPUTPORT;
-
-        memset(&stDivpChnPort, 0, sizeof(MI_SYS_ChnPort_t));
-        stDivpChnPort.eModId                = E_MI_MODULE_ID_DIVP;
-        stDivpChnPort.u32DevId              = 0;
-        stDivpChnPort.u32ChnId              = 0;
-        stDivpChnPort.u32PortId             = 0;
-
-        MI_SYS_SetChnOutputPortDepth(&stDivpChnPort, 0, 3);
-        MI_SYS_BindChnPort(&stDivpChnPort, &stDispChnPort, 30, 30);
-
-        // 软解采用GFX旋转, 无须设置DISP
-        stRotateConfig.eRotateMode = E_MI_DISP_ROTATE_NONE;
-    }
-    else
-    {
-#if USE_DIVP_MODULE
-        MI_SYS_ChnPort_t stDivpChnPort;
-        MI_DIVP_ChnAttr_t stDivpChnAttr;
-        MI_DIVP_OutputPortAttr_t stOutputPortAttr;
-        MI_DISP_InputPortAttr_t stInputPortAttr;
-        MI_SYS_ChnPort_t stDispChnPort;
-
-        MI_GFX_Open();
-
-        memset(&stInputPortAttr, 0, sizeof(MI_DISP_InputPortAttr_t));
-        MI_DISP_GetInputPortAttr(0, 0, &stInputPortAttr);
-        stInputPortAttr.u16SrcWidth         = ALIGN_BACK(is->src_width , 32);
-        stInputPortAttr.u16SrcHeight        = ALIGN_BACK(is->src_height, 32);
-        stInputPortAttr.stDispWin.u16X      = is->pos_x;
-        stInputPortAttr.stDispWin.u16Y      = is->pos_y;
-        stInputPortAttr.stDispWin.u16Width  = is->out_width;
-        stInputPortAttr.stDispWin.u16Height = is->out_height;
-
-        memset(&stDivpChnAttr, 0, sizeof(MI_DIVP_ChnAttr_t));
-        stDivpChnAttr.bHorMirror            = FALSE;
-        stDivpChnAttr.bVerMirror            = FALSE;
-        stDivpChnAttr.eDiType               = E_MI_DIVP_DI_TYPE_OFF;
-        stDivpChnAttr.eRotateType           = E_MI_SYS_ROTATE_NONE;
-        stDivpChnAttr.eTnrLevel             = E_MI_DIVP_TNR_LEVEL_OFF;
-        stDivpChnAttr.stCropRect.u16X       = 0;
-        stDivpChnAttr.stCropRect.u16Y       = 0;
-        stDivpChnAttr.stCropRect.u16Width   = 0;
-        stDivpChnAttr.stCropRect.u16Height  = 0;
-        stDivpChnAttr.u32MaxWidth           = 1920;
-        stDivpChnAttr.u32MaxHeight          = 1080;
-
-        MI_DIVP_CreateChn(0, &stDivpChnAttr);
-        MI_DIVP_SetChnAttr(0, &stDivpChnAttr);
-
-        memset(&stOutputPortAttr, 0, sizeof(MI_DIVP_OutputPortAttr_t));
-        stOutputPortAttr.eCompMode          = E_MI_SYS_COMPRESS_MODE_NONE;
-        stOutputPortAttr.ePixelFormat       = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
-        stOutputPortAttr.u32Width           = ALIGN_BACK(is->src_width , 32);
-        stOutputPortAttr.u32Height          = ALIGN_BACK(is->src_height, 32);
-        MI_DIVP_SetOutputPortAttr(0, &stOutputPortAttr);
-        MI_DIVP_StartChn(0);
-
-        MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
-        MI_DISP_SetInputPortAttr(DISP_LAYER, DISP_INPUTPORT, &stInputPortAttr);
-        MI_DISP_EnableInputPort(DISP_LAYER, DISP_INPUTPORT);
-        MI_DISP_SetInputPortSyncMode(DISP_LAYER, DISP_INPUTPORT, E_MI_DISP_SYNC_MODE_FREE_RUN);
-        MI_DISP_ShowInputPort(DISP_LAYER, DISP_INPUTPORT);
-
-        memset(&stDispChnPort, 0, sizeof(MI_SYS_ChnPort_t));
-        stDispChnPort.eModId                = E_MI_MODULE_ID_DISP;
-        stDispChnPort.u32DevId              = 0;
-        stDispChnPort.u32ChnId              = 0;
-        stDispChnPort.u32PortId             = DISP_INPUTPORT;
-
-        memset(&stDivpChnPort, 0, sizeof(MI_SYS_ChnPort_t));
-        stDivpChnPort.eModId                = E_MI_MODULE_ID_DIVP;
-        stDivpChnPort.u32DevId              = 0;
-        stDivpChnPort.u32ChnId              = 0;
-        stDivpChnPort.u32PortId             = 0;
-
-        MI_SYS_SetChnOutputPortDepth(&stDivpChnPort, 0, 3);
-        MI_SYS_BindChnPort(&stDivpChnPort, &stDispChnPort, 30, 30);
-
-        // 使用DIVP后无法通过硬件旋转,只能采用GFX旋转
-        stRotateConfig.eRotateMode = E_MI_DISP_ROTATE_NONE;
-#else
-        MI_DISP_InputPortAttr_t stInputPortAttr;
-
-        memset(&stInputPortAttr, 0, sizeof(MI_DISP_InputPortAttr_t));
-        MI_DISP_GetInputPortAttr(0, 0, &stInputPortAttr);
-        stInputPortAttr.u16SrcWidth         = ALIGN_BACK(is->src_width , 32);
-        stInputPortAttr.u16SrcHeight        = ALIGN_BACK(is->src_height, 32);
-        stInputPortAttr.stDispWin.u16X      = is->pos_x;
-        stInputPortAttr.stDispWin.u16Y      = is->pos_y;
-        stInputPortAttr.stDispWin.u16Width  = is->out_width;
-        stInputPortAttr.stDispWin.u16Height = is->out_height;
-
-        MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
-        MI_DISP_SetInputPortAttr(DISP_LAYER, DISP_INPUTPORT, &stInputPortAttr);
-        MI_DISP_EnableInputPort(DISP_LAYER, DISP_INPUTPORT);
-        MI_DISP_SetInputPortSyncMode(DISP_LAYER, DISP_INPUTPORT, E_MI_DISP_SYNC_MODE_FREE_RUN);
-        MI_DISP_ShowInputPort(DISP_LAYER, DISP_INPUTPORT);
-        // 硬解时使用DISP旋转
-        stRotateConfig.eRotateMode = is->display_mode;
-#endif
-    }
-
-    MI_DISP_SetVideoLayerRotateMode(DISP_LAYER, &stRotateConfig);
-#endif
-    return MI_SUCCESS;
-}
-int sstar_display_unset(player_stat_t *is)
-{
-#ifdef CHIP_IS_SS268
-#else
-    if (is->decoder_type == SOFT_DECODING) {
-        MI_SYS_ChnPort_t stDispChnPort;
-        MI_SYS_ChnPort_t stDivpChnPort;
-
-        memset(&stDispChnPort, 0, sizeof(MI_SYS_ChnPort_t));
-        stDispChnPort.eModId                = E_MI_MODULE_ID_DISP;
-        stDispChnPort.u32DevId              = 0;
-        stDispChnPort.u32ChnId              = 0;
-        stDispChnPort.u32PortId             = 0;
-
-        memset(&stDivpChnPort, 0, sizeof(MI_SYS_ChnPort_t));
-        stDivpChnPort.eModId                = E_MI_MODULE_ID_DIVP;
-        stDivpChnPort.u32DevId              = 0;
-        stDivpChnPort.u32ChnId              = 0;
-        stDivpChnPort.u32PortId             = 0;
-
-        MI_SYS_UnBindChnPort(&stDivpChnPort, &stDispChnPort);
-
-        MI_DIVP_StopChn(0);
-        MI_DIVP_DestroyChn(0);
-
-        MI_GFX_Close();
-    }else {
-#if USE_DIVP_MODULE
-        MI_SYS_ChnPort_t stDispChnPort;
-        MI_SYS_ChnPort_t stDivpChnPort;
-
-        memset(&stDispChnPort, 0, sizeof(MI_SYS_ChnPort_t));
-        stDispChnPort.eModId                = E_MI_MODULE_ID_DISP;
-        stDispChnPort.u32DevId              = 0;
-        stDispChnPort.u32ChnId              = 0;
-        stDispChnPort.u32PortId             = 0;
-
-        memset(&stDivpChnPort, 0, sizeof(MI_SYS_ChnPort_t));
-        stDivpChnPort.eModId                = E_MI_MODULE_ID_DIVP;
-        stDivpChnPort.u32DevId              = 0;
-        stDivpChnPort.u32ChnId              = 0;
-        stDivpChnPort.u32PortId             = 0;
-
-        MI_SYS_UnBindChnPort(&stDivpChnPort, &stDispChnPort);
-
-        MI_DIVP_StopChn(0);
-        MI_DIVP_DestroyChn(0);
-
-        MI_GFX_Close();
-#endif
-    }
-    MI_DISP_ClearInputPortBuffer(DISP_LAYER, DISP_INPUTPORT, TRUE);
-    MI_DISP_HideInputPort(DISP_LAYER, DISP_INPUTPORT);
-    MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
-#endif
-    return 0;
-}
