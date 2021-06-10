@@ -3738,6 +3738,8 @@ FF_ENABLE_DEPRECATION_WARNINGS
                 my_info->max_bytes_per_pic_denom = head_info->max_bytes_per_pic_denom;
                 my_info->frame_cropping_flag = (my_info->frame_cropping_flag) ? 1 : head_info->frame_cropping_flag;
                 my_info->conformance_window_flag = (my_info->conformance_window_flag) ? 1 : head_info->conformance_window_flag;
+                my_info->coded_width = my_info->coded_width > 0 ? my_info->coded_width : head_info->coded_width;
+                my_info->coded_height = my_info->coded_height > 0 ? my_info->coded_height : head_info->coded_height;
             }
             if (options) {
                 AVDictionaryEntry *opt_tmp = NULL;
@@ -4038,6 +4040,8 @@ FF_ENABLE_DEPRECATION_WARNINGS
                     my_info->max_bytes_per_pic_denom = head_info->max_bytes_per_pic_denom;
                     my_info->frame_cropping_flag = (my_info->frame_cropping_flag) ? 1 : head_info->frame_cropping_flag;
                     my_info->conformance_window_flag = (my_info->conformance_window_flag) ? 1 : head_info->conformance_window_flag;
+                    my_info->coded_width = my_info->coded_width > 0 ? my_info->coded_width : head_info->coded_width;
+                    my_info->coded_height = my_info->coded_height > 0 ? my_info->coded_height : head_info->coded_height;
                 }
                 if (max_resolution != INT_MAX && head_info->coded_width * head_info->coded_height > max_resolution) {
                     av_log(ic, AV_LOG_ERROR, "[%s %d]video w/h [%d %d] over max_resolution!\n", __FILE__, __LINE__, head_info->coded_width, head_info->coded_height);
