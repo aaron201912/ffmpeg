@@ -1,5 +1,5 @@
-#ifndef _INTERFACE_H__
-#define _INTERFACE_H__
+#ifndef __INTERFACE_H__
+#define __INTERFACE_H__
 
 #ifdef __cplusplus
 extern "C"{
@@ -49,7 +49,6 @@ int mm_player_getposition(double *position);
  */
 int mm_player_getduration(double *duration);
 
-
 /**
  * Set the audio volumn.
  * volumn = [0]~[100]
@@ -63,28 +62,27 @@ int mm_player_set_volumn(int volumn);
 int mm_player_set_mute(bool mute);
 
 /**
- * Set the windows size. 
- * The function is valid when we call mm_player_set_opts("use_divp", "1", 0) before mm_player_open.
+ * Set the windows size.
+ * The function is valid when we call mm_player_set_opts("enable_scaler", "", 1) before mm_player_open.
  */
 int mm_player_set_window(int x, int y, int width, int height);
 
-
 /**
- * Set player others options. 
+ * Set player others options.
  * key: option name; value: reserved; flags: option value. Such as:
  * mm_player_set_opts("video_only", "", 0); -- "1"=enable; "0"=disable
  * mm_player_set_opts("audio_only", "", 0); -- "1"=enable; "0"=disable
  * mm_player_set_opts("video_rotate", "", AV_ROTATE_NONE);
  * mm_player_set_opts("video_ratio", "", AV_SCREEN_MODE);
  * mm_player_set_opts("audio_device", "", 0); -- "0"=panel; "2/3"=hdmi
- * mm_player_set_opts("audio_layout", "", AV_CH_LAYOUT_MONO);
+ * mm_player_set_opts("audio_layout", "", AV_CH_LAYOUT_MONO); -- set audio layout
  * mm_player_set_opts("enable_scaler", "", 1); -- enable scaler module, such as: divp/vpe, "1"=enable; "0"=disable
  * mm_player_set_opts("resolution", "921600", 0); -- set the max resolution of video, 921600 = 1280 x 720
  */
 int mm_player_set_opts(const char *key, const char *value, int flags);
 
 /**
- * Get player real status. 
+ * Get player real status.
  * Return value:
  * AV_ACODEC_ERROR  -- video deocder error
  * AV_VCODEC_ERROR  -- audio deocder error
@@ -93,8 +91,8 @@ int mm_player_set_opts(const char *key, const char *value, int flags);
  * AV_NO_NETWORK    -- not find network
  * AV_INVALID_FILE  -- the file name or url is invalid
  * AV_NOTHING       -- player is normal
- * AV_PLAY_COMPLETE -- end of video file
- * AV_PLAY_PAUSE    -- video file is stoping
+ * AV_PLAY_COMPLETE -- end of file
+ * AV_PLAY_PAUSE    -- stoping player
  */
 int mm_player_get_status(void);
 

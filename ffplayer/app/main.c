@@ -54,6 +54,8 @@ static void * mm_player_thread(void *args)
         }
         av_usleep(50 * 1000);
     }
+
+    return NULL;
 }
 
 int main(int argc, char *argv[])
@@ -80,7 +82,7 @@ int main(int argc, char *argv[])
     ss268_screen_init();
     #ifdef SUPPORT_HDMI
     mm_player_set_opts("audio_device", "", 4);
-    mm_player_set_opts("audio_layout", "", AV_CH_LAYOUT_STEREO);
+    mm_player_set_opts("audio_layout", "", AV_CH_LAYOUT_STEREO);//keep the same with hdmi init
     #else
     mm_player_set_opts("audio_device", "", 0);
     #endif
@@ -92,6 +94,7 @@ int main(int argc, char *argv[])
     #ifdef SUPPORT_HDMI
     sd20x_panel_init(E_MI_DISP_INTF_HDMI, 0);
     mm_player_set_opts("audio_device", "", 3);
+    mm_player_set_opts("audio_layout", "", AV_CH_LAYOUT_MONO);//keep the same with hdmi init
     #else
     sd20x_panel_init(E_MI_DISP_INTF_LCD, 0);
     mm_player_set_opts("audio_device", "", 0);
@@ -102,7 +105,7 @@ int main(int argc, char *argv[])
 
     printf("try playing %s ...\n", argv[1]);
 
-    mm_player_set_opts("video_rotate", "", AV_ROTATE_270);
+    mm_player_set_opts("video_rotate", "", AV_ROTATE_NONE);
     mm_player_set_opts("video_only", "", 0);
     mm_player_set_opts("video_ratio", "", AV_SCREEN_MODE);
     mm_player_set_opts("enable_scaler", "", 0);
@@ -114,7 +117,10 @@ int main(int argc, char *argv[])
     }
     mm_player_getduration(&duration);
 
-    pthread_create(&mm_thread, NULL, mm_player_thread, (void *)argv[1]);
+    ret = pthread_create(&mm_thread, NULL, mm_player_thread, (void *)argv[1]);
+    if (ret != 0) {
+        goto exit;
+    }
 
     b_exit = false;
     while (!b_exit)

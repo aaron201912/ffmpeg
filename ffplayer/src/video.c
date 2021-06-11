@@ -855,8 +855,16 @@ static int open_video_stream(player_stat_t *is)
 
     if (is->decoder_type == AV_HARD_DECODING)
     {
-        p_codec_ctx->flags  = is->src_width;
-        p_codec_ctx->flags2 = is->src_height;
+        AVH2645HeadInfo *head_info = (AVH2645HeadInfo *)is->p_fmt_ctx->opaque;
+        if (ALIGN_UP(is->src_width, 16) == head_info->coded_width)
+            p_codec_ctx->flags  = ALIGN_UP(is->src_width, 16);
+        else
+            p_codec_ctx->flags  = is->src_width;
+
+        if (ALIGN_UP(is->src_height, 16) == head_info->coded_height)
+            p_codec_ctx->flags2 = ALIGN_UP(is->src_height, 16);
+        else
+            p_codec_ctx->flags2 = is->src_height;
         av_log(NULL, AV_LOG_INFO, "set vdec out w/h = [%d %d]\n", (p_codec_ctx->flags & 0xFFFF), (p_codec_ctx->flags2 & 0xFFFF));
     }
 
@@ -889,7 +897,7 @@ static int open_video_stream(player_stat_t *is)
     }
 
     is->p_vcodec_ctx = p_codec_ctx;
-    is->p_vcodec_ctx->debug  = true;
+    is->p_vcodec_ctx->debug  = true;//enable hard decoder
     printf("codec width: %d,height: %d\n",is->p_vcodec_ctx->width,is->p_vcodec_ctx->height);
     //printf("bistream width : %d, height : %d\n", is->p_vcodec_ctx->coded_width,is->p_vcodec_ctx->coded_height);
 

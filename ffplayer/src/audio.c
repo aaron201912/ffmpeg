@@ -297,9 +297,6 @@ replay:
         return -1;
     }
 
-    //if (f->pktq->abort_request || is->step)
-    //    return -1;
-
     enum AVSampleFormat sample_fmt = (enum AVSampleFormat)(af->frame->format);
 
     // 根据frame中指定的音频参数获取缓冲区的大小

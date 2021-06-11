@@ -74,10 +74,6 @@ typedef struct {
     int direction;
 } gfx_param_t;
 
-/*
-Note: 调用以下接口需要加上互斥锁
-*/
-
 static pthread_mutex_t player_mutex = PTHREAD_MUTEX_INITIALIZER;
 static bool audio_mute = false;
 static struct timeval time_start, time_end;
@@ -568,28 +564,11 @@ static int mm_video_play(void *args, void *data)
                     }
                 }
 
-//                if (is->display_mode == AV_ROTATE_NONE)
-//                {
-//                    int length = gfx_info.src.w * gfx_info.src.h;
-//                    for (int index = 0; index < gfx_info.src.h; index ++)
-//                    {
-//                        MI_SYS_MemcpyPa(stBufInfo.stFrameData.phyAddr[0] + index * stBufInfo.stFrameData.u32Stride[0],
-//                                        gfx_info.phy_addr[0] + index * gfx_info.src.pitch, gfx_info.src.w);
-//                    }
-//                    for (int index = 0; index < gfx_info.src.h / 2; index ++)
-//                    {
-//                        MI_SYS_MemcpyPa(stBufInfo.stFrameData.phyAddr[1] + index * stBufInfo.stFrameData.u32Stride[1],
-//                                        gfx_info.phy_addr[1] + length + index * gfx_info.src.pitch, gfx_info.src.w);
-//                    }
-//                }
-//                else
-//                {
-                    //gettimeofday(&time_start, NULL);
-                    mm_video_rotate(&gfx_info, stBufInfo.stFrameData.phyAddr[0], stBufInfo.stFrameData.phyAddr[1]);
-                    //gettimeofday(&time_end, NULL);
-                    //time1 = ((int64_t)time_end.tv_sec * 1000000 + time_end.tv_usec) - ((int64_t)time_start.tv_sec * 1000000 + time_start.tv_usec);
-                    //printf("time of mm_video_rotate : %lldus, time of rotate : %lldus\n", time0, time1);
-//                }
+                //gettimeofday(&time_start, NULL);
+                mm_video_rotate(&gfx_info, stBufInfo.stFrameData.phyAddr[0], stBufInfo.stFrameData.phyAddr[1]);
+                //gettimeofday(&time_end, NULL);
+                //time1 = ((int64_t)time_end.tv_sec * 1000000 + time_end.tv_usec) - ((int64_t)time_start.tv_sec * 1000000 + time_start.tv_usec);
+                //printf("time of mm_video_rotate : %lldus, time of rotate : %lldus\n", time0, time1);
                 MI_SYS_ChnInputPortPutBuf(bufHandle, &stBufInfo, FALSE);
             }
         }

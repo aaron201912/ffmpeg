@@ -1,4 +1,20 @@
 #!/bin/bash
+if [ -e "$1" ]; then
+    alkaid_path=$1
+else
+    alkaid_path=./../..
+fi
+echo "alkaid_path = ${alkaid_path}"
+
+cflags+=" -I${alkaid_path}/project/release/include"
+cflags+=" -I./../3rdparty/include"
+cflags+=" -I./../3rdparty/include/sstar"
+echo "cflags = ${cflags}"
+
+ldflags+=" -L${alkaid_path}/project/release/nvr/i2m/common/glibc/8.2.1/mi_libs/dynamic"
+ldflags+=" -L./../3rdparty/lib/8.2.1"
+echo "ldflags = ${ldflags}"
+
 ./configure \
 --prefix=host \
 --disable-ffmpeg \
@@ -43,5 +59,5 @@
 --shlibdir=host/dynamic \
 --libdir=host/static \
 --pkg-config=pkg-config \
---extra-cflags="-I./../sstar/include -I./../3rdparty/include -g -rdynamic -funwind-tables -ffunction-sections" \
---extra-ldflags="-L./../sstar/lib -L./../3rdparty/lib/8.2.1"
+--extra-cflags="${cflags} -g -rdynamic -funwind-tables -ffunction-sections" \
+--extra-ldflags="${ldflags}"
