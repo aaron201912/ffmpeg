@@ -185,7 +185,6 @@ static void * demux_thread(void *arg)
             }
 
             if (is->no_pkt_buf) {
-                //av_log(NULL, AV_LOG_INFO, "packets queue is full!\n");
                 is->no_pkt_buf = 0;
             }
             //av_log(NULL, AV_LOG_WARNING, "packets queue is full!\n");
@@ -225,6 +224,10 @@ static void * demux_thread(void *arg)
                 av_log(NULL, AV_LOG_ERROR, "av_read_frame time out!\n");
                 is->time_out = false;
                 is->play_status = AV_READ_TIMEOUT;
+            }
+
+            if (read_start.tv_sec - read_timeout.tv_sec >= PLAYER_READ_TIMEOUT / 2) {
+                is->no_pkt_buf = 0;
             }
 
             pthread_mutex_lock(&wait_mutex);
@@ -313,6 +316,7 @@ static int demux_init(player_stat_t *is)
     //p_fmt_ctx->max_analyze_duration = 7 * AV_TIME_BASE;
     gettimeofday(&read_start, NULL);
     err = avformat_open_input(&p_fmt_ctx, is->filename, NULL, &format_opts);
+    av_dict_free(&format_opts);
     if (err < 0)
     {
         if (is->time_out) {
@@ -331,7 +335,6 @@ static int demux_init(player_stat_t *is)
         ret = err;
         goto fail;
     }
-    av_dict_free(&format_opts);
 
     // 构建私人结构体保存视频信息
     if (!p_fmt_ctx->opaque) {
@@ -473,13 +476,12 @@ static int demux_init(player_stat_t *is)
     return 0;
 
 fail:
-    av_dict_free(&is->p_dict);
-    if (p_fmt_ctx->opaque)
-    {
-        av_freep(&p_fmt_ctx->opaque);
-    }
     if (p_fmt_ctx != NULL)
     {
+        if (p_fmt_ctx->opaque)
+        {
+            av_freep(&p_fmt_ctx->opaque);
+        }
         avformat_close_input(&p_fmt_ctx);
     }
     avformat_network_deinit();
