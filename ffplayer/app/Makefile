@@ -13,6 +13,8 @@ ifeq ($(CHIP),ssd20x)
     #$(shell echo "choose chip ssd20x" > $(shell tty))
 else ifeq ($(CHIP),ss268)
     #$(shell echo "choose chip ss268" > $(shell tty))
+else ifeq ($(CHIP),ss22x)
+    #$(shell echo "choose chip ss22x" > $(shell tty))
 else
     $(error invalid chip type)
 endif
@@ -26,7 +28,12 @@ INCLUDES  = -I. -I$(CURRENT_PATH)/../include -I$(CURRENT_PATH)/../../ffmpeg-4.1.
 ifeq ($(CHIP),ss268)
 C_FLAGS   += -DCHIP_IS_SS268
 CPP_FLAGS += -DCHIP_IS_SS268
-SDK_LIB    = -L$(ALKAID_PATH)/project/release/chip/m6/xvr/common/glibc/9.1.0/mi_libs/dynamic
+SDK_LIB    = -L$(ALKAID_PATH)/project/release/chip/m6/xvr/common/glibc/9.1.0/mi_libs/dynamic -L$(ALKAID_PATH)/project/release/chip/m6/sigma_common_libs/glibc/9.1.0/mi_libs/dynamic
+APP_LIB    = -L. -L$(CURRENT_PATH)/../../3rdparty/lib/9.1.0
+else ifeq ($(CHIP),ss22x)
+C_FLAGS   += -DCHIP_IS_SS22X
+CPP_FLAGS += -DCHIP_IS_SS22X
+SDK_LIB    = -L$(ALKAID_PATH)/project/release/dispcam/p3/common/glibc/9.1.0/mi_libs/dynamic -L$(ALKAID_PATH)/project/release/dispcam/p3/common/glibc/9.1.0/ex_libs/dynamic
 APP_LIB    = -L. -L$(CURRENT_PATH)/../../3rdparty/lib/9.1.0
 else ifeq ($(CHIP),ssd20x)
 C_FLAGS   += -DCHIP_IS_SSD20X
@@ -55,6 +62,8 @@ endif
 
 ifeq ($(CHIP),ss268)
 SDK_LIB += -lmi_vdec -lmi_disp -lmi_ao -lmi_gfx -lmi_sys -lmi_common -lcam_os_wrapper
+else ifeq ($(CHIP),ss22x)
+SDK_LIB += -lmi_disp -lmi_ao -lmi_gfx -lmi_sys -lmi_common -lmi_divp -lcam_os_wrapper
 else ifeq ($(CHIP),ssd20x)
 SDK_LIB += -lmi_vdec -lmi_divp -lmi_disp -lmi_ao -lmi_gfx -lmi_sys -lmi_common
 endif

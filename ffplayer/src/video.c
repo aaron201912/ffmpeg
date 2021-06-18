@@ -778,6 +778,10 @@ static int open_video_stream(player_stat_t *is)
     p_codec_par = p_stream->codecpar;
 
     // 1.2 获取解码器
+#ifdef CHIP_IS_SS22X
+    p_codec = avcodec_find_decoder(p_codec_par->codec_id);
+    is->decoder_type = AV_SOFT_DECODING;
+#else
     switch(p_codec_par->codec_id) 
     {
         case AV_CODEC_ID_H264 :
@@ -807,6 +811,7 @@ static int open_video_stream(player_stat_t *is)
             is->decoder_type = AV_SOFT_DECODING;
             break;
     }
+#endif
     //p_codec = avcodec_find_decoder(p_codec_par->codec_id); 
     if (p_codec == NULL)
     {

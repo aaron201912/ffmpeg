@@ -13,6 +13,8 @@
 
 #ifdef CHIP_IS_SS268
 #include "ss268_panel.h"
+#elif defined CHIP_IS_SS22X
+#include "ss22x_panel.h"
 #else
 #include "sd20xpanel.h"
 #endif
@@ -88,6 +90,17 @@ int main(int argc, char *argv[])
     #endif
 
     ss268_getpanel_wh(&width, &height);
+#elif defined CHIP_IS_SS22X
+    ss22x_sys_init();
+    ss22x_screen_init();
+    #ifdef SUPPORT_HDMI
+    mm_player_set_opts("audio_device", "", 4);
+    mm_player_set_opts("audio_layout", "", AV_CH_LAYOUT_STEREO);//keep the same with hdmi init
+    #else
+    mm_player_set_opts("audio_device", "", 0);
+    #endif
+
+    ss22x_getpanel_wh(&width, &height);
 #else
     sd20x_sys_init();
 
@@ -219,6 +232,9 @@ exit:
 #ifdef CHIP_IS_SS268
     ss268_screen_deinit();
     ss268_sys_deinit();
+#elif defined CHIP_IS_SS22X
+    ss22x_screen_deinit();
+    ss22x_sys_deinit();
 #else
     #ifdef SUPPORT_HDMI
     sd20x_panel_deinit(E_MI_DISP_INTF_HDMI);

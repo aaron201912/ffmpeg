@@ -9,7 +9,7 @@
 #include "mi_common.h"
 #include "mi_sys.h"
 #include "mi_disp.h"
-#ifdef CHIP_IS_SSD20X
+#if ((defined CHIP_IS_SSD20X) || (defined CHIP_IS_SS22X))
 #include "mi_divp.h"
 #endif
 #include "mi_vdec.h"
@@ -116,7 +116,7 @@ static int mm_audio_init(void *args)
     }
 
     if (g_opts.audio_layout == AV_CH_LAYOUT_STEREO) {
-#ifdef CHIP_IS_SS268
+#if ((defined CHIP_IS_SS268) || (defined CHIP_IS_SS22X))
         stSetAttr.u32ChnCnt = 1;
 #else
         stSetAttr.u32ChnCnt = 2;
@@ -142,6 +142,10 @@ static int mm_audio_init(void *args)
     MI_AO_EnableChn(AoDevId, AoChn);
 
 #ifdef CHIP_IS_SS268
+    s32SetVolumeDb = MIN_ADJUST_AO_VOLUME;
+    MI_AO_SetVolume(AoDevId, AoChn, s32SetVolumeDb, E_MI_AO_GAIN_FADING_16_SAMPLE);
+    MI_AO_GetVolume(AoDevId, AoChn, &s32GetVolumeDb);
+#elif defined CHIP_IS_SS22X
     s32SetVolumeDb = MIN_ADJUST_AO_VOLUME;
     MI_AO_SetVolume(AoDevId, AoChn, s32SetVolumeDb, E_MI_AO_GAIN_FADING_16_SAMPLE);
     MI_AO_GetVolume(AoDevId, AoChn, &s32GetVolumeDb);
@@ -226,6 +230,9 @@ static int mm_audio_play(void *args, char *data, int len)
         {
 #ifdef CHIP_IS_SS268
             stAoSendFrame.u32Len[0] = data_len;
+#elif defined CHIP_IS_SS22X
+            stAoSendFrame.u32Len[0] = data_len;
+			
 #else
             stAoSendFrame.u32Len = data_len;
 #endif
@@ -233,6 +240,8 @@ static int mm_audio_play(void *args, char *data, int len)
         else
         {
 #ifdef CHIP_IS_SS268
+            stAoSendFrame.u32Len[0] = MI_AUDIO_MAX_DATA_SIZE;
+#elif defined CHIP_IS_SS22X
             stAoSendFrame.u32Len[0] = MI_AUDIO_MAX_DATA_SIZE;
 #else
             stAoSendFrame.u32Len = MI_AUDIO_MAX_DATA_SIZE;
@@ -383,7 +392,7 @@ static int mm_video_play(void *args, void *data)
             stBufConf.stFrameCfg.u16Width   = is->p_frm_yuv->width;
         }
         stBufConf.u32Flags              = MI_SYS_MAP_VA;
-#ifdef CHIP_IS_SSD20X
+#if ((defined CHIP_IS_SSD20X) || (defined CHIP_IS_SS22X))
         stBufConf.stFrameCfg.stFrameBufExtraConf.u16BufHAlignment = 16;
 #endif
         if (MI_SUCCESS == MI_SYS_ChnInputPortGetBuf(&stInputChnPort, &stBufConf, &stBufInfo, &bufHandle, 0))
@@ -604,7 +613,7 @@ static int mm_video_init(void *args)
 
     av_log(NULL, AV_LOG_WARNING, "display w/h = [%d %d], src w/h = [%d %d]!\n", is->out_width, is->out_height, is->src_width, is->src_height);
 
-#ifdef CHIP_IS_SSD20X
+#if ((defined CHIP_IS_SSD20X) || (defined CHIP_IS_SS22X))
     #ifdef ENABLE_STR
     MI_DISP_InitParam_t stInitDispParam;
     memset(&stInitDispParam, 0x0, sizeof(MI_DISP_InitParam_t));
@@ -648,7 +657,7 @@ static int mm_video_init(void *args)
 
     if (is->decoder_type == AV_SOFT_DECODING || g_opts.enable_scaler)
     {
-#ifdef CHIP_IS_SSD20X
+#if ((defined CHIP_IS_SSD20X) || (defined CHIP_IS_SS22X))
         MI_SYS_ChnPort_t stDivpChnPort;
         MI_DIVP_ChnAttr_t stDivpChnAttr;
         MI_DIVP_OutputPortAttr_t stOutputPortAttr;
@@ -718,7 +727,7 @@ int mm_video_deinit(void *args)
 
     if (is->decoder_type == AV_SOFT_DECODING || g_opts.enable_scaler)
     {
-#ifdef CHIP_IS_SSD20X
+#if ((defined CHIP_IS_SSD20X) || (defined CHIP_IS_SS22X))
         MI_SYS_ChnPort_t stDispChnPort;
         MI_SYS_ChnPort_t stDivpChnPort;
 
@@ -754,7 +763,7 @@ int mm_video_deinit(void *args)
     MI_DISP_HideInputPort(DISP_LAYER, DISP_INPUTPORT);
     MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
 
-#ifdef CHIP_IS_SSD20X
+#if (defined CHIP_IS_SSD20X || defined CHIP_IS_SS22X)
     MI_GFX_Close();
     #ifdef ENABLE_STR
     MI_DISP_DeInitDev();
@@ -1158,6 +1167,9 @@ int mm_player_set_volumn(int volumn)
 #ifdef CHIP_IS_SS268
             MI_AO_SetVolume(AUDIO_DEV, AoChn, vol, E_MI_AO_GAIN_FADING_16_SAMPLE);
             MI_AO_SetMute(AUDIO_DEV, AoChn, audio_mute);
+#elif defined CHIP_IS_SS22X
+            MI_AO_SetVolume(AUDIO_DEV, AoChn, vol, E_MI_AO_GAIN_FADING_16_SAMPLE);
+            MI_AO_SetMute(AUDIO_DEV, AoChn, audio_mute);
 #else
             MI_AO_SetVolume(g_opts.audio_dev, vol);
             MI_AO_SetMute(g_opts.audio_dev, audio_mute);
@@ -1180,6 +1192,9 @@ int mm_player_set_mute(bool mute)
 #ifdef CHIP_IS_SS268
         MI_AO_CHN AoChn = AUDIO_CHN;
         MI_AO_SetMute(AUDIO_DEV, AoChn, audio_mute);
+#elif defined CHIP_IS_SS22X
+        MI_AO_CHN AoChn = AUDIO_CHN;
+        MI_AO_SetMute(AUDIO_DEV, AoChn, audio_mute);
 #else
         MI_AO_SetMute(g_opts.audio_dev, audio_mute);
 #endif
@@ -1194,7 +1209,7 @@ int mm_player_set_window(int x, int y, int width, int height)
         av_log(NULL, AV_LOG_ERROR, "set window param is invalid!\n");
         return -1;
     }
-#ifdef CHIP_IS_SSD20X
+#if (defined CHIP_IS_SSD20X || defined CHIP_IS_SS22X)
     if (g_mmplayer && g_opts.enable_scaler)
     {
         g_mmplayer->src_width  = width;
