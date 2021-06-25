@@ -19,7 +19,7 @@ else
     $(error invalid chip type)
 endif
 
-COM_FLAGS = -Wall -O2 -fPIC -mcpu=cortex-a9 -mfpu=neon-fp16 -mfloat-abi=hard -mthumb-interwork -marm -g -funwind-tables -ffunction-sections -rdynamic
+COM_FLAGS = -Wall -O2 -fPIC -mtune=cortex-a7 -march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -mthumb-interwork -marm -g -funwind-tables -ffunction-sections -rdynamic
 C_FLAGS   = $(COM_FLAGS) -std=c11
 CPP_FLAGS = $(COM_FLAGS) -std=c++11
 
@@ -28,7 +28,7 @@ INCLUDES  = -I. -I$(CURRENT_PATH)/../include -I$(CURRENT_PATH)/../../ffmpeg-4.1.
 ifeq ($(CHIP),ss268)
 C_FLAGS   += -DCHIP_IS_SS268
 CPP_FLAGS += -DCHIP_IS_SS268
-SDK_LIB    = -L$(ALKAID_PATH)/project/release/chip/m6/xvr/common/glibc/9.1.0/mi_libs/dynamic -L$(ALKAID_PATH)/project/release/chip/m6/sigma_common_libs/glibc/9.1.0/mi_libs/dynamic
+SDK_LIB    = -L$(ALKAID_PATH)/project/release/chip/m6/xvr/common/glibc/9.1.0/mi_libs/dynamic -L$(ALKAID_PATH)/project/release/chip/m6/sigma_common_libs/glibc/9.1.0/dynamic
 APP_LIB    = -L. -L$(CURRENT_PATH)/../../3rdparty/lib/9.1.0
 else ifeq ($(CHIP),ss22x)
 C_FLAGS   += -DCHIP_IS_SS22X
@@ -61,7 +61,7 @@ SDK_LIB   += -lmi_panel
 endif
 
 ifeq ($(CHIP),ss268)
-SDK_LIB += -lmi_vdec -lmi_disp -lmi_ao -lmi_gfx -lmi_sys -lmi_common -lcam_os_wrapper
+SDK_LIB += -lmi_vdec -lmi_scl -lmi_disp -lmi_ao -lmi_gfx -lmi_sys -lmi_common -lcam_os_wrapper
 else ifeq ($(CHIP),ss22x)
 SDK_LIB += -lmi_disp -lmi_ao -lmi_gfx -lmi_sys -lmi_common -lmi_divp -lcam_os_wrapper
 else ifeq ($(CHIP),ssd20x)

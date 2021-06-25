@@ -803,16 +803,11 @@ static int open_video_stream(player_stat_t *is)
             break;
 
         default :
-#ifdef CHIP_IS_SS268
-            p_codec = NULL;
-#else
             p_codec = avcodec_find_decoder(p_codec_par->codec_id);
-#endif
             is->decoder_type = AV_SOFT_DECODING;
             break;
     }
 #endif
-    //p_codec = avcodec_find_decoder(p_codec_par->codec_id); 
     if (p_codec == NULL)
     {
         av_log(NULL, AV_LOG_ERROR, "cann't find video codec!\n");

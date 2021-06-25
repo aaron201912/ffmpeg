@@ -11,6 +11,8 @@
 #include "mi_disp.h"
 #if ((defined CHIP_IS_SSD20X) || (defined CHIP_IS_SS22X))
 #include "mi_divp.h"
+#elif (defined CHIP_IS_SS268)
+#include "mi_scl.h"
 #endif
 #include "mi_vdec.h"
 #include "mi_gfx.h"
@@ -31,9 +33,18 @@
 #define MAX_WIDTH           1920
 #define MAX_HEIGHT          1080
 
+#define SCL_DEV             1
+#define SCL_CHN             0
+#define SCL_PORT            0
+
 #define DISP_DEV            0
+#define DISP_CHN            0
 #define DISP_LAYER          0
 #define DISP_INPUTPORT      0
+
+#define DIVP_DEV            0
+#define DIVP_CHN            0
+#define DIVP_PORT           0
 
 #define AUDIO_DEV           0
 #define AUDIO_CHN           0
@@ -304,8 +315,7 @@ static void mm_video_rotate(gfx_param_t *gfx_info, MI_PHY yAddr, MI_PHY uvAddr)
     else if (gfx_info->direction == AV_ROTATE_180) {
         SstarBlitHVFlip(&srcY, &dstY, &r);
     }
-    else
-    {
+    else {
         SstarBlitNormal(&srcY, &dstY, &r);
     }
 
@@ -342,12 +352,11 @@ static void mm_video_rotate(gfx_param_t *gfx_info, MI_PHY yAddr, MI_PHY uvAddr)
     else if (gfx_info->direction == AV_ROTATE_180) {
         SstarBlitHVFlip(&srcUV, &dstUV, &r);
     }
-    else
-    {
+    else {
         SstarBlitNormal(&srcUV, &dstUV, &r);
     }
 }
-
+bool printf_flag = false;
 static int mm_video_play(void *args, void *data)
 {
     player_stat_t *is = (player_stat_t *)args;
@@ -357,11 +366,17 @@ static int mm_video_play(void *args, void *data)
     {
         MI_SYS_ChnPort_t  stInputChnPort;
         memset(&stInputChnPort, 0, sizeof(MI_SYS_ChnPort_t));
+#if ((defined CHIP_IS_SSD20X) || (defined CHIP_IS_SS22X))
         stInputChnPort.eModId     = E_MI_MODULE_ID_DIVP;
-        stInputChnPort.u32ChnId   = 0;
-        stInputChnPort.u32DevId   = 0;
-        stInputChnPort.u32PortId  = 0;
-
+        stInputChnPort.u32ChnId   = DIVP_CHN;
+        stInputChnPort.u32DevId   = DIVP_DEV;
+        stInputChnPort.u32PortId  = DIVP_PORT;
+#elif (defined CHIP_IS_SS268)
+        stInputChnPort.eModId     = E_MI_MODULE_ID_SCL;
+        stInputChnPort.u32ChnId   = SCL_CHN;
+        stInputChnPort.u32DevId   = SCL_DEV;
+        stInputChnPort.u32PortId  = SCL_PORT;
+#endif
         //gettimeofday(&time_start, NULL);
         // YUV格式统一转换成NV12
         sws_scale(is->img_convert_ctx,                  // sws context
@@ -430,15 +445,25 @@ static int mm_video_play(void *args, void *data)
         memset(&stInputChnPort, 0, sizeof(MI_SYS_ChnPort_t));
         if (g_opts.enable_scaler)
         {
-            stInputChnPort.eModId = E_MI_MODULE_ID_DIVP;
+#if ((defined CHIP_IS_SSD20X) || (defined CHIP_IS_SS22X))
+            stInputChnPort.eModId    = E_MI_MODULE_ID_DIVP;
+            stInputChnPort.u32ChnId  = DIVP_CHN;
+            stInputChnPort.u32DevId  = DIVP_DEV;
+            stInputChnPort.u32PortId = DIVP_PORT;
+#elif (defined CHIP_IS_SS268)
+            stInputChnPort.eModId    = E_MI_MODULE_ID_SCL;
+            stInputChnPort.u32ChnId  = SCL_CHN;
+            stInputChnPort.u32DevId  = SCL_DEV;
+            stInputChnPort.u32PortId = SCL_PORT;
+#endif
         }
         else
         {
-            stInputChnPort.eModId = E_MI_MODULE_ID_DISP;
+            stInputChnPort.eModId    = E_MI_MODULE_ID_DISP;
+            stInputChnPort.u32ChnId  = DISP_CHN;
+            stInputChnPort.u32DevId  = DISP_DEV;
+            stInputChnPort.u32PortId = DISP_INPUTPORT;
         }
-        stInputChnPort.u32ChnId   = 0;
-        stInputChnPort.u32DevId   = 0;
-        stInputChnPort.u32PortId  = 0;
 
         SS_Vdec_BufInfo *stVdecBuf = (SS_Vdec_BufInfo *)frame->opaque;
 
@@ -484,7 +509,7 @@ static int mm_video_play(void *args, void *data)
                 }
             }
             stBufConf.u32Flags              = MI_SYS_MAP_VA;
-#ifdef CHIP_IS_SSD20X
+#if (defined CHIP_IS_SSD20X) || (defined CHIP_IS_SS22X)
             stBufConf.stFrameCfg.stFrameBufExtraConf.u16BufHAlignment = 16;
 #endif
             if (MI_SUCCESS == MI_SYS_ChnInputPortGetBuf(&stInputChnPort, &stBufConf, &stBufInfo, &bufHandle, 0))
@@ -534,6 +559,13 @@ static int mm_video_play(void *args, void *data)
                         stBufInfo.stFrameData.stContentCropWindow.u16Width  = pstVdecInfo->stDispInfo.u16CropRight;
                         stBufInfo.stFrameData.stContentCropWindow.u16Height = pstVdecInfo->stDispInfo.u16CropBottom;
                     }
+
+                    if (!printf_flag)
+                    {
+                        printf_flag = true;
+                        av_log(NULL, AV_LOG_INFO, "vdec output crop info: [%d %d %d %d]\n", pstVdecInfo->stDispInfo.u16CropLeft,
+                        pstVdecInfo->stDispInfo.u16CropTop, pstVdecInfo->stDispInfo.u16CropRight, pstVdecInfo->stDispInfo.u16CropBottom);
+                    }
                 } else {
                     gfx_info.direction   = is->display_mode;
                     gfx_info.phy_addr[0] = stVdecBuf->stVdecBufInfo.stFrameData.phyAddr[0];
@@ -571,8 +603,30 @@ static int mm_video_play(void *args, void *data)
                         stBufInfo.stFrameData.stContentCropWindow.u16Width  = stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16Width;
                         stBufInfo.stFrameData.stContentCropWindow.u16Height = stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16Height;
                     }
-                }
 
+                    if (!printf_flag)
+                    {
+                        printf_flag = true;
+                        av_log(NULL, AV_LOG_INFO, "vdec output crop info: [%d %d %d %d]\n", stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16X,
+                        stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16Y, stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16Width,
+                        stVdecBuf->stVdecBufInfo.stFrameData.stContentCropWindow.u16Height);
+                    }
+                }
+#if (defined CHIP_IS_SS268)
+                if (g_opts.enable_scaler)
+                {
+                    MI_SCL_DEV SclDevId = SCL_DEV;
+                    MI_SCL_CHANNEL SclChnId = SCL_CHN;
+                    MI_SYS_WindowRect_t stCropWin;
+
+                    memset(&stCropWin, 0x0, sizeof(MI_SYS_WindowRect_t));
+                    stCropWin.u16X      = stBufInfo.stFrameData.stContentCropWindow.u16X;
+                    stCropWin.u16Y      = stBufInfo.stFrameData.stContentCropWindow.u16Y;
+                    stCropWin.u16Width  = stBufInfo.stFrameData.stContentCropWindow.u16Width;
+                    stCropWin.u16Height = stBufInfo.stFrameData.stContentCropWindow.u16Height;
+                    MI_SCL_SetInputPortCrop(SclDevId, SclChnId, &stCropWin);
+                }
+#endif
                 //gettimeofday(&time_start, NULL);
                 mm_video_rotate(&gfx_info, stBufInfo.stFrameData.phyAddr[0], stBufInfo.stFrameData.phyAddr[1]);
                 //gettimeofday(&time_end, NULL);
@@ -611,7 +665,7 @@ static int mm_video_init(void *args)
         return -1;
     }
 
-    av_log(NULL, AV_LOG_WARNING, "display w/h = [%d %d], src w/h = [%d %d]!\n", is->out_width, is->out_height, is->src_width, is->src_height);
+    av_log(NULL, AV_LOG_WARNING, "display w/h = [%d %d], src w/h = [%d %d]!\n", is->out_width, is->out_height, is->dst_width, is->dst_height);
 
 #if ((defined CHIP_IS_SSD20X) || (defined CHIP_IS_SS22X))
     #ifdef ENABLE_STR
@@ -636,7 +690,7 @@ static int mm_video_init(void *args)
     av_log(NULL, AV_LOG_WARNING, "Init divp and gfx module dev!\n");
     #endif
     MI_GFX_Open();
-#else
+#elif (defined CHIP_IS_SS268)
     MI_GFX_DEV stGfxDevId = 0;
     MI_GFX_Open(stGfxDevId);
 #endif
@@ -696,21 +750,67 @@ static int mm_video_init(void *args)
 
         memset(&stDispChnPort, 0, sizeof(MI_SYS_ChnPort_t));
         stDispChnPort.eModId                = E_MI_MODULE_ID_DISP;
-        stDispChnPort.u32DevId              = 0;
-        stDispChnPort.u32ChnId              = 0;
+        stDispChnPort.u32DevId              = DISP_DEV;
+        stDispChnPort.u32ChnId              = DISP_CHN;
         stDispChnPort.u32PortId             = DISP_INPUTPORT;
 
         memset(&stDivpChnPort, 0, sizeof(MI_SYS_ChnPort_t));
         stDivpChnPort.eModId                = E_MI_MODULE_ID_DIVP;
-        stDivpChnPort.u32DevId              = 0;
-        stDivpChnPort.u32ChnId              = 0;
-        stDivpChnPort.u32PortId             = 0;
+        stDivpChnPort.u32DevId              = DIVP_DEV;
+        stDivpChnPort.u32ChnId              = DIVP_CHN;
+        stDivpChnPort.u32PortId             = DIVP_PORT;
 
         MI_SYS_SetChnOutputPortDepth(&stDivpChnPort, 0, 3);
         MI_SYS_BindChnPort(&stDivpChnPort, &stDispChnPort, 30, 30);
-#else
-        av_log(NULL, AV_LOG_WARNING, "ss268 cannot support scaler module now!\n");
-        return -1;
+#elif (defined CHIP_IS_SS268)
+        MI_SCL_DEV SclDevId = SCL_DEV;
+        MI_SCL_PORT SclOutPortId = SCL_PORT;
+        MI_SCL_CHANNEL SclChnId = SCL_CHN;
+        MI_SCL_DevAttr_t stCreateDevAttr;
+        MI_SCL_ChnParam_t stSclChnParam;
+        MI_SCL_OutPortParam_t stSclOutputParam;
+        MI_SYS_ChnPort_t stSclChnPort;
+
+        memset(&stCreateDevAttr, 0x0, sizeof(MI_SCL_DevAttr_t));
+        stCreateDevAttr.u32NeedUseHWOutPortMask = E_MI_SCL_HWSCL2;
+        MI_SCL_CreateDevice(SclDevId, &stCreateDevAttr);
+
+        MI_SCL_ChannelAttr_t  stSclChnAttr;
+        memset(&stSclChnAttr, 0x0, sizeof(MI_SCL_ChannelAttr_t));
+        MI_SCL_CreateChannel(SclDevId, SclChnId, &stSclChnAttr);
+
+        memset(&stSclChnParam, 0x0, sizeof(MI_SCL_ChnParam_t));
+        stSclChnParam.eRot = E_MI_SYS_ROTATE_NONE;
+        MI_SCL_SetChnParam(SclDevId, SclChnId, &stSclChnParam);
+
+        MI_SCL_StartChannel(SclDevId, SclChnId);
+
+        memset(&stSclOutputParam, 0x0, sizeof(MI_SCL_OutPortParam_t));
+        stSclOutputParam.stSCLOutputSize.u16Width   = is->dst_width;
+        stSclOutputParam.stSCLOutputSize.u16Height  = is->dst_height;
+        stSclOutputParam.eCompressMode      = E_MI_SYS_COMPRESS_MODE_NONE;
+        stSclOutputParam.ePixelFormat       = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
+        stSclOutputParam.bMirror            = FALSE;
+        stSclOutputParam.bFlip              = FALSE;
+
+        MI_SCL_SetOutputPortParam(SclDevId, SclChnId, SclOutPortId, &stSclOutputParam);
+
+        MI_SCL_EnableOutputPort(SclDevId, SclChnId, SclOutPortId);
+
+        memset(&stDispChnPort, 0, sizeof(MI_SYS_ChnPort_t));
+        stDispChnPort.eModId                = E_MI_MODULE_ID_DISP;
+        stDispChnPort.u32DevId              = DISP_DEV;
+        stDispChnPort.u32ChnId              = DISP_CHN;
+        stDispChnPort.u32PortId             = DISP_INPUTPORT;
+
+        memset(&stSclChnPort, 0, sizeof(MI_SYS_ChnPort_t));
+        stSclChnPort.eModId                 = E_MI_MODULE_ID_SCL;
+        stSclChnPort.u32DevId               = SCL_DEV;
+        stSclChnPort.u32ChnId               = SCL_CHN;
+        stSclChnPort.u32PortId              = SCL_PORT;
+
+        MI_SYS_SetChnOutputPortDepth(ST_DEFAULT_SOC_ID, &stSclChnPort, 0, 3);
+        MI_SYS_BindChnPort(ST_DEFAULT_SOC_ID, &stSclChnPort, &stDispChnPort, 30, 30);
 #endif
     }
 
@@ -725,6 +825,10 @@ int mm_video_deinit(void *args)
 {
     player_stat_t *is = (player_stat_t *)args;
 
+    MI_DISP_RotateConfig_t stRotateConfig;
+    stRotateConfig.eRotateMode = E_MI_DISP_ROTATE_NONE;
+    MI_DISP_SetVideoLayerRotateMode(DISP_LAYER, &stRotateConfig);
+
     if (is->decoder_type == AV_SOFT_DECODING || g_opts.enable_scaler)
     {
 #if ((defined CHIP_IS_SSD20X) || (defined CHIP_IS_SS22X))
@@ -733,17 +837,21 @@ int mm_video_deinit(void *args)
 
         memset(&stDispChnPort, 0, sizeof(MI_SYS_ChnPort_t));
         stDispChnPort.eModId                = E_MI_MODULE_ID_DISP;
-        stDispChnPort.u32DevId              = 0;
-        stDispChnPort.u32ChnId              = 0;
-        stDispChnPort.u32PortId             = 0;
+        stDispChnPort.u32DevId              = DISP_DEV;
+        stDispChnPort.u32ChnId              = DISP_CHN;
+        stDispChnPort.u32PortId             = DISP_INPUTPORT;
 
         memset(&stDivpChnPort, 0, sizeof(MI_SYS_ChnPort_t));
         stDivpChnPort.eModId                = E_MI_MODULE_ID_DIVP;
-        stDivpChnPort.u32DevId              = 0;
-        stDivpChnPort.u32ChnId              = 0;
-        stDivpChnPort.u32PortId             = 0;
+        stDivpChnPort.u32DevId              = DIVP_DEV;
+        stDivpChnPort.u32ChnId              = DIVP_CHN;
+        stDivpChnPort.u32PortId             = DIVP_PORT;
 
         MI_SYS_UnBindChnPort(&stDivpChnPort, &stDispChnPort);
+
+        MI_DISP_ClearInputPortBuffer(DISP_LAYER, DISP_INPUTPORT, TRUE);
+        MI_DISP_HideInputPort(DISP_LAYER, DISP_INPUTPORT);
+        MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
 
         MI_DIVP_StopChn(0);
         MI_DIVP_DestroyChn(0);
@@ -752,16 +860,43 @@ int mm_video_deinit(void *args)
         MI_DIVP_DeInitDev();
         av_log(NULL, AV_LOG_WARNING, "DeInit divp and gfx module dev!\n");
         #endif
+#elif (defined CHIP_IS_SS268)
+        MI_SCL_DEV SclDevId = SCL_DEV;
+        MI_SCL_PORT SclOutPortId = SCL_PORT;
+        MI_SCL_CHANNEL SclChnId = SCL_CHN;
+        MI_SYS_ChnPort_t stDispChnPort;
+        MI_SYS_ChnPort_t stSclChnPort;
+
+        memset(&stDispChnPort, 0, sizeof(MI_SYS_ChnPort_t));
+        stDispChnPort.eModId                = E_MI_MODULE_ID_DISP;
+        stDispChnPort.u32DevId              = DISP_DEV;
+        stDispChnPort.u32ChnId              = DISP_CHN;
+        stDispChnPort.u32PortId             = DISP_INPUTPORT;
+
+        memset(&stSclChnPort, 0, sizeof(MI_SYS_ChnPort_t));
+        stSclChnPort.eModId                 = E_MI_MODULE_ID_SCL;
+        stSclChnPort.u32DevId               = SCL_DEV;
+        stSclChnPort.u32ChnId               = SCL_CHN;
+        stSclChnPort.u32PortId              = SCL_PORT;
+
+        MI_SYS_UnBindChnPort(ST_DEFAULT_SOC_ID, &stSclChnPort, &stDispChnPort);
+
+        MI_DISP_ClearInputPortBuffer(DISP_LAYER, DISP_INPUTPORT, TRUE);
+        MI_DISP_HideInputPort(DISP_LAYER, DISP_INPUTPORT);
+        MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
+
+        MI_SCL_DisableOutputPort(SclDevId, SclChnId, SclOutPortId);
+        MI_SCL_StopChannel(SclDevId, SclChnId);
+        MI_SCL_DestroyChannel(SclDevId, SclChnId);
+        MI_SCL_DestroyDevice(SclDevId);
 #endif
     }
-
-    MI_DISP_RotateConfig_t stRotateConfig;
-    stRotateConfig.eRotateMode = E_MI_DISP_ROTATE_NONE;
-    MI_DISP_SetVideoLayerRotateMode(DISP_LAYER, &stRotateConfig);
-
-    MI_DISP_ClearInputPortBuffer(DISP_LAYER, DISP_INPUTPORT, TRUE);
-    MI_DISP_HideInputPort(DISP_LAYER, DISP_INPUTPORT);
-    MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
+    else
+    {
+        MI_DISP_ClearInputPortBuffer(DISP_LAYER, DISP_INPUTPORT, TRUE);
+        MI_DISP_HideInputPort(DISP_LAYER, DISP_INPUTPORT);
+        MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
+    }
 
 #if (defined CHIP_IS_SSD20X || defined CHIP_IS_SS22X)
     MI_GFX_Close();
@@ -771,7 +906,7 @@ int mm_video_deinit(void *args)
     MI_GFX_DeInitDev();
     av_log(NULL, AV_LOG_WARNING, "DeInit disp and sys module dev!\n");
     #endif
-#else
+#elif (defined CHIP_IS_SS268)
     MI_GFX_DEV stGfxDevId = 0;
     MI_GFX_Close(stGfxDevId);
 #endif
@@ -1209,7 +1344,7 @@ int mm_player_set_window(int x, int y, int width, int height)
         av_log(NULL, AV_LOG_ERROR, "set window param is invalid!\n");
         return -1;
     }
-#if (defined CHIP_IS_SSD20X || defined CHIP_IS_SS22X)
+
     if (g_mmplayer && g_opts.enable_scaler)
     {
         g_mmplayer->src_width  = width;
@@ -1219,12 +1354,33 @@ int mm_player_set_window(int x, int y, int width, int height)
         g_mmplayer->pos_x = x;
         g_mmplayer->pos_y = y;
 
+#if (defined CHIP_IS_SSD20X || defined CHIP_IS_SS22X)
         MI_DIVP_OutputPortAttr_t stOutputPortAttr;
 
         MI_DIVP_GetOutputPortAttr(0, &stOutputPortAttr);
         stOutputPortAttr.u32Width  = g_mmplayer->src_width;
         stOutputPortAttr.u32Height = g_mmplayer->src_height;
         MI_DIVP_SetOutputPortAttr(0, &stOutputPortAttr);
+#elif (defined CHIP_IS_SS268)
+        MI_SCL_DEV SclDevId = SCL_DEV;
+        MI_SCL_PORT SclOutPortId = SCL_PORT;
+        MI_SCL_CHANNEL SclChnId = SCL_CHN;
+        MI_SCL_OutPortParam_t stSclOutputParam;
+
+        memset(&stSclOutputParam, 0x0, sizeof(MI_SCL_OutPortParam_t));
+        stSclOutputParam.stSCLOutCropRect.u16X      = 0;
+        stSclOutputParam.stSCLOutCropRect.u16Y      = 0;
+        stSclOutputParam.stSCLOutCropRect.u16Width  = 0;
+        stSclOutputParam.stSCLOutCropRect.u16Height = 0;
+        stSclOutputParam.stSCLOutputSize.u16Width   = g_mmplayer->src_width;
+        stSclOutputParam.stSCLOutputSize.u16Height  = g_mmplayer->src_height;
+        stSclOutputParam.eCompressMode = E_MI_SYS_COMPRESS_MODE_FRAME;
+        stSclOutputParam.ePixelFormat  = E_MI_SYS_PIXEL_FRAME_YUV_SEMIPLANAR_420;
+        stSclOutputParam.bMirror       = FALSE;
+        stSclOutputParam.bFlip         = FALSE;
+
+        MI_SCL_SetOutputPortParam(SclDevId, SclChnId, SclOutPortId, &stSclOutputParam);
+#endif
 
         MI_DISP_InputPortAttr_t stInputPortAttr;
         MI_DISP_GetInputPortAttr(0, 0, &stInputPortAttr);
@@ -1243,7 +1399,6 @@ int mm_player_set_window(int x, int y, int width, int height)
     }
 
     av_log(NULL, AV_LOG_INFO, "mm_player_set_window =  [%d %d %d %d]\n", x, y, width, height);
-#endif
 
     return 0;
 }
