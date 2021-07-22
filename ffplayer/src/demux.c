@@ -93,7 +93,7 @@ static void * demux_thread(void *arg)
     // 4. 解复用处理
     while (1)
     {
-        if (is->abort_request || is->play_status > AV_PLAY_PAUSE)
+        if (is->abort_request || is->play_status & AV_PLAY_ERROR)
         {
             printf("demux thread exit\n");
             break;
@@ -178,7 +178,7 @@ static void * demux_thread(void *arg)
                 double diff = get_clock(&is->audio_clk) - get_clock(&is->video_clk);
                 if (!isnan(diff) && diff > AV_NOSYNC_THRESHOLD) {
                     printf("video lags audio for too long!\n");
-                    is->play_status = AV_NOSYNC;
+                    is->play_status |= AV_NOSYNC;
                 }
                 //printf("wait video queue avalible pktnb: %d\n",is->video_pkt_queue.nb_packets);
                 //printf("wait audio queue avalible pktnb: %d\n",is->audio_pkt_queue.nb_packets);
@@ -223,7 +223,7 @@ static void * demux_thread(void *arg)
             if (is->time_out) {
                 av_log(NULL, AV_LOG_ERROR, "av_read_frame time out!\n");
                 is->time_out = false;
-                is->play_status = AV_READ_TIMEOUT;
+                is->play_status |= AV_READ_TIMEOUT;
             }
 
             if (read_start.tv_sec - read_timeout.tv_sec >= PLAYER_READ_TIMEOUT / 2) {
@@ -322,14 +322,14 @@ static int demux_init(player_stat_t *is)
         if (is->time_out) {
             av_log(NULL, AV_LOG_ERROR, "avformat_open_input time out!\n");
             is->time_out = false;
-            is->play_status = AV_READ_TIMEOUT;
+            is->play_status |= AV_READ_TIMEOUT;
         } else {
             if (err == -101) {
                 av_log(NULL, AV_LOG_ERROR, "network can't reachable!\n");
-                is->play_status = AV_NO_NETWORK;
+                is->play_status |= AV_NO_NETWORK;
             } else {
                 printf("avformat_open_input(%s) failed %d\n",is->filename,err);
-                is->play_status = AV_INVALID_FILE;
+                is->play_status |= AV_INVALID_FILE;
             }
         }
         ret = err;
@@ -381,7 +381,7 @@ static int demux_init(player_stat_t *is)
         if (is->time_out) {
             av_log(NULL, AV_LOG_ERROR, "avformat_open_input time out!\n");
             is->time_out = false;
-            is->play_status = AV_READ_TIMEOUT;
+            is->play_status |= AV_READ_TIMEOUT;
         }
         printf("avformat_find_stream_info() failed %d\n", err);
         ret = err;

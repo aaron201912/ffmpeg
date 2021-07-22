@@ -1072,9 +1072,8 @@ int mm_player_open(const char *fp, uint16_t x, uint16_t y, uint16_t width, uint1
     gettimeofday(&g_mmplayer->tim_open, NULL);
     if(mm_layer_handler(g_mmplayer) == NULL)
     {
-        int ret = (g_mmplayer->play_status < 0) ? g_mmplayer->play_status : -1;
         mm_player_close();
-        return ret;
+        return -1;
     }
     av_log(NULL, AV_LOG_INFO, "leave mm_player_open ###\n");
 
@@ -1119,7 +1118,7 @@ int mm_player_pause(void)
 
     av_log(NULL, AV_LOG_INFO, "mm_player_pause!\n");
     toggle_pause(g_mmplayer);
-    g_mmplayer->play_status = AV_PLAY_PAUSE;
+    g_mmplayer->play_status |= AV_PLAY_PAUSE;
 
     pthread_mutex_unlock(&player_mutex);
 
@@ -1138,7 +1137,7 @@ int mm_player_resume(void)
 
     av_log(NULL, AV_LOG_INFO, "mm_player_resume!\n");
     toggle_pause(g_mmplayer);
-    g_mmplayer->play_status = AV_NOTHING;
+    g_mmplayer->play_status &= ~AV_PLAY_PAUSE;
 
     pthread_mutex_unlock(&player_mutex);
 
@@ -1300,11 +1299,11 @@ int mm_player_set_volumn(int volumn)
         if (MI_SUCCESS == MI_AO_QueryChnStat(g_opts.audio_dev, AUDIO_CHN, &stAoState))
         {
 #ifdef CHIP_IS_SS268
-            MI_AO_SetVolume(AUDIO_DEV, AoChn, vol, E_MI_AO_GAIN_FADING_16_SAMPLE);
-            MI_AO_SetMute(AUDIO_DEV, AoChn, audio_mute);
+            MI_AO_SetVolume(g_opts.audio_dev, AoChn, vol, E_MI_AO_GAIN_FADING_16_SAMPLE);
+            MI_AO_SetMute(g_opts.audio_dev, AoChn, audio_mute);
 #elif defined CHIP_IS_SS22X
-            MI_AO_SetVolume(AUDIO_DEV, AoChn, vol, E_MI_AO_GAIN_FADING_16_SAMPLE);
-            MI_AO_SetMute(AUDIO_DEV, AoChn, audio_mute);
+            MI_AO_SetVolume(g_opts.audio_dev, AoChn, vol, E_MI_AO_GAIN_FADING_16_SAMPLE);
+            MI_AO_SetMute(g_opts.audio_dev, AoChn, audio_mute);
 #else
             MI_AO_SetVolume(g_opts.audio_dev, vol);
             MI_AO_SetMute(g_opts.audio_dev, audio_mute);
@@ -1326,13 +1325,17 @@ int mm_player_set_mute(bool mute)
         audio_mute = mute;
 #ifdef CHIP_IS_SS268
         MI_AO_CHN AoChn = AUDIO_CHN;
-        MI_AO_SetMute(AUDIO_DEV, AoChn, audio_mute);
+        MI_AO_SetMute(g_opts.audio_dev, AoChn, audio_mute);
 #elif defined CHIP_IS_SS22X
         MI_AO_CHN AoChn = AUDIO_CHN;
-        MI_AO_SetMute(AUDIO_DEV, AoChn, audio_mute);
+        MI_AO_SetMute(g_opts.audio_dev, AoChn, audio_mute);
 #else
         MI_AO_SetMute(g_opts.audio_dev, audio_mute);
 #endif
+        if (audio_mute)
+            g_mmplayer->play_status |= AV_AUDIO_MUTE;
+        else
+            g_mmplayer->play_status &= ~AV_AUDIO_MUTE;
     }
 
     return 0;
@@ -1484,7 +1487,7 @@ int mm_player_set_opts(const char *key, const char *value, int flags)
         return 0;
     }
 
-    av_log(NULL, AV_LOG_ERROR, "unknowed key words!\n");
+    av_log(NULL, AV_LOG_ERROR, "unknowed key words: %s!\n", key);
     return -1;
 }
 

@@ -28,7 +28,7 @@ INCLUDES  = -I. -I$(CURRENT_PATH)/../include -I$(CURRENT_PATH)/../../ffmpeg-4.1.
 ifeq ($(CHIP),ss268)
 C_FLAGS   += -DCHIP_IS_SS268
 CPP_FLAGS += -DCHIP_IS_SS268
-SDK_LIB    = -L$(ALKAID_PATH)/project/release/chip/m6/xvr/common/glibc/9.1.0/mi_libs/dynamic -L$(ALKAID_PATH)/project/release/chip/m6/sigma_common_libs/glibc/9.1.0/dynamic
+SDK_LIB    = -L$(ALKAID_PATH)/project/release/chip/m6/dispcam/common/glibc/9.1.0/mi_libs/dynamic -L$(ALKAID_PATH)/project/release/chip/m6/sigma_common_libs/glibc/9.1.0/dynamic
 APP_LIB    = -L. -L$(CURRENT_PATH)/../../3rdparty/lib/9.1.0
 else ifeq ($(CHIP),ss22x)
 C_FLAGS   += -DCHIP_IS_SS22X

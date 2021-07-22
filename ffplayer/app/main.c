@@ -41,11 +41,11 @@ static void * mm_player_thread(void *args)
     while (!b_exit)
     {
         ret = mm_player_get_status();
-        if (ret > AV_PLAY_PAUSE)
+        if (ret & AV_PLAY_ERROR)
         {
             b_exit = true;
         }
-        else if (ret == AV_PLAY_COMPLETE)
+        else if ((ret & AV_PLAY_COMPLETE) == AV_PLAY_COMPLETE)
         {
             mm_player_close();
             ret = mm_player_open(filename, 0, 0, width, height);
@@ -186,6 +186,7 @@ int main(int argc, char *argv[])
             case 'm':
                 mute = !mute;
                 mm_player_set_mute(mute);
+                printf("audio mute status: %d\n", mm_player_get_status());
             break;
 
             case '+':

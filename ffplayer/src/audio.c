@@ -68,10 +68,10 @@ static int audio_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             }
             else
             {
-                if (g_mmplayer->play_status != AV_ACODEC_ERROR)
+                if (!(g_mmplayer->play_status & AV_ACODEC_ERROR))
                 {
                     av_log(NULL, AV_LOG_ERROR, "audio avcodec_receive_frame(): other errors\n");
-                    g_mmplayer->play_status = AV_ACODEC_ERROR;
+                    g_mmplayer->play_status |= AV_ACODEC_ERROR;
                 }
                 av_usleep(10 * 1000);
                 return -1;
@@ -111,10 +111,10 @@ static int audio_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             }
             else if (ret < 0)
             {
-                if (g_mmplayer->play_status != AV_ACODEC_ERROR)
+                if (!(g_mmplayer->play_status != AV_ACODEC_ERROR))
                 {
                     av_log(NULL, AV_LOG_ERROR, "audio decoding occur error!\n");
-                    g_mmplayer->play_status = AV_ACODEC_ERROR;
+                    g_mmplayer->play_status |= AV_ACODEC_ERROR;
                 }
             }
         }
@@ -263,7 +263,7 @@ replay:
     if (is->paused || is->step)
         return AV_PLAY_PAUSE;
 
-    if (is->no_pkt_buf || is->play_status > AV_PLAY_PAUSE) {
+    if (is->no_pkt_buf || is->play_status & AV_PLAY_ERROR) {
         av_usleep(10 * 1000);
         return -1;
     }
@@ -278,7 +278,9 @@ replay:
         {
             is->audio_complete = 1;
             if (is->video_complete && is->audio_complete) {
-                is->play_status = AV_PLAY_COMPLETE;
+                is->play_status |= AV_PLAY_COMPLETE;
+            } else {
+                is->play_status |= AV_AUDIO_COMPLETE;
             }
             av_log(NULL, AV_LOG_INFO, "audio play completely!\n");
         } 

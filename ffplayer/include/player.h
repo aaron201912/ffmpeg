@@ -60,6 +60,21 @@ extern "C"{
 #define SAMPLE_QUEUE_SIZE 9
 #define FRAME_QUEUE_SIZE FFMAX(SAMPLE_QUEUE_SIZE, FFMAX(VIDEO_PICTURE_QUEUE_SIZE, SUBPICTURE_QUEUE_SIZE))
 
+#define AV_NOTHING          (0x0000)
+#define AV_AUDIO_COMPLETE   (0x0001)
+#define AV_VIDEO_COMPLETE   (0x0002)
+#define AV_PLAY_PAUSE       (0x0004)
+#define AV_ACODEC_ERROR     (0x0008)
+#define AV_VCODEC_ERROR     (0x0010)
+#define AV_NOSYNC           (0x0020)
+#define AV_READ_TIMEOUT     (0x0040)
+#define AV_NO_NETWORK       (0x0080)
+#define AV_INVALID_FILE     (0x0100)
+#define AV_AUDIO_MUTE       (0x0200)
+
+#define AV_PLAY_COMPLETE    (AV_AUDIO_COMPLETE | AV_VIDEO_COMPLETE)
+#define AV_PLAY_ERROR       (AV_ACODEC_ERROR | AV_VCODEC_ERROR | AV_NOSYNC | AV_READ_TIMEOUT | AV_NO_NETWORK | AV_INVALID_FILE)
+
 enum {
     AV_SYNC_AUDIO_MASTER, /* default choice */
     AV_SYNC_VIDEO_MASTER,
@@ -81,18 +96,6 @@ enum {
 enum {
     AV_SOFT_DECODING,
     AV_HARD_DECODING
-};
-
-enum {
-    AV_NOTHING       = 0,
-    AV_PLAY_COMPLETE = 1,
-    AV_PLAY_PAUSE    = 2,
-    AV_ACODEC_ERROR  = 3,
-    AV_VCODEC_ERROR  = 4,
-    AV_NOSYNC        = 5,
-    AV_READ_TIMEOUT  = 6,
-    AV_NO_NETWORK    = 7,
-    AV_INVALID_FILE  = 8
 };
 
 enum {
