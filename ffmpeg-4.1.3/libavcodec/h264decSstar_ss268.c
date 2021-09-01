@@ -652,10 +652,7 @@ static MI_U32 ss_h264_vdec_init(AVCodecContext *avctx)
 
     av_log(avctx, AV_LOG_WARNING, "h264 has b frames : %d\n", avctx->has_b_frames);
     memset(&stVdecInitParam, 0, sizeof(MI_VDEC_InitParam_t));
-    if (avctx->has_b_frames > 0)
-        stVdecInitParam.bDisableLowLatency = true;
-    else
-        stVdecInitParam.bDisableLowLatency = false;
+    stVdecInitParam.u32Reserved = FALSE;
     STCHECKRESULT(MI_VDEC_CreateDev(VdecDev,&stVdecInitParam));
 
     if (!(avctx->flags & (1 << 17))) {
@@ -677,6 +674,7 @@ static MI_U32 ss_h264_vdec_init(AVCodecContext *avctx)
     stVdecChnAttr.u32PicHeight  = FFMAX(stHeight, avctx->height);
     stVdecChnAttr.eDpbBufMode   = E_MI_VDEC_DPB_MODE_NORMAL;
     stVdecChnAttr.u32Priority   = 0;
+    stVdecChnAttr.stVdecVideoAttr.bDisableLowLatency = (avctx->has_b_frames > 0) ? true : false;
 
     STCHECKRESULT(MI_VDEC_CreateChn(ST_DEFAULT_SOC_ID, stVdecChn, &stVdecChnAttr));
     STCHECKRESULT(MI_VDEC_StartChn(ST_DEFAULT_SOC_ID, stVdecChn));

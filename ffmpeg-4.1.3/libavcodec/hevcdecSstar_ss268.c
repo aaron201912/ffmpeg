@@ -435,10 +435,7 @@ static int ss_hevc_vdec_init(AVCodecContext *avctx)
 
     av_log(avctx, AV_LOG_WARNING, "hevc has b frames : %d\n", avctx->has_b_frames);
     memset(&stVdecInitParam, 0, sizeof(MI_VDEC_InitParam_t));
-    if (avctx->has_b_frames > 0)
-        stVdecInitParam.bDisableLowLatency = true;
-    else
-        stVdecInitParam.bDisableLowLatency = false;
+    stVdecInitParam.u32Reserved = FALSE;
     STCHECKRESULT(MI_VDEC_CreateDev(VdecDev, &stVdecInitParam));
 
     if (!(avctx->flags & (1 << 17))) {
@@ -460,6 +457,7 @@ static int ss_hevc_vdec_init(AVCodecContext *avctx)
     stVdecChnAttr.u32PicHeight  = FFMAX(stHeight, avctx->height);
     stVdecChnAttr.eDpbBufMode   = E_MI_VDEC_DPB_MODE_NORMAL;
     stVdecChnAttr.u32Priority   = 0;
+    stVdecChnAttr.stVdecVideoAttr.bDisableLowLatency = (avctx->has_b_frames > 0) ? true : false;
 
     STCHECKRESULT(MI_VDEC_CreateChn(VdecDev, stVdecChn, &stVdecChnAttr));
     STCHECKRESULT(MI_VDEC_StartChn(VdecDev, stVdecChn));
