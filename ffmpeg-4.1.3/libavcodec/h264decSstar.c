@@ -533,7 +533,7 @@ static int ss_h264_decode_parse(SsH264Context *s, const uint8_t *buf, int buf_si
         }
     }
     s->find_header = 1;
-    ss_h264_send_stream(s, s->extradata, s->extradata_size, 0, 0);
+    //ss_h264_send_stream(s, s->extradata, s->extradata_size, 0, 0);
 fail:
     ff_h2645_packet_uninit(&pkt);
     return ret;
@@ -833,8 +833,6 @@ static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
             case H264_NAL_DPA:
             case H264_NAL_DPB:
             case H264_NAL_DPC:
-            case H264_NAL_SPS:
-            case H264_NAL_PPS:
                 //if (h264_pts.idx > 10)
                 //    pts_queue_get(&h264_pts, &ret);
                 //pts_queue_put(&h264_pts, avpkt->pts);
@@ -849,6 +847,8 @@ static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
                     //av_log(NULL, AV_LOG_INFO, "extra size : %d, nal size : %d, nal data : %x,%x,%x,%x,%x,%x\n", data_idx, nal->size + 4, extrabuf[data_idx + 2], 
                     //extrabuf[data_idx + 3], extrabuf[data_idx + 4], extrabuf[data_idx + 5], extrabuf[data_idx + 6], extrabuf[data_idx + 7]);
                 }
+            case H264_NAL_SPS:
+            case H264_NAL_PPS:
                 if (!s->find_header && (nal->type == H264_NAL_SPS || nal->type == H264_NAL_PPS))
                 {
                     if (nal->type == H264_NAL_SPS)

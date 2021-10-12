@@ -604,9 +604,6 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
                     memcpy(s->pkt_buf, s->data, s->data_size);
                     data_idx = s->data_size;
                 }
-            case HEVC_NAL_VPS:
-            case HEVC_NAL_SPS:
-            case HEVC_NAL_PPS:
             case HEVC_NAL_TRAIL_R:
             case HEVC_NAL_TRAIL_N:
             case HEVC_NAL_TSA_N:
@@ -634,6 +631,9 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
                     //av_log(NULL, AV_LOG_INFO, "extra size : %d, nal size : %d, nal data : %x,%x,%x,%x,%x,%x\n", data_idx, nal->size + 4, extradata_buf[data_idx + 2], 
                     //extradata_buf[data_idx + 3], extradata_buf[data_idx + 4], extradata_buf[data_idx + 5], extradata_buf[data_idx + 6], extradata_buf[data_idx + 7]);
                 }
+            case HEVC_NAL_VPS:
+            case HEVC_NAL_SPS:
+            case HEVC_NAL_PPS:
                 if (!s->find_header && (nal->type == HEVC_NAL_VPS || nal->type == HEVC_NAL_SPS || nal->type == HEVC_NAL_PPS))
                 {
                     if (nal->type == HEVC_NAL_VPS)
@@ -692,7 +692,7 @@ static int ss_hevc_parser_nalu(SsHevcContext *s, const uint8_t *buf, int buf_siz
         }
     }
     s->find_header = 1;
-    ss_hevc_send_stream(s, s->data, s->data_size, 0, 0);
+    //ss_hevc_send_stream(s, s->data, s->data_size, 0, 0);
 done:
     ff_h2645_packet_uninit(&pkt);
     return ret;
