@@ -147,6 +147,10 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
     {
         AVPacket pkt;
 
+        if (g_mmplayer->paused || g_mmplayer->no_pkt_buf){
+            return 0;
+        }
+
         while (1)
         {
             //printf("get in video_decode_frame!\n");
@@ -356,17 +360,18 @@ static int video_refresh(void *opaque, double *remaining_time, double duration)
     }
 retry:
     // 暂停处理：不停播放上一帧图像
-    if (is->paused)
+    if (is->paused && !is->abort_request) {
         return AV_PLAY_PAUSE;
+    }
 
-    if (is->no_pkt_buf || is->play_status & AV_PLAY_ERROR) {
+    if ((is->no_pkt_buf || is->play_status & AV_PLAY_ERROR) && !is->abort_request) {
         av_usleep(10 * 1000);
         return 0;
     }
 
     //printf("f->size = %d, f->rindex_shown = %d\n",is->video_frm_queue.size, is->video_frm_queue.rindex_shown);
     if (frame_queue_nb_remaining(&is->video_frm_queue) <= 0)  // 所有帧已显示
-    {    
+    {
         //nothing to do, no picture to display in the queue
         //printf("already last frame: %d\n",is->video_frm_queue.size);
         if (!is->video_complete && is->eof && !is->video_pkt_queue.nb_packets && is->start_play)
@@ -378,10 +383,22 @@ retry:
                 is->play_status |= AV_VIDEO_COMPLETE;
             }
             av_log(NULL, AV_LOG_INFO, "video play completely, total/left frame = [%d %d]!\n", is->p_vcodec_ctx->frame_number, is->video_frm_queue.size);
-        } else {
-            return 0;
         }
+
+        if ((is->video_complete || is->abort_request) && !is->the_last_frame)
+        {
+            is->the_last_frame = is->keep_frames;
+            is->keep_frames = true;
+            video_display(is);
+        }
+
+        return 0;
     }
+
+    if (!is->keep_frames && (is->abort_request || (is->eof && !is->video_pkt_queue.nb_packets))) {
+        is->keep_frames = true;
+    }
+
     //av_log(NULL, AV_LOG_ERROR, "frame_queue_nb_remaining done!\n");
     /* dequeue the picture */
     //lastvp = frame_queue_peek_last(&is->video_frm_queue);
@@ -389,7 +406,7 @@ retry:
     //printf("refresh ridx: %d,rs:%d,widx: %d,size: %d,maxsize: %d\n",is->video_frm_queue.rindex,is->video_frm_queue.rindex_shown,is->video_frm_queue.windex,is->video_frm_queue.size,is->video_frm_queue.max_size);
     /* compute nominal last_duration */
     //duration = vp_duration(is, lastvp, vp);
-    delay = compute_target_delay(duration, is);    // 根据视频时钟和同步时钟的差值，计算delay值
+    delay = is->keep_frames ? duration : compute_target_delay(duration, is); // 根据视频时钟和同步时钟的差值，计算delay值
     //printf("last_duration: %lf,delay: %lf\n", last_duration, delay);
     time= av_gettime_relative()/1000000.0;
     // 当前帧播放时刻(is->frame_timer+delay)大于当前时刻(time)，表示播放时刻未到
@@ -568,7 +585,12 @@ static void * video_decode_thread(void *arg)
             printf("video decode thread exit\n");
             break;
         }
-        
+
+        if (is->paused || is->no_pkt_buf){
+            av_usleep(10 * 1000);
+            continue;
+        }
+
         got_picture = video_decode_frame(is->p_vcodec_ctx, &is->video_pkt_queue, p_frame);
         if (got_picture < 0)
         {
@@ -627,7 +649,7 @@ static void * video_playing_thread(void *arg)
 
     while (1)
     {
-        if(is->abort_request)
+        if(is->abort_request && is->the_last_frame)
         {
             printf("video play thread exit\n");
             break;

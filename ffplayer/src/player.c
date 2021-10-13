@@ -347,6 +347,9 @@ fail:
 
 int player_deinit(player_stat_t *is)
 {
+    if (!is) {
+        return 0;
+    }
     av_log(NULL, AV_LOG_WARNING, "1.start[%d,%lu]\n",is->demux_status,is->read_tid);
     /* XXX: use a special url_shutdown call to abort parse cleanly */
     is->abort_request = 1;
@@ -357,16 +360,16 @@ int player_deinit(player_stat_t *is)
             pthread_join(is->read_tid, NULL);
         av_log(NULL, AV_LOG_WARNING, "2.1exit read_tid\n");
         /* close each stream */
-        if (is->audio_idx >= 0)
-        {
-            stream_component_close(is, is->audio_idx);
-            av_log(NULL, AV_LOG_WARNING, "2.2audio stream_component_close finish\n");
-        }
-
         if (is->video_idx >= 0)
         {
             stream_component_close(is, is->video_idx);
             av_log(NULL, AV_LOG_WARNING, "2.3video stream_component_close finish\n");
+        }
+
+        if (is->audio_idx >= 0)
+        {
+            stream_component_close(is, is->audio_idx);
+            av_log(NULL, AV_LOG_WARNING, "2.2audio stream_component_close finish\n");
         }
 
         av_dict_free(&is->p_dict);

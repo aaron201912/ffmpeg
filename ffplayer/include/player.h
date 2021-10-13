@@ -274,6 +274,7 @@ typedef struct {
     struct timeval tim_open, tim_play;
     pthread_mutex_t audio_mutex, video_mutex;
     player_func_t functions;
+    bool keep_frames, the_last_frame;
 }   player_stat_t;
 
 extern player_stat_t *g_mmplayer;

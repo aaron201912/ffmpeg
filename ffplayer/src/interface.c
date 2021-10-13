@@ -467,13 +467,13 @@ static int mm_video_play(void *args, void *data)
 
         SS_Vdec_BufInfo *stVdecBuf = (SS_Vdec_BufInfo *)frame->opaque;
 
-        if (is->display_mode == AV_ROTATE_NONE && !g_opts.enable_scaler)
+        if (is->display_mode == AV_ROTATE_NONE && !g_opts.enable_scaler && !is->keep_frames)
         {
             if (MI_SUCCESS != MI_SYS_ChnPortInjectBuf(stVdecBuf->stVdecHandle, &stInputChnPort))
             {
                 av_log(NULL, AV_LOG_ERROR, "MI_SYS_ChnPortInjectBuf Failed!\n");
             }
-            av_freep(&frame->opaque);
+            //av_freep(&frame->opaque);
         }
         else
         {
@@ -635,7 +635,7 @@ static int mm_video_play(void *args, void *data)
                 MI_SYS_ChnInputPortPutBuf(bufHandle, &stBufInfo, FALSE);
             }
         }
-        frame_queue_putbuf(frame);
+        //frame_queue_putbuf(frame);
     }
 
     return 0;
@@ -645,8 +645,11 @@ static int mm_video_putbuf(void *args)
 {
     AVFrame * frame = (AVFrame *)args;
     SS_Vdec_BufInfo *stVdecBuf = (SS_Vdec_BufInfo *)frame->opaque;
-    if (MI_SUCCESS != MI_SYS_ChnOutputPortPutBuf(stVdecBuf->stVdecHandle)) {
-        printf("frame_queue_putbuf failed!\n");
+
+    if (g_mmplayer->display_mode != AV_ROTATE_NONE || g_opts.enable_scaler) {
+        if (MI_SUCCESS != MI_SYS_ChnOutputPortPutBuf(stVdecBuf->stVdecHandle)) {
+            printf("frame_queue_putbuf failed!\n");
+        }
     }
     av_freep(&frame->opaque);
 
@@ -703,11 +706,9 @@ static int mm_video_init(void *args)
     stInputPortAttr.stDispWin.u16Y      = is->pos_y;
     stInputPortAttr.stDispWin.u16Width  = is->out_width;
     stInputPortAttr.stDispWin.u16Height = is->out_height;
-    MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
     MI_DISP_SetInputPortAttr(DISP_LAYER, DISP_INPUTPORT, &stInputPortAttr);
     MI_DISP_EnableInputPort(DISP_LAYER, DISP_INPUTPORT);
     MI_DISP_SetInputPortSyncMode(DISP_LAYER, DISP_INPUTPORT, E_MI_DISP_SYNC_MODE_FREE_RUN);
-    MI_DISP_ShowInputPort(DISP_LAYER, DISP_INPUTPORT);
 
     if (is->decoder_type == AV_SOFT_DECODING || g_opts.enable_scaler)
     {
@@ -849,10 +850,6 @@ int mm_video_deinit(void *args)
 
         MI_SYS_UnBindChnPort(&stDivpChnPort, &stDispChnPort);
 
-        MI_DISP_ClearInputPortBuffer(DISP_LAYER, DISP_INPUTPORT, TRUE);
-        MI_DISP_HideInputPort(DISP_LAYER, DISP_INPUTPORT);
-        MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
-
         MI_DIVP_StopChn(0);
         MI_DIVP_DestroyChn(0);
 
@@ -881,10 +878,6 @@ int mm_video_deinit(void *args)
 
         MI_SYS_UnBindChnPort(ST_DEFAULT_SOC_ID, &stSclChnPort, &stDispChnPort);
 
-        MI_DISP_ClearInputPortBuffer(DISP_LAYER, DISP_INPUTPORT, TRUE);
-        MI_DISP_HideInputPort(DISP_LAYER, DISP_INPUTPORT);
-        MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
-
         MI_SCL_DisableOutputPort(SclDevId, SclChnId, SclOutPortId);
         MI_SCL_StopChannel(SclDevId, SclChnId);
         MI_SCL_DestroyChannel(SclDevId, SclChnId);
@@ -893,9 +886,12 @@ int mm_video_deinit(void *args)
     }
     else
     {
-        MI_DISP_ClearInputPortBuffer(DISP_LAYER, DISP_INPUTPORT, TRUE);
-        MI_DISP_HideInputPort(DISP_LAYER, DISP_INPUTPORT);
-        MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
+        if (is->play_status & AV_PLAY_ERROR)
+        {
+            MI_DISP_ClearInputPortBuffer(DISP_LAYER, DISP_INPUTPORT, TRUE);
+            MI_DISP_HideInputPort(DISP_LAYER, DISP_INPUTPORT);
+            MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
+        }
     }
 
 #if (defined CHIP_IS_SSD20X || defined CHIP_IS_SS22X)
@@ -1090,6 +1086,10 @@ int mm_player_close(void)
     int ret;
 
     av_log(NULL, AV_LOG_INFO, "### enter mm_player_close\n");
+
+    if (g_mmplayer->play_status & AV_PLAY_PAUSE) {
+        mm_audio_resume();
+    }
 
     pthread_mutex_lock(&player_mutex);
 
@@ -1499,4 +1499,24 @@ int mm_player_get_status(void)
     }
 
     return g_mmplayer->play_status;
+}
+
+int mm_player_flush_screen(bool enable)
+{
+    MI_DISP_QueryChannelStatus_t stDispStatus;
+    MI_DISP_QueryInputPortStat(DISP_LAYER, DISP_INPUTPORT, &stDispStatus);
+
+    if (g_mmplayer) {
+        if (enable) {
+            MI_DISP_HideInputPort(DISP_LAYER, DISP_INPUTPORT);
+        } else {
+            MI_DISP_ShowInputPort(DISP_LAYER, DISP_INPUTPORT);
+        }
+    } else {
+        if (enable && stDispStatus.bEnable) {
+            MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
+        }
+    }
+
+    return 0;
 }

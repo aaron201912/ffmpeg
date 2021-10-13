@@ -96,6 +96,12 @@ int mm_player_set_opts(const char *key, const char *value, int flags);
  */
 int mm_player_get_status(void);
 
+/**
+ * Enable/disable display if player is working. Clear screen if player is closed.
+ * Please call the api after exit player to clear display.
+ */
+int mm_player_flush_screen(bool enable);
+
 #ifdef __cplusplus
 }
 #endif // __cplusplu

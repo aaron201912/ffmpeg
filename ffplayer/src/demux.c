@@ -111,7 +111,7 @@ static void * demux_thread(void *arg)
             }
         }
 
-        if (is->seek_req && !is->eof) {
+        if (is->seek_req) {
             int64_t seek_target = is->seek_pos;
             int64_t seek_min    = is->seek_rel > 0 ? seek_target - is->seek_rel + 2: INT64_MIN;
             int64_t seek_max    = is->seek_rel < 0 ? seek_target - is->seek_rel - 2: INT64_MAX;

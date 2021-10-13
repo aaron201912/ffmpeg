@@ -27,6 +27,7 @@ sighandler_t signal(int signum, sighandler_t handler);
 /*******************************************************************************************/
 static int width, height;
 static bool b_exit = false;
+static bool player_working = false;
 
 void signal_handler_fun(int signum) {
     printf("catch signal [%d]\n", signum);
@@ -40,19 +41,35 @@ static void * mm_player_thread(void *args)
 
     while (!b_exit)
     {
+        if (!player_working)
+        {
+            sleep(1);
+            continue;
+        }
+
         ret = mm_player_get_status();
+        if (ret < 0)
+        {
+            printf("mmplayer has been closed!\n");
+            player_working = false;
+            continue;
+        }
+
         if (ret & AV_PLAY_ERROR)
         {
+            mm_player_close();
             b_exit = true;
         }
         else if ((ret & AV_PLAY_COMPLETE) == AV_PLAY_COMPLETE)
         {
+            player_working = false;
             mm_player_close();
             ret = mm_player_open(filename, 0, 0, width, height);
             if (ret < 0)
             {
                 b_exit = true;
             }
+            player_working = true;
         }
         av_usleep(50 * 1000);
     }
@@ -62,16 +79,18 @@ static void * mm_player_thread(void *args)
 
 int main(int argc, char *argv[])
 {
-    int ret;
+    int ret, index = 1;
     int volumn = 0;
     bool mute = false, win_down = false;
     char cmd;
     double duration, position;
     pthread_t mm_thread = NULL;
+    char url[128];
+    bool disp_flag = false;
 
     if (!argv[1]) {
         printf("invalid input format, please retey!\n");
-        printf("such as : ./ssplayer filename\n");
+        printf("such as : ./ssplayer filename\nor: ./ssplayer file1 file2\n");
         return -1;
     }
 
@@ -129,8 +148,11 @@ int main(int argc, char *argv[])
         goto exit;
     }
     mm_player_getduration(&duration);
+    player_working = true;
 
-    ret = pthread_create(&mm_thread, NULL, mm_player_thread, (void *)argv[1]);
+    memset(url, '\0', sizeof(url));
+    strncpy(url, argv[1], strlen(argv[1]));
+    ret = pthread_create(&mm_thread, NULL, mm_player_thread, (void *)url);
     if (ret != 0) {
         goto exit;
     }
@@ -140,13 +162,15 @@ int main(int argc, char *argv[])
     {
         fflush(stdin);
         cmd = getchar();
-        switch (cmd) 
+        switch (cmd)
         {
             case 's':
-                mm_player_open(argv[1], 0, 0, width, height);
+                mm_player_open(url, 0, 0, width, height);
+                player_working = true;
             break;
 
             case 't':
+                player_working = false;
                 mm_player_close();
             break;
 
@@ -214,7 +238,38 @@ int main(int argc, char *argv[])
                 }
             break;
 
-            case 'q': 
+            case 'r':
+                if (argv[2] && player_working)
+                {
+                    player_working = false;
+                    mm_player_close();
+                    if (index == 1)
+                    {
+                        memset(url, '\0', sizeof(url));
+                        strncpy(url, argv[2], strlen(argv[2]));
+                        index ++;
+                    }
+                    else if (index == 2)
+                    {
+                        memset(url, '\0', sizeof(url));
+                        strncpy(url, argv[1], strlen(argv[1]));
+                        index =1;
+                    }
+                    ret = mm_player_open(url, 0, 0, width, height);
+                    if (ret < 0)
+                    {
+                        b_exit = true;
+                    }
+                    player_working = true;
+                }
+            break;
+
+            case 'c':
+                disp_flag = !disp_flag;
+                mm_player_flush_screen(disp_flag);
+            break;
+
+            case 'q':
                 b_exit = true;
             break;
 
