@@ -909,39 +909,36 @@ static int ss_h264_decode_frame(AVCodecContext *avctx, void *data,
 
     av_log(avctx, AV_LOG_INFO, "get in ss_h264_decode_frame\n");
 
-    if(avctx->debug)
-    {
-        /* end of stream and vdec buf is null*/
-        if (!avpkt->size || !avpkt->data) {
-            av_log(avctx, AV_LOG_INFO, "packet size is 0!!\n");
-            return AVERROR_EOF;
-        } else {
-            *got_frame = 0;
-            ret = ss_h264_get_frame(s, frame);
-            if (MI_SUCCESS == ret) {
-                *got_frame = 1;
-                frame->best_effort_timestamp = frame->pts;
-            }
-
-            if (s->pkt_buf) {
-                if (!(s->avctx->flags & (1 << 7)) && s->find_header) {
-                    ret = ss_h264_send_stream(s, s->pkt_buf, s->pkt_size, s->pts, 0);
-                }
-                av_freep(&s->pkt_buf);
-            }
-            if (ret == AVERROR_UNKNOWN && !(*got_frame)) {
-                return AVERROR_UNKNOWN;
-            }
-
-            //continue to decode nalu and fill stream data to memory
-            ret = ss_h264_decode_nalu(s, avpkt);
-            if (ret < 0)
-                av_log(avctx, AV_LOG_ERROR, "ss_h264_decode_nalu failed!\n");
-
-            if (*got_frame)
-                av_assert0(frame->buf[0]);
+    /* end of stream and vdec buf is null*/
+    if (!avpkt->size || !avpkt->data) {
+        av_log(avctx, AV_LOG_INFO, "packet size is 0!!\n");
+        return AVERROR_EOF;
+    } else {
+        *got_frame = 0;
+        ret = ss_h264_get_frame(s, frame);
+        if (MI_SUCCESS == ret) {
+            *got_frame = 1;
+            frame->best_effort_timestamp = frame->pts;
         }
-    } 
+
+        if (s->pkt_buf) {
+            if (!(s->avctx->flags & (1 << 7)) && s->find_header) {
+                ret = ss_h264_send_stream(s, s->pkt_buf, s->pkt_size, s->pts, 0);
+            }
+            av_freep(&s->pkt_buf);
+        }
+        if (ret == AVERROR_UNKNOWN && (!(*got_frame) || avctx->flags & (1 << 8))) {
+            return AVERROR_UNKNOWN;
+        }
+
+        //continue to decode nalu and fill stream data to memory
+        ret = ss_h264_decode_nalu(s, avpkt);
+        if (ret < 0)
+            av_log(avctx, AV_LOG_ERROR, "ss_h264_decode_nalu failed!\n");
+
+        if (*got_frame)
+            av_assert0(frame->buf[0]);
+    }
 
     if (ret < 0)
         return ret;
@@ -958,80 +955,77 @@ static int ss_h264_receive_frame(AVCodecContext *avctx, AVFrame *frame)
 
     //av_log(avctx, AV_LOG_INFO, "get in ss_h264_receive_frame\n");
     //printf("get in ss_h264_receive_frame\n");
-    if (true == avctx->debug) 
+    while (!frame->buf[0])
     {
-        while (!frame->buf[0])
+        got_frame = 0;
+        if (MI_SUCCESS == (ret2 = ss_h264_get_frame(s, frame)))
         {
-            got_frame = 0;
-            if (MI_SUCCESS == (ret2 = ss_h264_get_frame(s, frame)))
+            got_frame = 1;
+            frame->best_effort_timestamp = frame->pts;
+        }
+
+        if (!avpkt->data && !avci->draining)
+        {
+            av_packet_unref(avpkt);
+            ret = ff_decode_get_packet(avctx, avpkt);
+            if (ret >= 0 && avpkt->data)
             {
-                got_frame = 1;
-                frame->best_effort_timestamp = frame->pts;
-            }
-
-            if (!avpkt->data && !avci->draining)
-            {
-                av_packet_unref(avpkt);
-                ret = ff_decode_get_packet(avctx, avpkt);
-                if (ret >= 0 && avpkt->data) 
-                {
-                    if (s->pkt_buf) {
-                        if (!(s->avctx->flags & (1 << 7)) && s->find_header) {
-                            ret1 = ss_h264_send_stream(s, s->pkt_buf, s->pkt_size, s->pts, 0);
-                        }
-                        av_freep(&s->pkt_buf);
+                if (s->pkt_buf) {
+                    if (!(s->avctx->flags & (1 << 7)) && s->find_header) {
+                        ret1 = ss_h264_send_stream(s, s->pkt_buf, s->pkt_size, s->pts, 0);
                     }
-
-                    if (0 > ss_h264_decode_nalu(s, avpkt)) {
-                        av_log(avctx, AV_LOG_ERROR, "ss_h264_decode_nalu failed!\n");
-                    }
-
-                    if (!(avctx->codec->caps_internal & FF_CODEC_CAP_SETS_PKT_DTS))
-                        frame->pkt_dts = avpkt->dts;
-                    if (avctx->codec->type == AVMEDIA_TYPE_VIDEO && !avctx->has_b_frames) {
-                        frame->pkt_pos = avpkt->pos;
-                    }
-
-                    if (!got_frame)
-                        av_frame_unref(frame);
-
-                    if (ret >= 0 && avctx->codec->type == AVMEDIA_TYPE_VIDEO && !(avctx->flags & AV_CODEC_FLAG_TRUNCATED))
-                        ret = avpkt->size;
-                    avci->compat_decode_consumed += ret;
-
-                    if (ret >= avpkt->size || ret < 0) {
-                        av_packet_unref(avpkt);
-                    } else {
-                        int consumed = ret;
-
-                        avpkt->data                += consumed;
-                        avpkt->size                -= consumed;
-                        avci->last_pkt_props->size -= consumed; // See extract_packet_props() comment.
-                        avpkt->pts                  = AV_NOPTS_VALUE;
-                        avpkt->dts                  = AV_NOPTS_VALUE;
-                        avci->last_pkt_props->pts = AV_NOPTS_VALUE;
-                        avci->last_pkt_props->dts = AV_NOPTS_VALUE;
-                    }
-
-                    if (got_frame)
-                        av_assert0(frame->buf[0]);
-                }else if (avci->draining) {
-                    if (s->pkt_buf) {
-                        if (!(s->avctx->flags & (1 << 7)) && s->find_header) {
-                            ret1 = ss_h264_send_stream(s, s->pkt_buf, s->pkt_size, s->pts, 1);
-                        }
-                        av_freep(&s->pkt_buf);
-                    }
+                    av_freep(&s->pkt_buf);
                 }
 
-                if (ret1 == AVERROR_UNKNOWN && !got_frame) {
-                    return AVERROR_UNKNOWN;
+                if (0 > ss_h264_decode_nalu(s, avpkt)) {
+                    av_log(avctx, AV_LOG_ERROR, "ss_h264_decode_nalu failed!\n");
+                }
+
+                if (!(avctx->codec->caps_internal & FF_CODEC_CAP_SETS_PKT_DTS))
+                    frame->pkt_dts = avpkt->dts;
+                if (avctx->codec->type == AVMEDIA_TYPE_VIDEO && !avctx->has_b_frames) {
+                    frame->pkt_pos = avpkt->pos;
+                }
+
+                if (!got_frame)
+                    av_frame_unref(frame);
+
+                if (ret >= 0 && avctx->codec->type == AVMEDIA_TYPE_VIDEO && !(avctx->flags & AV_CODEC_FLAG_TRUNCATED))
+                    ret = avpkt->size;
+                avci->compat_decode_consumed += ret;
+
+                if (ret >= avpkt->size || ret < 0) {
+                    av_packet_unref(avpkt);
+                } else {
+                    int consumed = ret;
+
+                    avpkt->data                += consumed;
+                    avpkt->size                -= consumed;
+                    avci->last_pkt_props->size -= consumed; // See extract_packet_props() comment.
+                    avpkt->pts                  = AV_NOPTS_VALUE;
+                    avpkt->dts                  = AV_NOPTS_VALUE;
+                    avci->last_pkt_props->pts = AV_NOPTS_VALUE;
+                    avci->last_pkt_props->dts = AV_NOPTS_VALUE;
+                }
+
+                if (got_frame)
+                    av_assert0(frame->buf[0]);
+            }else if (avci->draining) {
+                if (s->pkt_buf) {
+                    if (!(s->avctx->flags & (1 << 7)) && s->find_header) {
+                        ret1 = ss_h264_send_stream(s, s->pkt_buf, s->pkt_size, s->pts, 1);
+                    }
+                    av_freep(&s->pkt_buf);
                 }
             }
 
-            if (ret2 < 0) {
-                return ret2;
+            if (ret1 == AVERROR_UNKNOWN && (!got_frame || avctx->flags & (1 << 8))) {
+                return AVERROR_UNKNOWN;
             }
+        }
+
+        if (ret2 < 0) {
+            return ret2;
         }
     }
 
