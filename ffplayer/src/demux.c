@@ -99,7 +99,7 @@ static void * demux_thread(void *arg)
             break;
         }
         //printf("loop start paused: %d,last_paused: %d\n",is->paused,is->last_paused);
-        if (is->paused != is->last_paused) {
+        if (is->start_play && (is->paused != is->last_paused)) {
             is->last_paused = is->paused;
             if (is->paused)
             {
@@ -417,7 +417,7 @@ static int demux_init(player_stat_t *is)
     // 2. 查找第一个音频流/视频流
     a_idx = st_index[AVMEDIA_TYPE_AUDIO];
     v_idx = st_index[AVMEDIA_TYPE_VIDEO];
-    if (a_idx == -1 && v_idx == -1)
+    if (a_idx < 0 && v_idx < 0)
     {
         printf("Cann't find any audio/video stream\n");
         ret = -1;

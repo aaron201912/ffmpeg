@@ -191,13 +191,19 @@ static int mm_audio_deinit(void *args)
 
 static int mm_audio_pause(void)
 {
-    MI_AO_PauseChn(g_opts.audio_dev, AUDIO_CHN);
+    if (MI_SUCCESS == MI_AO_PauseChn(g_opts.audio_dev, AUDIO_CHN))
+    {
+        g_mmplayer->play_status |= AV_AUDIO_PAUSE;
+    }
     return 0;
 }
 
 static int mm_audio_resume(void)
 {
-    MI_AO_ResumeChn(g_opts.audio_dev, AUDIO_CHN);
+    if (MI_SUCCESS == MI_AO_ResumeChn(g_opts.audio_dev, AUDIO_CHN))
+    {
+        g_mmplayer->play_status &= ~AV_AUDIO_PAUSE;
+    }
     return 0;
 }
 
@@ -243,7 +249,6 @@ static int mm_audio_play(void *args, char *data, int len)
             stAoSendFrame.u32Len[0] = data_len;
 #elif defined CHIP_IS_SS22X
             stAoSendFrame.u32Len[0] = data_len;
-			
 #else
             stAoSendFrame.u32Len = data_len;
 #endif
@@ -1087,7 +1092,7 @@ int mm_player_close(void)
 
     av_log(NULL, AV_LOG_INFO, "### enter mm_player_close\n");
 
-    if (g_mmplayer->play_status & AV_PLAY_PAUSE) {
+    if (g_mmplayer->play_status & AV_AUDIO_PAUSE) {
         mm_audio_resume();
     }
 
@@ -1227,6 +1232,7 @@ int mm_player_seek(double time)
     av_log(NULL, AV_LOG_INFO, "start to seek to %.3f\n", pos);
     stream_seek(g_mmplayer, (int64_t)(pos * AV_TIME_BASE), (int64_t)(time * AV_TIME_BASE), g_mmplayer->seek_by_bytes);
     g_mmplayer->start_play = false;
+    gettimeofday(&g_mmplayer->tim_open, NULL);
 
     pthread_mutex_unlock(&player_mutex);
 
@@ -1265,6 +1271,7 @@ int mm_player_seek2time(double time)
     av_log(NULL, AV_LOG_INFO, "now [%.3f], start to seek2 to %.3f\n", pos, target);
     stream_seek(g_mmplayer, (int64_t)(target * AV_TIME_BASE), (int64_t)(diff * AV_TIME_BASE), g_mmplayer->seek_by_bytes);
     g_mmplayer->start_play = false;
+    gettimeofday(&g_mmplayer->tim_open, NULL);
 
     pthread_mutex_unlock(&player_mutex);
 

@@ -260,8 +260,10 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
     frame_queue_t *f = &is->audio_frm_queue;
 
 replay:
-    if (is->paused || is->step)
+    if (is->paused || is->step) {
+        av_usleep(10 * 1000);
         return AV_PLAY_PAUSE;
+    }
 
     if (is->no_pkt_buf || is->play_status & AV_PLAY_ERROR) {
         av_usleep(10 * 1000);
@@ -425,6 +427,7 @@ static void * audio_playing_thread(void *arg)
     int audio_size;
     int pause = 0;
     int last_pause =0;
+    bool audio_has_data = false;
 
     while(1)
     {
@@ -435,14 +438,17 @@ static void * audio_playing_thread(void *arg)
         int64_t audio_callback_time = av_gettime_relative();
 
         audio_size = audio_resample(is, audio_callback_time);
-        if (audio_size < 0)
+        if (audio_size < 0 || !is->start_play)
+        {
             continue;
+        }
         else
         {
             if (audio_size == AV_PLAY_PAUSE)
             {
-                if (!pause)
-                    printf("audio pause here, step = %d, pause = %d\n", is->step, is->paused);
+                if (!audio_has_data)
+                    continue;
+
                 pause = 1;
                 if(pause != last_pause)
                 {
@@ -455,8 +461,6 @@ static void * audio_playing_thread(void *arg)
             }
             else
             {
-                if (pause)
-                    printf("audio resume here, step = %d, pause = %d\n", is->step, is->paused);
                 pause = 0;
                 if(pause != last_pause)
                 {
@@ -473,7 +477,9 @@ static void * audio_playing_thread(void *arg)
                 if (is->functions.audio_play)
                 {
                     is->audio_write_buf_size = is->functions.audio_play(is, (void *)is->p_audio_frm, is->audio_frm_size);
+                    audio_has_data = true;
                 }
+                //printf("audio frame pts: %f\n", get_clock(&is->audio_clk));
             }
             //is->audio_write_buf_size是本帧中尚未拷入SDL音频缓冲区的数据量
             //is->audio_write_buf_size = is->audio_frm_size - is->audio_cp_index;

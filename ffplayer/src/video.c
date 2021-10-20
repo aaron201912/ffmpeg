@@ -147,7 +147,7 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
     {
         AVPacket pkt;
 
-        if (g_mmplayer->paused || g_mmplayer->no_pkt_buf){
+        if (g_mmplayer->start_play && (g_mmplayer->paused || g_mmplayer->no_pkt_buf)) {
             return 0;
         }
 
@@ -360,7 +360,7 @@ static int video_refresh(void *opaque, double *remaining_time, double duration)
     }
 retry:
     // 暂停处理：不停播放上一帧图像
-    if (is->paused && !is->abort_request) {
+    if (is->paused && !is->abort_request && is->start_play) {
         return AV_PLAY_PAUSE;
     }
 
@@ -476,6 +476,8 @@ retry:
         av_log(NULL, AV_LOG_INFO, "player display first picture [%llu]us\n", time);
     }
 
+    //printf("video frame pts: %f\n", get_clock(&is->video_clk));
+
     return 0;
 }
 
@@ -586,7 +588,7 @@ static void * video_decode_thread(void *arg)
             break;
         }
 
-        if (is->paused || is->no_pkt_buf){
+        if (is->start_play && (is->paused || is->no_pkt_buf)) {
             av_usleep(10 * 1000);
             continue;
         }
