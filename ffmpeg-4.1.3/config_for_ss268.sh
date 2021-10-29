@@ -5,10 +5,14 @@ else
     alkaid_path=./../..
 fi
 echo "alkaid_path = ${alkaid_path}"
+git_commit=`cd ../; git log -n 1 --format="%h"`
+build_time=`date +%Y%m%d`
+ffmpeg_info=\""ffmpeg_version..git_commit:${git_commit}..build_time:${build_time}"\"
 
 cflags+=" -I${alkaid_path}/project/release/include"
 cflags+=" -I./../3rdparty/include"
 cflags+=" -I./../3rdparty/include/sstar"
+cflags+=" -DFFMPEG_LIBRARY_VERSION=${ffmpeg_info}"
 echo "cflags = ${cflags}"
 
 ldflags+=" -L${alkaid_path}/project/release/chip/m6/xvr/common/glibc/9.1.0/mi_libs/dynamic"

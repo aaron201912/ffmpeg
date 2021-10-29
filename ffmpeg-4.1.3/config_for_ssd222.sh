@@ -1,4 +1,8 @@
 #!/bin/bash
+git_commit=`cd ../; git log -n 1 --format="%h"`
+build_time=`date +%Y%m%d`
+ffmpeg_info=\""ffmpeg_version..git_commit:${git_commit}..build_time:${build_time}"\"
+
 ./configure \
 --prefix=host \
 --disable-ffmpeg \
@@ -45,5 +49,5 @@
 --shlibdir=host/dynamic \
 --libdir=host/static \
 --pkg-config=pkg-config \
---extra-cflags="-I./../3rdparty/include -g -rdynamic -funwind-tables -ffunction-sections" \
+--extra-cflags="-I./../3rdparty/include -g -rdynamic -funwind-tables -ffunction-sections -DFFMPEG_LIBRARY_VERSION=${ffmpeg_info}" \
 --extra-ldflags="-L./../3rdparty/lib/9.1.0"

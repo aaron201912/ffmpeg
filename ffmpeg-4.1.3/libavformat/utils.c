@@ -4604,6 +4604,10 @@ void avformat_close_input(AVFormatContext **ps)
 
     avio_close(pb);
 
+    video_pkt_size = 0;
+    audio_pkt_size = 0;
+    video_pkt_get  = 0;
+    audio_pkt_get  = 0;
     avlog_deinit_info();
 }
 

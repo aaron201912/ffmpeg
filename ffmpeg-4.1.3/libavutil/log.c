@@ -447,6 +447,9 @@ static bool b_exit = false;
 static int debug_fd = -1;
 static char *ff_debug_path = NULL;
 
+#define STR1(R)             #R
+#define MACRO_TO_STRING(R)  STR1(R)
+
 static void *avlog_proc_thread(void *args)
 {
     b_exit = false;
@@ -461,6 +464,8 @@ static void *avlog_proc_thread(void *args)
 
 AVLogContext * avlog_init_info(void)
 {
+    av_log(NULL, AV_LOG_INFO, "%s\n", MACRO_TO_STRING(FFMPEG_LIBRARY_VERSION));
+
     char *env = getenv("FFMPEG_DEBUG");
     if (!env) {
         return NULL;
