@@ -91,7 +91,7 @@ static struct timeval time_start, time_end;
 static int64_t time0, time1;
 
 //定义全局变量
-player_opts_t g_opts = {0, 0, AV_SCREEN_MODE, AV_ROTATE_NONE, AUDIO_DEV, 0, 0, "2088960"};
+player_opts_t g_opts = {0, 0, AV_SCREEN_MODE, AV_ROTATE_NONE, AUDIO_DEV, 0, 0, "2088960", AV_ONCE};
 player_stat_t *g_mmplayer = NULL;
 
 static int mm_audio_init(void *args)
@@ -474,11 +474,12 @@ static int mm_video_play(void *args, void *data)
 
         if (is->display_mode == AV_ROTATE_NONE && !g_opts.enable_scaler && !is->keep_frames)
         {
-            if (MI_SUCCESS != MI_SYS_ChnPortInjectBuf(stVdecBuf->stVdecHandle, &stInputChnPort))
-            {
+            if (MI_SUCCESS == MI_SYS_ChnPortInjectBuf(stVdecBuf->stVdecHandle, &stInputChnPort)) {
+                stVdecBuf->stVdecHandle = NULL;
+                //av_log(NULL, AV_LOG_WARNING, "Inject Buf To Disp u32SequenceNumber: %u, eBufType: %d\n", stVdecBuf->stVdecBufInfo.u32SequenceNumber, stVdecBuf->stVdecBufInfo.eBufType);
+            } else {
                 av_log(NULL, AV_LOG_ERROR, "MI_SYS_ChnPortInjectBuf Failed!\n");
             }
-            //av_freep(&frame->opaque);
         }
         else
         {
@@ -650,11 +651,12 @@ static int mm_video_putbuf(void *args)
 {
     AVFrame * frame = (AVFrame *)args;
     SS_Vdec_BufInfo *stVdecBuf = (SS_Vdec_BufInfo *)frame->opaque;
-
-    if (g_mmplayer->display_mode != AV_ROTATE_NONE || g_opts.enable_scaler) {
+    //printf("Vdec Put Buf u32SequenceNumber: %u, eBufType: %d\n", stVdecBuf->stVdecBufInfo.u32SequenceNumber, stVdecBuf->stVdecBufInfo.eBufType);
+    if (stVdecBuf->stVdecHandle) {
         if (MI_SUCCESS != MI_SYS_ChnOutputPortPutBuf(stVdecBuf->stVdecHandle)) {
             printf("frame_queue_putbuf failed!\n");
         }
+        //av_log(NULL, AV_LOG_ERROR, "Vdec Put Buf u32SequenceNumber: %u, eBufType: %d\n", stVdecBuf->stVdecBufInfo.u32SequenceNumber, stVdecBuf->stVdecBufInfo.eBufType);
     }
     av_freep(&frame->opaque);
 
@@ -897,6 +899,7 @@ int mm_video_deinit(void *args)
             MI_DISP_HideInputPort(DISP_LAYER, DISP_INPUTPORT);
             MI_DISP_DisableInputPort(DISP_LAYER, DISP_INPUTPORT);
         }
+        av_usleep(20 * 1000);
     }
 
 #if (defined CHIP_IS_SSD20X || defined CHIP_IS_SS22X)
@@ -1490,6 +1493,13 @@ int mm_player_set_opts(const char *key, const char *value, int flags)
     if (!strcmp(key, "enable_scaler")) {
         g_opts.enable_scaler = flags;
         av_log(NULL, AV_LOG_INFO, "mmplayer enable_scaler = %d\n", g_opts.enable_scaler);
+
+        return 0;
+    }
+
+    if (!strcmp(key, "play_mode")) {
+        g_opts.play_mode = flags;
+        av_log(NULL, AV_LOG_INFO, "mmplayer play_mode = %d\n", g_opts.play_mode);
 
         return 0;
     }

@@ -19,6 +19,8 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
+//#include "mi_vdec_extra.h"
+
 extern AVPacket v_flush_pkt, v_extra_pkt;
 
 static struct timeval time_start, time_end;
@@ -93,7 +95,8 @@ static int queue_picture(player_stat_t *is, AVFrame *src_frame, double pts, doub
     //vp->serial = serial;
 
     //set_default_window_size(vp->width, vp->height, vp->sar);
-    //printf("second frame->buf[0] addr : %p, vdec buf addr : %p\n", src_frame->buf[0], src_frame->opaque);
+    //SS_Vdec_BufInfo *stVdecBuf = (SS_Vdec_BufInfo *)src_frame->opaque;
+    //printf("Vdec Get Buf u32SequenceNumber: %u, eBufType: %d\n", stVdecBuf->stVdecBufInfo.u32SequenceNumber, stVdecBuf->stVdecBufInfo.eBufType);
 
     // 将AVFrame拷入队列相应位置
     if (is->decoder_type == AV_SOFT_DECODING)
@@ -147,17 +150,9 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
     {
         AVPacket pkt;
 
-        if (g_mmplayer->start_play && (g_mmplayer->paused || g_mmplayer->no_pkt_buf)) {
-            return 0;
-        }
-
         while (1)
         {
             //printf("get in video_decode_frame!\n");
-            if(p_pkt_queue->abort_request)
-            {
-                return -1;
-            }
             // 3. 从解码器接收frame
             // 3.1 一个视频packet含一个视频frame
             //     解码器缓存一定数量的packet后，才有解码后的frame输出
@@ -197,6 +192,15 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             }
         }
 
+        if (g_mmplayer->start_play && (g_mmplayer->paused || g_mmplayer->no_pkt_buf)) {
+            return 0;
+        }
+
+        if(p_pkt_queue->abort_request)
+        {
+            return -1;
+        }
+
         // 1. 取出一个packet。使用pkt对应的serial赋值给d->pkt_serial
         if (packet_queue_get(p_pkt_queue, &pkt, true) < 0)
         {
@@ -218,9 +222,9 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             pthread_mutex_unlock(&g_mmplayer->video_mutex);
 
             // 复位解码器内部状态/刷新内部缓冲区。
-            p_codec_ctx->flags |= (1 << 7);
+            p_codec_ctx->flags |= AV_CODEC_FLAG_SEEK_IDR;
             avcodec_flush_buffers(p_codec_ctx);
-            p_codec_ctx->flags &= ~(1 << 7);
+            p_codec_ctx->flags &= ~AV_CODEC_FLAG_SEEK_IDR;
 
             av_log(NULL, AV_LOG_INFO, "avcodec_flush_buffers for video!\n");
         }
@@ -438,6 +442,7 @@ retry:
     }
     pthread_mutex_unlock(&is->video_frm_queue.mutex);
 
+    #if 0
     // 是否要丢弃未能及时播放的视频帧
     if (frame_queue_nb_remaining(&is->video_frm_queue) > 1)  // 队列中未显示帧数>1(只有一帧则不考虑丢帧)
     {
@@ -455,6 +460,7 @@ retry:
             goto retry;
         }
     }
+    #endif
 
     //AVRational frame_rate = av_guess_frame_rate(is->p_fmt_ctx, is->p_video_stream, NULL);
     //*remaining_time = av_q2d((AVRational){frame_rate.den, frame_rate.num});    //no sync
@@ -924,6 +930,12 @@ static int open_video_stream(player_stat_t *is)
 
     is->p_vcodec_ctx = p_codec_ctx;
     is->p_vcodec_ctx->debug  = true;//enable hard decoder
+
+    if (g_opts.play_mode == AV_LOOP) {
+        is->play_status |= AV_PLAY_LOOP;
+        is->p_vcodec_ctx->flags |= AV_CODEC_FLAG_END_STREAM;//set vdec end stream flag
+    }
+
     printf("codec width: %d,height: %d\n",is->p_vcodec_ctx->width,is->p_vcodec_ctx->height);
     //printf("bistream width : %d, height : %d\n", is->p_vcodec_ctx->coded_width,is->p_vcodec_ctx->coded_height);
 

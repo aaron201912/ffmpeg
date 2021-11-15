@@ -238,7 +238,7 @@ static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
         return AVERROR(ENOMEM);
     }
 
-    if (!(ssctx->avctx->flags & (1 << 8)))
+    if (!(ssctx->avctx->flags & AV_CODEC_FLAG_BIND_DISP))
     {
         frame_buf = (SS_Vdec_BufInfo *)av_mallocz(sizeof(SS_Vdec_BufInfo));
         if (!frame_buf)
@@ -269,6 +269,7 @@ static int ss_h264_get_frame(SsH264Context *ssctx, AVFrame *frame)
                 frame->width        = pstVdecInfo->stFrmInfo.u16Width;
                 frame->height       = pstVdecInfo->stFrmInfo.u16Height;
             }
+            //av_log(ssctx, AV_LOG_WARNING, "MI_SYS_ChnOutputPortGetBuf u32SequenceNumber: %u, eBufType: %d\n", frame_buf->stVdecBufInfo.u32SequenceNumber, frame_buf->stVdecBufInfo.eBufType);
             frame->opaque = (SS_Vdec_BufInfo *)frame_buf;
             frame->pts    = frame_buf->stVdecBufInfo.u64Pts;
             frame->format = ssctx->format;
@@ -629,7 +630,7 @@ static MI_U32 ss_h264_vdec_init(AVCodecContext *avctx)
         stVdecInitParam.bDisableLowLatency = false;
     STCHECKRESULT(MI_VDEC_InitDev(&stVdecInitParam));
 
-    if (!(avctx->flags & (1 << 17))) {
+    if (!(avctx->flags & AV_CODEC_FLAG_TILE_MODE)) {
         STCHECKRESULT(MI_VDEC_SetOutputPortLayoutMode(E_MI_VDEC_OUTBUF_LAYOUT_LINEAR));
     } else {
         av_log(avctx, AV_LOG_WARNING, "h264 enable vdec tilemode\n");
@@ -662,9 +663,9 @@ static MI_U32 ss_h264_vdec_init(AVCodecContext *avctx)
     avctx->flags  &= (0xFFFF0000);
     avctx->flags2 &= (0xFFFF0000);
     if (avctx->has_b_frames > 0)
-        avctx->flags |= (1 << 6);
+        avctx->flags |= AV_CODEC_FLAG_BFRAME;
     else
-        avctx->flags &= ~(1 << 6);
+        avctx->flags &= ~AV_CODEC_FLAG_BFRAME;
 
     s->pfd.fd = 0;
     s->pfd.events = POLLIN | POLLERR;
@@ -825,7 +826,7 @@ static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
         switch (nal->type) {
             case H264_NAL_IDR_SLICE:
                 if (data_idx == 0 && s->find_header) {
-                    s->avctx->flags &= ~(1 << 7);
+                    s->avctx->flags &= ~AV_CODEC_FLAG_SEEK_IDR;
                     memcpy(s->pkt_buf, s->extradata, s->extradata_size);
                     data_idx = s->extradata_size;
                 }
@@ -837,7 +838,7 @@ static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
                 //    pts_queue_get(&h264_pts, &ret);
                 //pts_queue_put(&h264_pts, avpkt->pts);
                 //av_log(NULL, AV_LOG_INFO, "pps,sps,sei dts : %lld, pts : %lld\n", avpkt->dts, avpkt->pts);
-                if (!(s->avctx->flags & (1 << 7)) && s->find_header)
+                if (!(s->avctx->flags & AV_CODEC_FLAG_SEEK_IDR) && s->find_header)
                 {
                     //add data head to nal
                     memset(s->pkt_buf + data_idx, 0, s->start_len);
@@ -896,12 +897,12 @@ static int ss_h264_decode_frame(AVCodecContext *avctx, void *data,
         }
 
         if (s->pkt_buf) {
-            if (!(s->avctx->flags & (1 << 7)) && s->find_header) {
+            if (!(s->avctx->flags & AV_CODEC_FLAG_SEEK_IDR) && s->find_header) {
                 ret = ss_h264_send_stream(s, s->pkt_buf, s->pkt_size, s->pts, 0);
             }
             av_freep(&s->pkt_buf);
         }
-        if (ret == AVERROR_UNKNOWN && (!(*got_frame) || avctx->flags & (1 << 8))) {
+        if (ret == AVERROR_UNKNOWN && (!(*got_frame) || avctx->flags & AV_CODEC_FLAG_BIND_DISP)) {
             return AVERROR_UNKNOWN;
         }
 
@@ -986,8 +987,8 @@ static int ss_h264_receive_frame(AVCodecContext *avctx, AVFrame *frame)
                     av_assert0(frame->buf[0]);
             }else if (avci->draining) {
                 if (s->pkt_buf) {
-                    if (!(s->avctx->flags & (1 << 7)) && s->find_header) {
-                        ret1 = ss_h264_send_stream(s, s->pkt_buf, s->pkt_size, s->pts, 1);
+                    if (!(s->avctx->flags & AV_CODEC_FLAG_SEEK_IDR) && s->find_header) {
+                        ret1 = ss_h264_send_stream(s, s->pkt_buf, s->pkt_size, s->pts, !(s->avctx->flags & AV_CODEC_FLAG_END_STREAM));
                     }
                     av_freep(&s->pkt_buf);
                 }
@@ -1008,7 +1009,7 @@ static int ss_h264_receive_frame(AVCodecContext *avctx, AVFrame *frame)
 
 static void ss_h264_decode_flush(AVCodecContext *avctx)
 {
-    if (avctx->flags & (1 << 7))
+    if (avctx->flags & AV_CODEC_FLAG_SEEK_IDR)
     {
         MI_VDEC_FlushChn(VDEC_CHN_ID);
         //av_log(avctx, AV_LOG_INFO, "ss_h264_decode_flush done!\n");

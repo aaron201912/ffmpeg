@@ -224,7 +224,7 @@ static int ss_hevc_get_frame(SsHevcContext *ssctx, AVFrame *frame)
         return AVERROR(ENOMEM);
     }
 
-    if (!(ssctx->avctx->flags & (1 << 8)))
+    if (!(ssctx->avctx->flags & AV_CODEC_FLAG_BIND_DISP))
     {
         frame_buf = (SS_Vdec_BufInfo *)av_mallocz(sizeof(SS_Vdec_BufInfo));
         if (!frame_buf)
@@ -439,7 +439,7 @@ static MI_U32 ss_hevc_vdec_init(AVCodecContext *avctx)
         stVdecInitParam.bDisableLowLatency = false;
     STCHECKRESULT(MI_VDEC_InitDev(&stVdecInitParam));
 
-    if (!(avctx->flags & (1 << 17))) {
+    if (!(avctx->flags & AV_CODEC_FLAG_TILE_MODE)) {
         STCHECKRESULT(MI_VDEC_SetOutputPortLayoutMode(E_MI_VDEC_OUTBUF_LAYOUT_LINEAR));
     } else {
         av_log(avctx, AV_LOG_WARNING, "hevc enable vdec tilemode\n");
@@ -473,9 +473,9 @@ static MI_U32 ss_hevc_vdec_init(AVCodecContext *avctx)
     avctx->flags  &= (0xFFFF0000);
     avctx->flags2 &= (0xFFFF0000);
     if (avctx->has_b_frames > 0)
-        avctx->flags |= (1 << 6);
+        avctx->flags |= AV_CODEC_FLAG_BFRAME;
     else
-        avctx->flags &= ~(1 << 6);
+        avctx->flags &= ~AV_CODEC_FLAG_BFRAME;
 
     s->pfd.fd = 0;
     s->pfd.events = POLLIN | POLLERR;
@@ -600,7 +600,7 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
             case HEVC_NAL_CRA_NUT:
                 if (data_idx == 0 && s->find_header)
                 {
-                    s->avctx->flags &= ~(1 << 7);
+                    s->avctx->flags &= ~AV_CODEC_FLAG_SEEK_IDR;
                     memcpy(s->pkt_buf, s->data, s->data_size);
                     data_idx = s->data_size;
                 }
@@ -621,7 +621,7 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
                 //if (hevc_pts.idx > 10)
                 //    pts_queue_get(&hevc_pts, &ret);
                 //pts_queue_put(&hevc_pts, avpkt->pts);
-                if (!(s->avctx->flags & (1 << 7)) && s->find_header)
+                if (!(s->avctx->flags & AV_CODEC_FLAG_SEEK_IDR) && s->find_header)
                 {
                     //add head to nal data
                     memcpy(s->pkt_buf + data_idx, start_code, sizeof(start_code));
@@ -915,12 +915,12 @@ static int ss_hevc_decode_frame(AVCodecContext *avctx, void *data,
         }
 
         if (s->pkt_buf) {
-            if (!(s->avctx->flags & (1 << 7)) && s->find_header) {
+            if (!(s->avctx->flags & AV_CODEC_FLAG_SEEK_IDR) && s->find_header) {
                 ret = ss_hevc_send_stream(s, s->pkt_buf, s->pkt_size, s->pts, 0);
             }
             av_freep(&s->pkt_buf);
         }
-        if (ret == AVERROR_UNKNOWN && (!(*got_frame) || avctx->flags & (1 << 8))) {
+        if (ret == AVERROR_UNKNOWN && (!(*got_frame) || avctx->flags & AV_CODEC_FLAG_BIND_DISP)) {
             return AVERROR_UNKNOWN;
         }
 
@@ -964,7 +964,7 @@ static int ss_hevc_receive_frame(AVCodecContext *avctx, AVFrame *frame)
             if (ret >= 0 && avpkt->data)
             {
                 if (s->pkt_buf) {
-                    if (!(s->avctx->flags & (1 << 7)) && s->find_header) {
+                    if (!(s->avctx->flags & AV_CODEC_FLAG_SEEK_IDR) && s->find_header) {
                         ret1 = ss_hevc_send_stream(s, s->pkt_buf, s->pkt_size, s->pts, 0);
                     }
                     av_freep(&s->pkt_buf);
@@ -1005,14 +1005,14 @@ static int ss_hevc_receive_frame(AVCodecContext *avctx, AVFrame *frame)
                     av_assert0(frame->buf[0]);
             }else if (avci->draining) {
                 if (s->pkt_buf) {
-                    if (!(s->avctx->flags & (1 << 7)) && s->find_header) {
+                    if (!(s->avctx->flags & AV_CODEC_FLAG_SEEK_IDR) && s->find_header) {
                         ret1 = ss_hevc_send_stream(s, s->pkt_buf, s->pkt_size, s->pts, 1);
                     }
                     av_freep(&s->pkt_buf);
                 }
             }
 
-            if (ret1 == AVERROR_UNKNOWN && (!got_frame || avctx->flags & (1 << 8))) {
+            if (ret1 == AVERROR_UNKNOWN && (!got_frame || avctx->flags & AV_CODEC_FLAG_BIND_DISP)) {
                 return AVERROR_UNKNOWN;
             }
         }
@@ -1027,7 +1027,7 @@ static int ss_hevc_receive_frame(AVCodecContext *avctx, AVFrame *frame)
 
 static void ss_hevc_decode_flush(AVCodecContext *avctx)
 {
-    if (avctx->flags & (1 << 7))
+    if (avctx->flags & AV_CODEC_FLAG_SEEK_IDR)
     {
         MI_VDEC_FlushChn(VDEC_CHN_ID);
         //av_log(avctx, AV_LOG_INFO, "ss_hevc_decode_flush done!\n");

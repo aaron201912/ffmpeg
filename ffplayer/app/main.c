@@ -60,6 +60,9 @@ static void * mm_player_thread(void *args)
             mm_player_close();
             b_exit = true;
         }
+        else if (ret & AV_PLAY_LOOP)
+        {
+        }
         else if ((ret & AV_PLAY_COMPLETE) == AV_PLAY_COMPLETE)
         {
             player_working = false;
@@ -142,6 +145,7 @@ int main(int argc, char *argv[])
     mm_player_set_opts("video_ratio", "", AV_SCREEN_MODE);
     mm_player_set_opts("enable_scaler", "", 0);
     mm_player_set_opts("resolution", "8294400", 0);
+    mm_player_set_opts("play_mode", "", AV_LOOP);
 
     ret = mm_player_open(argv[1], 0, 0, width, height);
     if (ret < 0) {

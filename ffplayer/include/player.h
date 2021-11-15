@@ -72,6 +72,7 @@ extern "C"{
 #define AV_INVALID_FILE     (0x0100)
 #define AV_AUDIO_MUTE       (0x0200)
 #define AV_AUDIO_PAUSE      (0x0400)
+#define AV_PLAY_LOOP        (0x0800)
 
 #define AV_PLAY_COMPLETE    (AV_AUDIO_COMPLETE | AV_VIDEO_COMPLETE)
 #define AV_PLAY_ERROR       (AV_ACODEC_ERROR | AV_VCODEC_ERROR | AV_NOSYNC | AV_READ_TIMEOUT | AV_NO_NETWORK | AV_INVALID_FILE)
@@ -176,6 +177,7 @@ typedef struct {
     int audio_layout;
     int enable_scaler;
     char resolution[32];
+    int play_mode;
 } player_opts_t;
 
 typedef struct {

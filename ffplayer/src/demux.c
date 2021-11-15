@@ -111,6 +111,10 @@ static void * demux_thread(void *arg)
             }
         }
 
+        if (is->play_status & AV_PLAY_LOOP && is->play_status & AV_PLAY_COMPLETE) {
+            stream_seek(is, is->p_fmt_ctx->start_time, 0, is->seek_by_bytes);
+        }
+
         if (is->seek_req) {
             int64_t seek_target = is->seek_pos;
             int64_t seek_min    = is->seek_rel > 0 ? seek_target - is->seek_rel + 2: INT64_MIN;
@@ -124,8 +128,10 @@ static void * demux_thread(void *arg)
             ret = avformat_seek_file(is->p_fmt_ctx, -1, seek_min, seek_target, seek_max, is->seek_flags);
 
             if (ret < 0) {
-                av_log(NULL, AV_LOG_ERROR,
-                       "%s: error while seeking\n", is->p_fmt_ctx->url);
+                av_log(NULL, AV_LOG_ERROR, "%s: error while seeking\n", is->p_fmt_ctx->url);
+                if (is->play_status & AV_PLAY_LOOP && is->play_status & AV_PLAY_COMPLETE) {
+                    is->play_status |= AV_PLAY_ERROR;
+                }
             } else {
                 if (is->audio_idx >= 0) {
                     pthread_mutex_lock(&is->audio_mutex);
@@ -151,6 +157,7 @@ static void * demux_thread(void *arg)
                 } else {
                    set_clock(&is->extclk, seek_target / (double)AV_TIME_BASE, 0);
                 }*/
+                is->play_status &= ~(AV_PLAY_COMPLETE);
             }
             is->seek_req = 0;
             is->eof = 0;
@@ -243,6 +250,7 @@ static void * demux_thread(void *arg)
         else
         {
             is->eof = 0;
+            is->the_last_frame = is->keep_frames = false;
             if (!is->no_pkt_buf && !strncmp(is->p_fmt_ctx->iformat->name, "hls", 3)
                 && is->audio_pkt_queue.size + is->video_pkt_queue.size < MIN_QUEUE_SIZE) {
                 av_log(NULL, AV_LOG_WARNING, "no packets wait for buffer!\n");
@@ -361,9 +369,9 @@ static int demux_init(player_stat_t *is)
         if (p_fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO)
         {
             if (g_opts.resolution)
-                av_dict_set(&format_opts, "max_resolution", g_opts.resolution, 0);
+                av_dict_set(opts, "max_resolution", g_opts.resolution, 0);
             else
-                av_dict_set(&format_opts, "max_resolution", "2088960", 0);//1920x1088
+                av_dict_set(opts, "max_resolution", "2088960", 0);//1920x1088
         }
     }
 

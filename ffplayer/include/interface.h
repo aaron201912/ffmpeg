@@ -78,6 +78,7 @@ int mm_player_set_window(int x, int y, int width, int height);
  * mm_player_set_opts("audio_layout", "", AV_CH_LAYOUT_MONO); -- set audio layout
  * mm_player_set_opts("enable_scaler", "", 1); -- enable scaler module, such as: divp/vpe, "1"=enable; "0"=disable
  * mm_player_set_opts("resolution", "921600", 0); -- set the max resolution of video, 921600 = 1280 x 720
+ * mm_player_set_opts("play_mode", "", AV_LOOP); -- set player mode, such as loop or once.
  */
 int mm_player_set_opts(const char *key, const char *value, int flags);
 

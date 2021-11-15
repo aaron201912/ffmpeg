@@ -853,6 +853,18 @@ typedef struct RcOverride{
  */
 #define AV_CODEC_FLAG_QPEL            (1 <<  4)
 /**
+ * Video has bframe
+ */
+#define AV_CODEC_FLAG_BFRAME          (1 <<  6)
+/**
+ * Seek IDR
+ */
+#define AV_CODEC_FLAG_SEEK_IDR        (1 <<  7)
+/**
+ * Bind vdec to disp, sys get output buf bypass
+ */
+#define AV_CODEC_FLAG_BIND_DISP       (1 <<  8)
+/**
  * Use internal 2pass ratecontrol in first pass mode.
  */
 #define AV_CODEC_FLAG_PASS1           (1 <<  9)
@@ -864,6 +876,10 @@ typedef struct RcOverride{
  * loop filter.
  */
 #define AV_CODEC_FLAG_LOOP_FILTER     (1 << 11)
+/**
+ * Set end stream flag to vdec
+ */
+#define AV_CODEC_FLAG_END_STREAM      (1 << 12)
 /**
  * Only decode/encode grayscale.
  */
@@ -877,6 +893,10 @@ typedef struct RcOverride{
  * instead of only at frame boundaries.
  */
 #define AV_CODEC_FLAG_TRUNCATED       (1 << 16)
+/**
+ * Set vdec outbuf tile mode for rotate
+ */
+#define AV_CODEC_FLAG_TILE_MODE       (1 << 17)
 /**
  * Use interlaced DCT.
  */
