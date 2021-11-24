@@ -78,6 +78,9 @@
 #define YUYV_GREEN  MAKE_YUYV_VALUE(149,43,21)
 #define YUYV_BLUE   MAKE_YUYV_VALUE(29,225,107)
 
+#define STR1(R)             #R
+#define MACRO_TO_STRING(R)  STR1(R)
+
 typedef struct {
     Surface src;
     RECT dst;
@@ -1029,6 +1032,7 @@ int mm_player_open(const char *fp, uint16_t x, uint16_t y, uint16_t width, uint1
     }
 
     av_log(NULL, AV_LOG_INFO, "### enter mm_player_open\n");
+    av_log(NULL, AV_LOG_INFO, "%s\n", MACRO_TO_STRING(SSPLAYER_VERSION));
 
     pthread_mutex_init(&player_mutex, NULL);
 

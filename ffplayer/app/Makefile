@@ -8,6 +8,7 @@ ALKAID_PATH ?= ./../../..
 CHIP ?= ssd20x
 LIBRARY ?= dynamic
 DISPLAY ?= panel
+GIT_COMMIT_INFO:="ssplayer library version: git_commit.$(shell cd ../../; git log -n 1 --format="%h") build_time.$(shell date +%Y%m%d)"
 
 ifeq ($(CHIP),ssd20x)
     #$(shell echo "choose chip ssd20x" > $(shell tty))
@@ -20,6 +21,7 @@ else
 endif
 
 COM_FLAGS = -Wall -O2 -fPIC -mtune=cortex-a7 -march=armv7-a -mfpu=neon-vfpv4 -mfloat-abi=hard -mthumb-interwork -marm -g -funwind-tables -ffunction-sections -rdynamic
+COM_FLAGS += -DSSPLAYER_VERSION=$(GIT_COMMIT_INFO)
 C_FLAGS   = $(COM_FLAGS) -std=c11
 CPP_FLAGS = $(COM_FLAGS) -std=c++11
 

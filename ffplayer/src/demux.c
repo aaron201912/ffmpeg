@@ -111,7 +111,7 @@ static void * demux_thread(void *arg)
             }
         }
 
-        if (is->play_status & AV_PLAY_LOOP && is->play_status & AV_PLAY_COMPLETE) {
+        if (g_opts.play_mode == AV_LOOP && is->play_status & AV_PLAY_COMPLETE) {
             stream_seek(is, is->p_fmt_ctx->start_time, 0, is->seek_by_bytes);
         }
 
