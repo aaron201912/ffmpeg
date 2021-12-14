@@ -396,14 +396,15 @@ static int demux_init(player_stat_t *is)
         goto fail;
     }
 
-    if (p_fmt_ctx->pb)
+    if (p_fmt_ctx->pb) {
         p_fmt_ctx->pb->eof_reached = 0; // FIXME hack, ffplay maybe should not use avio_feof() to test for the end
+        av_log(NULL, AV_LOG_INFO, "avio buffer size = %d, probesize = %lld\n", p_fmt_ctx->pb->buffer_size, p_fmt_ctx->probesize);
+    }
 
     is->seek_by_bytes = !!(p_fmt_ctx->iformat->flags & AVFMT_TS_DISCONT) && strcmp("ogg", p_fmt_ctx->iformat->name);
 
     av_log(NULL, AV_LOG_INFO, "avformat demuxer name : %s\n", p_fmt_ctx->iformat->name);
     is->no_pkt_buf = 0;
-    av_log(NULL, AV_LOG_INFO, "avio buffer size = %d, probesize = %lld\n", p_fmt_ctx->pb->buffer_size, p_fmt_ctx->probesize);
 
     if (p_fmt_ctx->opaque) {
         head_info = (AVH2645HeadInfo *)p_fmt_ctx->opaque;
