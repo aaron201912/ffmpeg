@@ -258,6 +258,8 @@ static int audio_resample(player_stat_t *is, int64_t audio_callback_time)
     int wanted_nb_samples;
     frame_t *af = NULL;
     frame_queue_t *f = &is->audio_frm_queue;
+    struct timeval now;
+    struct timespec outtime;
 
 replay:
     if (is->paused || is->step) {
@@ -285,12 +287,15 @@ replay:
                 is->play_status |= AV_AUDIO_COMPLETE;
             }
             av_log(NULL, AV_LOG_INFO, "audio play completely!\n");
-        } 
-        pthread_cond_wait(&f->cond, &f->mutex);
+        }
+        gettimeofday(&now, NULL);
+        outtime.tv_sec  = now.tv_sec + 1;
+        outtime.tv_nsec = now.tv_usec * 1000;
+        pthread_cond_timedwait(&f->cond, &f->mutex, &outtime);
     }
     pthread_mutex_unlock(&f->mutex);
 
-    if (f->pktq->abort_request || is->step)
+    if (f->size - f->rindex_shown <= 0 || f->pktq->abort_request || is->step)
         return -1;
 
     af = &f->queue[(f->rindex + f->rindex_shown) % f->max_size];
