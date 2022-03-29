@@ -4,6 +4,7 @@
 #include "mi_sys_datatype.h"
 #include "mi_common_datatype.h"
 
+#if ((defined CHIP_IS_SSD20X) || (defined CHIP_IS_SS22X))
 
 typedef enum
 {
@@ -99,6 +100,12 @@ typedef struct mi_vdec_DispFrame_s
     MI_SYS_PixelFormat_e ePixelFmt;
     atomic64_t u64FastChnId;
 } mi_vdec_DispFrame_t;
+
+#elif (defined CHIP_IS_SS268)
+
+// the meta info is defined in mi_vdec_datatype.h
+
+#endif
 
 typedef struct SS_Vdec_BufInfo {
     MI_SYS_BUF_HANDLE stVdecHandle;
