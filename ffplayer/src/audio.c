@@ -104,6 +104,7 @@ static int audio_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             // 2. 将packet发送给解码器
             //    发送packet的顺序是按dts递增的顺序，如IPBBPBB
             //    pkt.pos变量可以标识当前packet在视频文件中的地址偏移
+            //printf("audio avcodec_send_packet! data:%p, size:%d, pos:%lld\n", pkt.data, pkt.size, pkt.pos);
             ret = avcodec_send_packet(p_codec_ctx, &pkt);
             if (ret == AVERROR(EAGAIN))
             {
@@ -137,11 +138,20 @@ static void * audio_decode_thread(void *arg)
         return NULL;
     }
 
+    is->audio_frame_duration = 0;
+
     while (1)
     {
         if(is->abort_request) {
             printf("audio decode thread exit\n");
             break;
+        }
+
+        /*wait video flush done*/
+        if(!is->start_play)
+        {
+            av_usleep(10*1000);
+            continue;
         }
 
         got_frame = audio_decode_frame(is->p_acodec_ctx, &is->audio_pkt_queue, p_frame);
@@ -152,7 +162,7 @@ static void * audio_decode_thread(void *arg)
         }
         else if (got_frame > 0)
         {
-            tb = (AVRational) {1, p_frame->sample_rate}; 
+            tb = (AVRational) {1, p_frame->sample_rate};
             //if (!(af = frame_queue_peek_writable(&is->audio_frm_queue)))
             //   goto the_end;
             frame_queue_t *f = &is->audio_frm_queue;
@@ -165,6 +175,9 @@ static void * audio_decode_thread(void *arg)
             //af->serial = is->auddec.pkt_serial;
             // 当前帧包含的(单个声道)采样数/采样率就是当前帧的播放时长
             af->duration = av_q2d((AVRational) { p_frame->nb_samples, p_frame->sample_rate });
+            if(is->audio_frame_duration == 0)
+                is->audio_frame_duration = af->duration;
+
             //printf("audio frame pts : %lld, time pts : %f, audio duration : %f.\n", p_frame->pts, af->pts, af->duration);
             // 将frame数据拷入af->frame，af->frame指向音频frame队列尾部
             av_frame_move_ref(af->frame, p_frame);
@@ -276,7 +289,7 @@ replay:
     //if (!(af = frame_queue_peek_readable(&is->audio_frm_queue)))
     //    return -1;
     pthread_mutex_lock(&f->mutex);
-    while (f->size - f->rindex_shown <= 0 && !f->pktq->abort_request) 
+    while (f->size - f->rindex_shown <= 0 && !f->pktq->abort_request)
     {
         if (!is->audio_complete && is->eof && !is->audio_pkt_queue.nb_packets)
         {
@@ -329,7 +342,7 @@ replay:
         swr_free(&is->audio_swr_ctx);
         //printf("in layout: %lld,format: %d,samrate: %d\n",dec_channel_layout,af->frame->format,af->frame->sample_rate);
         //printf("out layout: %lld,format: %d,samrate: %d\n",is->audio_param_tgt.channel_layout,is->audio_param_tgt.fmt,is->audio_param_tgt.freq);
-        
+
         // 使用frame(源)和is->audio_param_tgt(目标)中的音频参数来设置is->audio_swr_ctx
         is->audio_swr_ctx = swr_alloc_set_opts(NULL,
             is->audio_param_tgt.channel_layout, is->audio_param_tgt.fmt, is->audio_param_tgt.freq,
@@ -369,7 +382,7 @@ replay:
             av_log(NULL, AV_LOG_ERROR, "av_samples_get_buffer_size() failed\n");
             return -1;
         }
-        
+
         av_fast_malloc(&is->audio_frm_rwr, &is->audio_frm_rwr_size, out_size);
         if (!is->audio_frm_rwr)
         {
@@ -377,7 +390,7 @@ replay:
         }
         //printf("tgt count: %d,channel: %d,size: %d\n",out_count,is->audio_param_tgt.channels,is->audio_frm_rwr_size);
         //printf("in count: %d,channel: %d\n",af->frame->nb_samples,af->frame->channels);
-        
+
         // 音频重采样：返回值是重采样后得到的音频数据中单个声道的样本数
         len2 = swr_convert(is->audio_swr_ctx, out, out_count, in, af->frame->nb_samples);
         if (len2 < 0)
@@ -537,13 +550,13 @@ static int open_audio_playing(void *arg)
     is->audio_param_tgt.freq = 48000;
     //is->audio_param_tgt.channel_layout = AV_CH_LAYOUT_MONO;
     is->audio_param_tgt.channel_layout = audio_chlayout;
-    
+
     is->audio_param_tgt.channels = av_get_channel_layout_nb_channels(is->audio_param_tgt.channel_layout);
-        
+
     is->audio_param_tgt.frame_size = av_samples_get_buffer_size(NULL, is->audio_param_tgt.channels, 1, is->audio_param_tgt.fmt, 1);
-    
+
     is->audio_param_tgt.bytes_per_sec = av_samples_get_buffer_size(NULL, is->audio_param_tgt.channels, is->audio_param_tgt.freq, is->audio_param_tgt.fmt, 1);
-    
+
     if (is->audio_param_tgt.bytes_per_sec <= 0 || is->audio_param_tgt.frame_size <= 0)
     {
         av_log(NULL, AV_LOG_ERROR, "av_samples_get_buffer_size failed\n");
@@ -569,7 +582,7 @@ int open_audio(player_stat_t *is)
 {
     int ret;
 
-    if (is && is->audio_idx >= 0) 
+    if (is && is->audio_idx >= 0)
     {
         ret = open_audio_stream(is);
         if (ret < 0)
@@ -579,7 +592,7 @@ int open_audio(player_stat_t *is)
         if (ret < 0)
             return ret;
     }
-    
+
     return 0;
 }
 

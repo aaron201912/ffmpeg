@@ -41,14 +41,27 @@ static int decode_interrupt_cb(void *ctx)
     return flag || is->abort_request;
 }
 
-/*static int stream_has_enough_packets(AVStream *st, int stream_id, packet_queue_t *queue, player_stat_t *is)
+static int stream_has_enough_packets(AVStream *st, int stream_id, packet_queue_t *queue, player_stat_t *is)
 {
+    int min_audio_frame_num = 0;
+
+    /*according to the formula, video_frame_num * video_frame_intvl = audio_frame_num * audio_frame_intvl  */
+    /*video and audio should keep the same pts for playing, so the total time for caching data should be the same*/
+
+    if(is->audio_frame_duration && is->video_frame_duration)
+        min_audio_frame_num = (int)(is->video_frame_duration * MIN_VIDEO_FRAMES / is->audio_frame_duration);
+    else
+        min_audio_frame_num = MIN_AUDIO_FRAMES;
+
+    //printf("(%d %d %d %d), min_audio_frame_num: %d, min_video_frame_num: %d\n",
+    //    stream_id, is->audio_idx, is->video_idx, queue->nb_packets, min_audio_frame_num, MIN_VIDEO_FRAMES);
+
     //printf("id: %d,disposition: %d,nb_packets: %d,duration: %d\n",stream_id,st->disposition,queue->nb_packets,queue->duration);
     if (stream_id == is->audio_idx)
     {
         return (stream_id < 0) || queue->abort_request ||
                (st->disposition & AV_DISPOSITION_ATTACHED_PIC) ||
-               (queue->nb_packets > MIN_AUDIO_FRAMES && (!queue->duration || av_q2d(st->time_base) * queue->duration > 1.0));
+               (queue->nb_packets > min_audio_frame_num && (!queue->duration || av_q2d(st->time_base) * queue->duration > 1.0));
     }
     if (stream_id == is->video_idx)
     {
@@ -57,7 +70,7 @@ static int decode_interrupt_cb(void *ctx)
                (queue->nb_packets > MIN_VIDEO_FRAMES && (!queue->duration || av_q2d(st->time_base) * queue->duration > 1.0));
     }
     return 1;
-}*/
+}
 
 static void step_to_next_frame(player_stat_t *is)
 {
@@ -142,7 +155,7 @@ static void * demux_thread(void *arg)
                     //pthread_cond_signal(&is->audio_frm_queue.cond);
                     pthread_mutex_unlock(&is->audio_mutex);
                 }
- 
+
                 if (is->video_idx >= 0) {
                     pthread_mutex_lock(&is->video_mutex);
                     is->seek_flags |= (1 << 6);
@@ -152,6 +165,7 @@ static void * demux_thread(void *arg)
                     //pthread_cond_signal(&is->video_frm_queue.cond);
                     pthread_mutex_unlock(&is->video_mutex);
                 }
+
                 /*if (is->seek_flags & AVSEEK_FLAG_BYTE) {
                    set_clock(&is->extclk, NAN, 0);
                 } else {
@@ -168,9 +182,9 @@ static void * demux_thread(void *arg)
         }
 
         /* if the queue are full, no need to read more */
-        if (is->audio_pkt_queue.size + is->video_pkt_queue.size > MAX_QUEUE_SIZE /*||
+        if (is->audio_pkt_queue.size + is->video_pkt_queue.size > MAX_QUEUE_SIZE ||
             (stream_has_enough_packets(is->p_audio_stream, is->audio_idx, &is->audio_pkt_queue, is) &&
-             stream_has_enough_packets(is->p_video_stream, is->video_idx, &is->video_pkt_queue, is))*/)
+             stream_has_enough_packets(is->p_video_stream, is->video_idx, &is->video_pkt_queue, is)) )
         {
             /* wait 100 ms */
             pthread_mutex_lock(&wait_mutex);
@@ -208,7 +222,7 @@ static void * demux_thread(void *arg)
                 // 输入文件已读完，则往packet队列中发送NULL packet，以冲洗(flush)解码器，否则解码器中缓存的帧取不出来
                 if (is->video_idx >= 0)
                 {
-                    packet_queue_put_nullpacket(&is->video_pkt_queue, is->video_idx); 
+                    packet_queue_put_nullpacket(&is->video_pkt_queue, is->video_idx);
                 }
 
                 if (is->audio_idx >= 0)
@@ -267,12 +281,12 @@ static void * demux_thread(void *arg)
         if (pkt->stream_index == is->audio_idx && !g_opts.video_only)
         {
             packet_queue_put(&is->audio_pkt_queue, pkt);
-            //printf("put audio pkt end, size = %d\n", is->audio_pkt_queue.nb_packets);
+            //printf("put audio pkt end, size = %d, pts:%lld\n", is->audio_pkt_queue.nb_packets, pkt->pts);
         }
         else if (pkt->stream_index == is->video_idx && !g_opts.audio_only)
         {
             packet_queue_put(&is->video_pkt_queue, pkt);
-            //printf("put video pkt end, size = %d\n", is->video_pkt_queue.nb_packets);
+            //printf("put video pkt end, size = %d, pts:%lld\n", is->video_pkt_queue.nb_packets, pkt->pts);
         }
         else
         {
@@ -480,7 +494,7 @@ static int demux_init(player_stat_t *is)
     }
 
     is->audio_idx = a_idx;
-    is->video_idx = v_idx; 
+    is->video_idx = v_idx;
 
     return 0;
 

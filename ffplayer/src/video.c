@@ -118,7 +118,7 @@ static int queue_picture(player_stat_t *is, AVFrame *src_frame, double pts, doub
         //time0 = ((int64_t)trans_end.tv_sec * 1000000 + trans_end.tv_usec) - ((int64_t)trans_start.tv_sec * 1000000 + trans_start.tv_usec);
         //printf("time of alloc_for_frame : %lldus\n", time0);
 
-        //printf("three frame->buf[0] addr : %p, vdec buf addr : %p\n", vp->frame->buf[0], vp->frame->opaque); 
+        //printf("three frame->buf[0] addr : %p, vdec buf addr : %p\n", vp->frame->buf[0], vp->frame->opaque);
         //printf("queue frame fomat: %d\n",vp->frame->format);
         // 更新队列计数及写索引
         //printf("before queue ridx: %d,widx: %d,size: %d,maxsize: %d\n ",is->video_frm_queue.rindex,is->video_frm_queue.windex,is->video_frm_queue.size,is->video_frm_queue.max_size);
@@ -240,7 +240,7 @@ static int video_decode_frame(AVCodecContext *p_codec_ctx, packet_queue_t *p_pkt
             // 2. 将packet发送给解码器
             //    发送packet的顺序是按dts递增的顺序，如IPBBPBB
             //    pkt.pos变量可以标识当前packet在视频文件中的地址偏移
-            //printf("avcodec_send_packet!\n");
+            //printf("video avcodec_send_packet! data:%p, size:%d, pts:%lld\n", pkt.data, pkt.size, pkt.pts);
             ret = avcodec_send_packet(p_codec_ctx, &pkt);
             if (ret == AVERROR(EAGAIN))
             {
@@ -587,6 +587,8 @@ static void * video_decode_thread(void *arg)
     printf("fps : %.3f, frame rate num : %d. frame rate den : %d.\n", duration, frame_rate.num, frame_rate.den);
     printf("get in video decode thread!\n");
 
+    is->video_frame_duration = 0;
+
     while (1)
     {
         if(is->abort_request) {
@@ -604,11 +606,14 @@ static void * video_decode_thread(void *arg)
         {
             printf("video get picture failed!\n");
             goto exit;
-        } 
+        }
         else if (got_picture > 0)
         {
             duration = (frame_rate.num && frame_rate.den ? av_q2d((AVRational){frame_rate.den, frame_rate.num}) : 0);   // 当前帧播放时长
             pts = (p_frame->pts == AV_NOPTS_VALUE) ? NAN : p_frame->pts * av_q2d(tb);   // 当前帧显示时间戳
+
+            if(is->video_frame_duration == 0)
+                is->video_frame_duration = duration;
 
             //printf("frame duration : %f. video frame clock : %f.\n", duration, pts);
             ret = queue_picture(is, p_frame, pts, duration, p_frame->pkt_pos);   // 将当前帧压入frame_queue
@@ -715,7 +720,7 @@ static int open_video_playing(void *arg)
         }
 
         // 为AVFrame.*data[]手工分配缓冲区，用于存储sws_scale()中目的帧视频数据
-        is->buf_size = av_image_get_buffer_size(AV_PIX_FMT_NV12, 
+        is->buf_size = av_image_get_buffer_size(AV_PIX_FMT_NV12,
                                                 dst_width,
                                                 dst_height,
                                                 1
@@ -814,7 +819,7 @@ static int open_video_stream(player_stat_t *is)
     p_codec = avcodec_find_decoder(p_codec_par->codec_id);
     is->decoder_type = AV_SOFT_DECODING;
 #else
-    switch(p_codec_par->codec_id) 
+    switch(p_codec_par->codec_id)
     {
         case AV_CODEC_ID_H264 :
 #ifdef CHIP_IS_SS268
@@ -963,7 +968,7 @@ int open_video(player_stat_t *is)
         ret = open_video_playing(is);
         if (ret < 0)
             return ret;
-    } 
+    }
 
     return 0;
 }

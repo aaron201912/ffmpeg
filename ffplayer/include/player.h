@@ -238,7 +238,7 @@ typedef struct {
     double audio_diff_threshold;
     int audio_diff_avg_count;
     int audio_clock_serial;
-    
+
     int abort_request;
     int paused;
     int last_paused;
@@ -266,7 +266,7 @@ typedef struct {
 
     pthread_cond_t continue_read_thread;
     pthread_t read_tid;          //demux解复用线程
-    
+
     pthread_t audio_decode_tid;  //audio解码线程
     pthread_t audio_play_tid;    //audio播放线程
     pthread_t video_decode_tid;  //video解码线程
@@ -278,6 +278,9 @@ typedef struct {
     pthread_mutex_t audio_mutex, video_mutex;
     player_func_t functions;
     bool keep_frames, the_last_frame;
+
+    double audio_frame_duration; //audio每帧时间间隔
+    double video_frame_duration; //video每帧时间间隔
 }   player_stat_t;
 
 extern player_stat_t *g_mmplayer;
