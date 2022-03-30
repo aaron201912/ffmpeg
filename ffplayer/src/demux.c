@@ -484,6 +484,18 @@ static int demux_init(player_stat_t *is)
         }
     }
 
+    /*reset file pos to the beginning, by raines*/
+    ret = avformat_seek_file(p_fmt_ctx, v_idx, INT64_MIN, 0, INT64_MAX, AVSEEK_FLAG_BACKWARD);
+    if (ret != 0) {
+        av_log(NULL, AV_LOG_ERROR, "avformat_seek_file failed!\n");
+        ret = -1;
+        goto fail;
+    }
+    else
+    {
+        av_log(NULL, AV_LOG_INFO, "avformat_seek_file success!\n");
+    }
+
     prctl(PR_SET_NAME, "demux_read");
     ret = pthread_create(&is->read_tid, NULL, demux_thread, (void *)is);
     if (ret != 0) {
