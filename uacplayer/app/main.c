@@ -109,21 +109,21 @@ int main(int argc, char *argv[])
         return -1;
     }
 #ifdef UAC_SUPPORT	
-    if (!argv[2]) {
+    if (argc < 3) {
 		g_device_num = 1;
     }
 	else
 	{
 		g_device_num = atoi(argv[2]);
 	}
-    if (!argv[3]) {
+    if (argc < 4) {
 		g_buf_mode = 3;
     }
 	else
 	{
 		g_buf_mode = atoi(argv[3]);
 	}
-    if (!argv[4]) {
+    if (argc < 5) {
 		g_play_mode = 1;
     }
 	else
