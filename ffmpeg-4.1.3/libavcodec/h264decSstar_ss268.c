@@ -875,12 +875,11 @@ static int ss_h264_decode_nalu(SsH264Context *s, AVPacket *avpkt)
                 }
             case H264_NAL_SPS:
             case H264_NAL_PPS:
-                if (!s->find_header && (nal->type == H264_NAL_SPS || nal->type == H264_NAL_PPS))
+                if (nal->type == H264_NAL_SPS || nal->type == H264_NAL_PPS)
                 {
                     if (nal->type == H264_NAL_SPS)
                         s->extradata_size = 0;
-                    else if (nal->type == H264_NAL_PPS)
-                        s->find_header = !s->find_header;
+                    
                     memcpy(s->extradata + s->extradata_size, start_code, sizeof(start_code));
                     memcpy(s->extradata + s->extradata_size + sizeof(start_code), nal->data, nal->size);
                     s->extradata[s->extradata_size + 3] = 1;

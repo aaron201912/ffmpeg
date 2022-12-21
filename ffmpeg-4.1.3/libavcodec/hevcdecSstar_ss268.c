@@ -635,12 +635,11 @@ static int ss_hevc_decode_nalu(SsHevcContext *s, AVPacket *avpkt)
             case HEVC_NAL_VPS:
             case HEVC_NAL_SPS:
             case HEVC_NAL_PPS:
-                if (!s->find_header && (nal->type == HEVC_NAL_VPS || nal->type == HEVC_NAL_SPS || nal->type == HEVC_NAL_PPS))
+                if (nal->type == HEVC_NAL_VPS || nal->type == HEVC_NAL_SPS || nal->type == HEVC_NAL_PPS)
                 {
                     if (nal->type == HEVC_NAL_VPS)
                         s->data_size = 0;
-                    else if (nal->type == HEVC_NAL_PPS)
-                        s->find_header = !s->find_header;
+                    
                     memcpy(s->data + s->data_size, start_code, sizeof(start_code));
                     memcpy(s->data + s->data_size + sizeof(start_code), nal->data, nal->size);
                     s->data[s->data_size + 3] = 1;
